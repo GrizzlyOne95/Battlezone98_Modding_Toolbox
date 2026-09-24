@@ -185,6 +185,43 @@ def _cmd_tools(args) -> int:
     return 0
 
 
+def _cmd_selftest(args) -> int:
+    """Open every page once (used by CI against the frozen build)."""
+    import tempfile
+    import time
+    import tkinter as tk
+    from pathlib import Path
+
+    from bztoolbox.app.shell import Shell, _make_root
+    from bztoolbox.modules.registry import PAGES
+    from bztoolbox.settings import Settings
+
+    root = _make_root()
+    failures = []
+    with tempfile.TemporaryDirectory() as tmp:
+        shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+        for page in PAGES:
+            if not page.available:
+                print(f"skip  {page.id} (not in this build)")
+                continue
+            shell.navigate(page.id)
+            deadline = time.time() + 0.3
+            while time.time() < deadline:
+                root.update()
+                time.sleep(0.01)
+            ok = shell._pages[page.id].widget is not None
+            print(f"{'ok  ' if ok else 'FAIL'}  {page.id}")
+            if not ok:
+                failures.append(page.id)
+        shell.close(confirm=False)
+    try:
+        root.destroy()
+    except tk.TclError:
+        pass
+    print(f"{len(failures)} page(s) failed" if failures else "all pages loaded")
+    return 1 if failures else 0
+
+
 def _cmd_projects(args) -> int:
     from battlezone.project import ProjectStore
     from bztoolbox import paths
@@ -220,6 +257,9 @@ def build_parser() -> argparse.ArgumentParser:
     tools = sub.add_parser("tools", help="show external tools and game install detection")
     tools.add_argument("--versions", action="store_true", help="run each tool to report its version")
     tools.set_defaults(func=_cmd_tools)
+
+    selftest = sub.add_parser("selftest", help="open every page once and report failures")
+    selftest.set_defaults(func=_cmd_selftest)
 
     projects = sub.add_parser("projects", help="list known projects")
     projects.set_defaults(func=_cmd_projects)

@@ -13,6 +13,7 @@ import SciPy, customtkinter, Ogre, ... until a page that needs them is shown.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
@@ -40,6 +41,16 @@ class PageSpec:
     requires: Sequence[str] = ()       # external tool ids (bztoolbox.external)
     project_hook: Optional[str] = None # "package.module:function(app, project)"
     keywords: Sequence[str] = field(default_factory=tuple)
+    package: str = ""                  # module package; page hidden if absent from a build
+
+    @property
+    def available(self) -> bool:
+        if not self.package:
+            return True
+        try:
+            return importlib.util.find_spec(self.package) is not None
+        except (ImportError, ValueError):
+            return False
 
     def load_factory(self) -> Callable:
         return _resolve(self.factory)
@@ -70,48 +81,48 @@ PAGES: Sequence[PageSpec] = (
              f"{_P}.validation:ValidationPage", keywords=("odf", "preflight", "check")),
     PageSpec("project.localization", "project", "Localization",
              "Scan ODF unit names and build Redux localization tables.",
-             f"{_L}:localization", kind="legacy", origin="Localization Tool",
+             f"{_L}:localization", kind="legacy", package="bztoolbox.modules.localization", origin="Localization Tool",
              project_hook=f"{_L}:localization_project"),
     PageSpec("project.publish", "project", "Workshop / Publish",
              "Readiness checks, content fixes and Steam Workshop uploads.",
-             f"{_L}:publishing", kind="legacy", origin="Workshop Uploader", requires=("steamcmd",),
+             f"{_L}:publishing", kind="legacy", package="bztoolbox.modules.publishing", origin="Workshop Uploader", requires=("steamcmd",),
              project_hook=f"{_L}:publishing_project"),
 
     # --- Missions ---------------------------------------------------------
     PageSpec("missions.inspector", "missions", "Mission Inspector",
              "BZN dependencies, ODF validation and BZ2/BZCC to Redux mission ports.",
-             f"{_L}:missions", kind="legacy", origin="BZN Toolbox", keywords=("bzn", "odf", "bzcc")),
+             f"{_L}:missions", kind="legacy", package="bztoolbox.modules.missions", origin="BZN Toolbox", keywords=("bzn", "odf", "bzcc")),
 
     # --- World & Terrain --------------------------------------------------
     PageSpec("world.builder", "world", "World Builder",
              "Create worlds, legacy/BZ2 terrain ports, auto-painting, atlases, skies and mission preview.",
-             f"{_L}:world", kind="legacy", origin="WorldBuilder",
+             f"{_L}:world", kind="legacy", package="bztoolbox.modules.world", origin="WorldBuilder",
              keywords=("trn", "hg2", "mat", "atlas", "sky", "legacy")),
     PageSpec("world.generate", "world", "Generate Terrain",
              "Procedural HG2 terrain with live HG2/LGT preview.",
-             f"{_L}:terrain_generator", kind="legacy", origin="HeightmapGen", keywords=("hg2", "lgt", "heightmap")),
+             f"{_L}:terrain_generator", kind="legacy", package="bztoolbox.modules.terrain_generator", origin="HeightmapGen", keywords=("hg2", "lgt", "heightmap")),
 
     # --- Assets -----------------------------------------------------------
     PageSpec("assets.textures", "assets", "Textures & Images",
              "ACT palettes, texture conversion, MAP/MakeMAP, LGT, DXTBZ2 and channel packing.",
-             f"{_L}:textures", kind="legacy", origin="TextureManager", keywords=("dds", "map", "act", "lgt")),
+             f"{_L}:textures", kind="legacy", package="bztoolbox.modules.textures", origin="TextureManager", keywords=("dds", "map", "act", "lgt")),
     PageSpec("assets.fonts", "assets", "Fonts",
              "Generate bzfont.dds font sheets.",
-             f"{_L}:fonts", kind="legacy", origin="Font Generator"),
+             f"{_L}:fonts", kind="legacy", package="bztoolbox.modules.fonts", origin="Font Generator"),
     PageSpec("assets.holotext", "assets", "Holographic Text",
              "Holo text sprites, materials, ODFs and Lua.",
-             f"{_L}:holotext", kind="legacy", origin="HoloTextGen"),
+             f"{_L}:holotext", kind="legacy", package="bztoolbox.modules.holotext", origin="HoloTextGen"),
     PageSpec("assets.meshes", "assets", "Models & Meshes",
              "Ogre mesh fixes and OBJ/glTF export with live preview.",
-             f"{_L}:meshes", kind="legacy", origin="OgreMeshTools", requires=("blender", "ogrexmlconverter")),
+             f"{_L}:meshes", kind="legacy", package="bztoolbox.modules.meshes", origin="OgreMeshTools", requires=("blender", "ogrexmlconverter")),
     PageSpec("assets.audio", "assets", "Audio",
              "Radio VO mastering, engine WAV conversion, music OGG and timing manifests.",
-             f"{_L}:audio", kind="legacy", origin="AudioTool", requires=("ffmpeg",)),
+             f"{_L}:audio", kind="legacy", package="bztoolbox.modules.audio", origin="AudioTool", requires=("ffmpeg",)),
 
     # --- Archives ---------------------------------------------------------
     PageSpec("archives.zfs", "archives", "ZFS Archives",
              "Browse, extract and pack ZFS archives.",
-             f"{_L}:zfs", kind="legacy", origin="ZFS Specialist", requires=("lzo_bridge",)),
+             f"{_L}:zfs", kind="legacy", package="bztoolbox.modules.zfs", origin="ZFS Specialist", requires=("lzo_bridge",)),
 
     # --- Tools ------------------------------------------------------------
     PageSpec("tools.tasks", "tools", "Background Tasks", "Everything running in the background.",
@@ -128,4 +139,4 @@ PAGES_BY_ID = {page.id: page for page in PAGES}
 
 
 def pages_in(section: str) -> list[PageSpec]:
-    return [page for page in PAGES if page.section == section]
+    return [page for page in PAGES if page.section == section and page.available]

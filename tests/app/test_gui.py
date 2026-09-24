@@ -177,7 +177,7 @@ class ShellSmokeTests(unittest.TestCase):
                 self.assertEqual(os.path.normpath(publish.mod_path.get()), str(mod))
                 localization = shell._pages["project.localization"].app
                 self.assertEqual(localization.scan_folder_path.get(), str(mod))
-                shell.close()
+                shell.close(confirm=False)
         finally:
             try:
                 root.destroy()

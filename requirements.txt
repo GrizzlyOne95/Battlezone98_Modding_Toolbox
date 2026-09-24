@@ -1,0 +1,13 @@
+# Runtime dependencies (see pyproject.toml for the optional extras).
+numpy>=1.21
+scipy>=1.7
+Pillow>=10.0
+imageio>=2.9
+customtkinter>=5.2
+soundfile>=0.12
+requests>=2.28
+keyring>=24
+qrcode>=7
+deep-translator>=1.11
+google-auth>=2.20
+tkinterdnd2>=0.3

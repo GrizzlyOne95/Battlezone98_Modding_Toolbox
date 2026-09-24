@@ -55,6 +55,7 @@ class Tool:
     tests: dict[str, str] = field(default_factory=dict)   # src -> tests/<name>/...
     docs: dict[str, str] = field(default_factory=dict)    # src -> repo-relative dest
     prefixes: dict[str, str] = field(default_factory=dict)  # package-name prefix remaps
+    extra_trees: dict[str, str] = field(default_factory=dict)  # src dir -> repo-relative dir, verbatim
 
     @property
     def package_dir(self) -> Path:
@@ -111,6 +112,8 @@ def build_tools() -> list[Tool]:
         "test_mission_visualizer.py", "test_msn2terrain.py", "test_msn_ter_codec.py",
         "test_stock_map_creator.py", "test_stock_palettes.py", "test_terrain_obj.py")}
     t.docs = {"README.md": "docs/world/README.md"}
+    # Atlas research scripts are developer tools, not app code.
+    t.extra_trees = {"scripts/cc_atlas": "scripts/world/cc_atlas"}
     for n in ("BZ2_TO_BZR_PORT.md", "LEGACY_PORT_CLI.md", "MAKETRN_REVERSE_ENGINEERING.md",
               "MAT_FORMAT_VALIDATION.md"):
         t.docs[f"docs/{n}"] = f"docs/world/{n}"
@@ -365,6 +368,8 @@ def import_tool(tool: Tool, src_root: Path) -> None:
             (d / "__init__.py").touch()
     for src_rel, dest_rel in tool.docs.items():
         copy(src_rel, REPO_ROOT / dest_rel, rewrite=False)
+    for src_rel, dest_rel in tool.extra_trees.items():
+        shutil.copytree(repo / src_rel, REPO_ROOT / dest_rel, dirs_exist_ok=True)
 
     commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
                             capture_output=True, text=True).stdout.strip()

@@ -66,7 +66,7 @@ class Shell:
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._restore_last_project()
         start = self.settings.get("last_page", "home")
-        self.navigate(start if start in PAGES_BY_ID else "home")
+        self.navigate(start if start in PAGES_BY_ID and PAGES_BY_ID[start].available else "home")
 
     # ------------------------------------------------------------------ layout
     def _initial_geometry(self) -> str:
@@ -103,6 +103,8 @@ class Shell:
         self.nav.tag_configure("page", foreground=theme.FG)
         for section_id, section_title in SECTIONS:
             pages = pages_in(section_id)
+            if not pages:
+                continue  # e.g. a build without the optional GPL archive module
             if section_id == "home":
                 for page in pages:
                     self.nav.insert("", "end", iid=page.id, text=f"  {page.title}", tags=("page",))
@@ -238,9 +240,9 @@ class Shell:
             self.jobs_progress.pack_forget()
 
     # -------------------------------------------------------------------- close
-    def close(self) -> None:
+    def close(self, confirm: bool = True) -> None:
         active = [job for job in self.jobs.jobs if job.status not in FINISHED]
-        if active and not messagebox.askyesno(
+        if confirm and active and not messagebox.askyesno(
                 "Exit", f"{len(active)} background task(s) are still running. Cancel them and exit?"):
             return
         for page in list(self._pages.values()):

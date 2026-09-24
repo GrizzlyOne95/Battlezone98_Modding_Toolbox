@@ -12,7 +12,12 @@ def _read_version() -> str:
             return candidate.read_text(encoding="utf-8").strip()
         except OSError:
             continue
-    return "0.0.0"
+    try:  # installed as a wheel
+        from importlib.metadata import version
+
+        return version("battlezone-modding-toolbox")
+    except Exception:  # noqa: BLE001
+        return "0.0.0"
 
 
 __version__ = _read_version()

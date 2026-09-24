@@ -1,2 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "battlezone-modding-toolbox"
+description = "One application for Battlezone 98 Redux modding: missions, worlds, assets, validation, localization and Workshop publishing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT (GPL-2.0-only for bztoolbox/modules/zfs; see LICENSING.md)" }
+authors = [{ name = "GrizzlyOne95" }]
+dynamic = ["version"]
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.7",
+    "Pillow>=10.0",
+    "imageio>=2.9",
+    "customtkinter>=5.2",
+    "soundfile>=0.12",
+    "requests>=2.28",
+    "keyring>=24",
+    "qrcode>=7",
+    "deep-translator>=1.11",
+    "google-auth>=2.20",
+]
+
+[project.optional-dependencies]
+dnd = ["tkinterdnd2>=0.3"]            # drag & drop in Textures
+mesh-preview = ["ogre-python"]        # live 3D preview in Models & Meshes (Windows, Python 3.10)
+dev = ["pytest>=7", "pyinstaller>=6"]
+
+[project.scripts]
+bztoolbox = "bztoolbox.cli:main"
+
+[project.gui-scripts]
+bztoolbox-gui = "bztoolbox.app.shell:run"
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.setuptools.packages.find]
+include = ["battlezone*", "bztoolbox*"]
+
+[tool.setuptools.package-data]
+"*" = ["**/*.txt", "**/*.ttf", "**/*.ico", "**/*.png", "**/*.wav", "**/*.material", "**/*.dll",
+       "**/*.exe", "**/*.cpp", "LICENSE", "VERSION"]
+"bztoolbox.modules.meshes" = ["blender/*.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
