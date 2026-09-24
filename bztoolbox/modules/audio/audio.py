@@ -1,17 +1,13 @@
 import os
 import sys
 import csv
-import wave
-import subprocess
 import threading
-import tempfile
-import soundfile as sf
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import ctypes
 from datetime import datetime
 
-from bztoolbox import external
+from bztoolbox.modules.audio import processing
 from bztoolbox.app.host import EmbeddedRoot
 
 # --- UTILITY FUNCTIONS ---
@@ -59,36 +55,12 @@ def apply_window_icon(window):
 _set_app_user_model_id()
 
 # Resource Constants
-def ffmpeg_exe():
-    """FFmpeg chosen in toolbox Settings, else bundled, else from PATH."""
-    return external.executable("ffmpeg", fallback="ffmpeg")
-
-
 COMM_BEEP = get_resource_path("commbeep.wav")
 UNIT_BEEP = get_resource_path("unitbeep.wav")
 
 WAV_PROFILE_RADIO = "radio"
 WAV_PROFILE_LOOP = "loop"
 
-
-def rewrite_plain_riff_wav(source_path, output_path):
-    """Rewrite a PCM WAV as plain RIFF/WAVE with only fmt + data chunks."""
-    with wave.open(source_path, "rb") as src:
-        params = src.getparams()
-        if params.comptype != "NONE":
-            raise ValueError(f"Expected PCM WAV, got {params.comptype}")
-
-        with wave.open(output_path, "wb") as dst:
-            dst.setnchannels(params.nchannels)
-            dst.setsampwidth(params.sampwidth)
-            dst.setframerate(params.framerate)
-
-            frames_per_chunk = max(1, 65536 // max(1, params.sampwidth * params.nchannels))
-            while True:
-                frames = src.readframes(frames_per_chunk)
-                if not frames:
-                    break
-                dst.writeframes(frames)
 
 class ToolTip:
     def __init__(self, widget, text, bg="#1a1a1a", fg="#00ffff"):
@@ -360,10 +332,10 @@ class BZRadio(EmbeddedRoot):
 
     def get_input_list(self):
         if self.process_mode.get() == "single":
-            path = filedialog.askopenfilename(title="Select Audio File", filetypes=[("Audio Files", "*.wav *.mp3 *.m4a *.ogg")])
+            path = filedialog.askopenfilename(title="Select Audio File", filetypes=[("Audio Files", " ".join("*" + e for e in processing.INPUT_EXTENSIONS))])
             return [path] if path else []
         folder = filedialog.askdirectory(title="Select Input Folder")
-        return [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(('.wav', '.mp3', '.m4a', '.ogg'))] if folder else []
+        return [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(processing.INPUT_EXTENSIONS)] if folder else []
 
     def start_thread(self, mode):
         files = self.get_input_list()
@@ -383,7 +355,16 @@ class BZRadio(EmbeddedRoot):
         out_dir = os.path.join(os.path.dirname(files[0]), out_subdir)
         os.makedirs(out_dir, exist_ok=True)
         
-        scrub_args = ['-map_metadata', '-1', '-vn'] if self.strip_metadata_var.get() else []
+        keep_tags = not self.strip_metadata_var.get()
+        settings = None
+        if mode == "wav" and wav_profile == WAV_PROFILE_RADIO:
+            choice = self.beep_var.get()
+            beep = COMM_BEEP if "comm" in choice else \
+                   UNIT_BEEP if "unit" in choice else \
+                   getattr(self, "custom_beep_path", None) if choice == "Custom..." else None
+            settings = processing.RadioSettings(
+                intensity=self.intensity_var.get(), phaser=self.phaser_var.get(), echo=self.echo_var.get(),
+                echo_delay_ms=int(self.echo_delay_var.get()), beep_path=beep)
 
         for index, f in enumerate(files):
             # Update Progress
@@ -391,78 +372,19 @@ class BZRadio(EmbeddedRoot):
             self.progress['value'] = prog
             self.status_label.config(text=f"PROCESSING {index+1}/{total}: {os.path.basename(f)}")
             self.update_idletasks()
-            
+
             out_ext = ".wav" if mode == "wav" else ".ogg"
             out_f = os.path.join(out_dir, os.path.splitext(os.path.basename(f))[0] + out_ext)
-            
-            cmd = []
-            temp_out_f = out_f
-            if mode == "wav":
-                temp_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=out_dir)
-                temp_out_f = temp_handle.name
-                temp_handle.close()
-
-                if wav_profile == WAV_PROFILE_LOOP:
-                    cmd = [
-                        ffmpeg_exe(), '-y', '-i', f, '-map', '0:a:0',
-                        '-af', 'aresample=11025'
-                    ] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '11025', '-ac', '1', temp_out_f]
-                else:
-                    # WAV LOGIC
-                    intensity = self.intensity_var.get()
-                    choice = self.beep_var.get()
-                    beep = COMM_BEEP if "comm" in choice else \
-                           UNIT_BEEP if "unit" in choice else \
-                           self.custom_beep_path if choice == "Custom..." else None
-                    
-                    # Filter Chain
-                    if intensity == 'none':
-                        af_chain = "aresample=22050"
-                    else:
-                        hp, lp, comp = (300, 4000, "compand=.3|.3:1|1:-90/-60|-60/-40|-40/-30|-20/-20:6:0:-90:0.2") if intensity == 'light' else \
-                                       (700, 2500, "compand=.1|.1:1|1:-90/-60|-60/-30|-30/-20|-10/-10:12:0:-90:0.1") if intensity == 'heavy' else \
-                                       (500, 3000, "compand=.2|.2:1|1:-90/-60|-60/-40|-40/-20|-10/-10:8:0:-90:0.15")
-                        af_chain = f"aresample=22050,highpass=f={hp},lowpass=f={lp},volume=2.0,{comp}"
-
-                    if self.phaser_var.get():
-                        af_chain += ",aphaser=in_gain=0.8:out_gain=0.9:delay=3.0:decay=0.4:speed=0.2:type=t"
-
-                    if self.echo_var.get():
-                        delay_ms = int(self.echo_delay_var.get())
-                        af_chain += f",aecho=0.8:0.9:{delay_ms}:0.3"
-
-                    if intensity != 'none':
-                        af_chain += ",tremolo=d=0.05:f=30"
-
-                    if beep:
-                        cmd = [ffmpeg_exe(), '-y', '-i', beep, '-i', f, '-i', beep, '-filter_complex', 
-                               f"[0:a]aresample=22050,volume=0.3[b1]; [1:a]{af_chain}[m]; [2:a]aresample=22050,volume=0.3[b2]; [b1][m][b2]concat=n=3:v=0:a=1[out]",
-                               '-map', '[out]'] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '22050', '-ac', '1', temp_out_f]
-                    else:
-                        cmd = [ffmpeg_exe(), '-y', '-i', f, '-af', af_chain] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '22050', '-ac', '1', temp_out_f]
-            
-            else:
-                # OGG LOGIC
-                cmd = [ffmpeg_exe(), '-y', '-i', f, '-map', '0:a'] + scrub_args + ['-c:a', 'libvorbis', '-q:a', '5', '-ar', '44100', out_f]
-
-            # Execute
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                if result.returncode != 0:
-                    raise RuntimeError(result.stderr.strip() or "ffmpeg exited with a non-zero status")
-
-                if mode == "wav":
-                    rewrite_plain_riff_wav(temp_out_f, out_f)
-
+                if mode == "wav" and wav_profile == WAV_PROFILE_LOOP:
+                    processing.engine_loop(f, out_f)
+                elif mode == "wav":
+                    processing.radio_vo(f, out_f, settings)
+                else:
+                    processing.music_ogg(f, out_f, keep_tags=keep_tags)
                 self.log(f"Exported: {os.path.basename(out_f)}", "success")
             except Exception as e:
                 self.log(f"Error processing {os.path.basename(f)}: {e}", "error")
-            finally:
-                if mode == "wav" and temp_out_f != out_f and os.path.exists(temp_out_f):
-                    try:
-                        os.remove(temp_out_f)
-                    except OSError:
-                        pass
 
         # Completion
         self.status_label.config(text="OPERATION COMPLETE")
@@ -483,8 +405,8 @@ class BZRadio(EmbeddedRoot):
             for file in os.listdir(folder):
                 if file.lower().endswith(('.wav', '.ogg')):
                     try:
-                        info = sf.info(os.path.join(folder, file))
-                        writer.writerow([file, round(info.duration, 3), "OGG" if file.endswith(".ogg") else "WAV"])
+                        seconds = processing.duration(os.path.join(folder, file))
+                        writer.writerow([file, round(seconds, 3), "OGG" if file.endswith(".ogg") else "WAV"])
                         count += 1
                     except: continue
         self.log(f"Manifest exported with {count} entries to: {save_path}", "success")
