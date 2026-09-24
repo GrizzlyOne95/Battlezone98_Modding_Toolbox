@@ -20,6 +20,7 @@ from bztoolbox.modules.publishing.app_file_manager import AppFileManager
 from bztoolbox.modules.publishing.project_store import ProjectStore
 from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
 from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
+from bztoolbox.app.fonts import bz_font
 
 try:
     from PIL import Image
@@ -412,15 +413,7 @@ class WorkshopUploader:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def load_custom_fonts(self):
-        self.current_font = "Consolas"
-        if IS_WINDOWS:
-            # Try to load BZONE.ttf if available (assuming it might be in resource dir like cmd.py)
-            font_path = os.path.join(self.resource_dir, "BZONE.ttf")
-            if os.path.exists(font_path):
-                try:
-                    if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                        self.current_font = "BZONE"
-                except Exception: pass
+        self.current_font = bz_font("Consolas")
 
     def load_config(self):
         candidate_paths = [self.config_path]
@@ -2174,7 +2167,7 @@ class WorkshopUploader:
                 self.root.after(0, lambda: self.log(f"SteamCMD login check failed.\n{tail}"))
         except Exception as e:
             self.root.after(0, lambda: self._set_auth_state("failed"))
-            self.root.after(0, lambda: self.log(f"SteamCMD login check failed: {e}"))
+            self.root.after(0, lambda e=e: self.log(f"SteamCMD login check failed: {e}"))
         finally:
             self._set_busy("SteamCMD Login Test", False)
 
@@ -2286,7 +2279,7 @@ class WorkshopUploader:
                 self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD downloaded and path set automatically."))
             except Exception as e:
                 self.log(f"Download Error: {e}")
-                self.root.after(0, lambda: messagebox.showerror("Download Error", f"Failed to download SteamCMD: {e}"))
+                self.root.after(0, lambda e=e: messagebox.showerror("Download Error", f"Failed to download SteamCMD: {e}"))
                 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -3033,7 +3026,7 @@ class WorkshopUploader:
         except Exception as e:
             self.root.after(0, lambda: self.library_status_var.set("Workshop library load failed."))
             self.root.after(0, lambda: self.api_key_status_var.set("API key: failed or unauthorized"))
-            self.root.after(0, lambda: self.log(f"API Error: {self._friendly_api_error(e)}"))
+            self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
             self._set_busy("Refresh", False)
 
@@ -3137,7 +3130,7 @@ class WorkshopUploader:
             
             self.root.after(0, do_populate)
         except Exception as e:
-            self.root.after(0, lambda: self.log(f"API Error: {self._friendly_api_error(e)}"))
+            self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
             self._set_busy("Prepare Update", False)
 

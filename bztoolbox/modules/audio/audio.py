@@ -9,6 +9,7 @@ from datetime import datetime
 
 from bztoolbox.modules.audio import processing
 from bztoolbox.app.host import EmbeddedRoot
+from bztoolbox.app.fonts import bz_font
 
 # --- UTILITY FUNCTIONS ---
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.AudioTool"
@@ -118,14 +119,7 @@ class BZRadio(EmbeddedRoot):
         self.setup_ui()
 
     def load_custom_fonts(self):
-        # Specific BZ98R font as per cmd.py
-        font_file = "BZONE.ttf"
-        font_path = get_resource_path(font_file)
-        if os.path.exists(font_path) and sys.platform == "win32":
-            try:
-                if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                    self.font_name = "BZONE"
-            except: pass
+        self.font_name = bz_font(self.font_name)
 
     def setup_styles(self):
         style = ttk.Style()
@@ -141,8 +135,9 @@ class BZRadio(EmbeddedRoot):
         style.configure("TLabelframe", background=c["bg"], bordercolor=c["highlight"])
         style.configure("TLabelframe.Label", background=c["bg"], foreground=c["highlight"], font=bold_font)
         style.configure("TLabel", background=c["bg"], foreground=c["fg"])
-        style.configure("Header.TLabel", foreground=c["accent"], font=("Courier", 24, "bold")) # Main Title
-        style.configure("Sub.TLabel", foreground=c["fg"], font=("Arial", 10, "italic"))
+        # BZRadio.* names: generic "Header.TLabel" is shared (and restyled) by other tools
+        style.configure("BZRadio.Header.TLabel", foreground=c["accent"], font=(self.font_name, 24, "bold"))
+        style.configure("BZRadio.Sub.TLabel", foreground=c["fg"], font=(self.font_name, 10))
         
         style.configure("TButton", background="#1a1a1a", foreground=c["fg"], borderwidth=1, focuscolor=c["highlight"])
         style.map("TButton", background=[("active", c["dark_highlight"])], foreground=[("active", c["highlight"])])
@@ -165,8 +160,8 @@ class BZRadio(EmbeddedRoot):
         # --- HEADER SECTION ---
         header_frame = ttk.Frame(self)
         header_frame.pack(pady=(20, 5))
-        ttk.Label(header_frame, text="BZRadio", style="Header.TLabel").pack()
-        ttk.Label(header_frame, text="AUDIO ARCHITECT FOR BZ98 REDUX", style="Sub.TLabel").pack()
+        ttk.Label(header_frame, text="BZRadio", style="BZRadio.Header.TLabel").pack()
+        ttk.Label(header_frame, text="AUDIO ARCHITECT FOR BZ98 REDUX", style="BZRadio.Sub.TLabel").pack()
 
         # --- MAIN CONTAINER ---
         main_frame = ttk.Frame(self)

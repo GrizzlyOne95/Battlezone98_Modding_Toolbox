@@ -13,6 +13,7 @@ import ctypes
 import re
 import sys
 from battlezone.odf.names import read_unit_name
+from bztoolbox.app.fonts import bz_font
 
 # Platform check
 IS_WINDOWS = sys.platform == "win32"
@@ -107,17 +108,7 @@ class BZ98GuiApp:
 
     def load_custom_font(self):
         self.main_font = "Consolas"
-        self.header_font = "Consolas"
-        
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-        if IS_WINDOWS:
-            font_path = os.path.join(base_path, "BZONE.ttf")
-            if os.path.exists(font_path):
-                try:
-                    if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                        self.header_font = "BZONE"
-                except: pass
+        self.header_font = bz_font("Consolas")
 
     def setup_styles(self):
         style = ttk.Style()

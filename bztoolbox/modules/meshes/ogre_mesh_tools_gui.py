@@ -13,6 +13,7 @@ from battlezone.meshes import ogre
 
 from bztoolbox.app.host import ctk_embedded_root
 from bztoolbox.app.widgets import open_in_file_manager
+from bztoolbox.app.fonts import bz_font
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -156,15 +157,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         self.after(50, self._process_ui_queue)
         
     def load_custom_fonts(self):
-        self.main_font = "Consolas"
-        if IS_WINDOWS:
-            font_path = get_resource_path("BZONE.ttf")
-            if os.path.exists(font_path):
-                # AddFontResourceExW flag 0x10 is FR_PRIVATE (not enumerable by others)
-                import ctypes
-                ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0)
-                self.main_font = "BZONE"
-                print(f"Loaded custom font: {self.main_font}")
+        self.main_font = bz_font("Consolas")
 
     def setup_ui(self):
         # Header

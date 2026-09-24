@@ -30,35 +30,6 @@ from bztoolbox.modules.textures import bcpack
 from bztoolbox.modules.textures import uiscan
 from bztoolbox.modules.textures import recompress
 
-def load_custom_font(font_path):
-    """ Cross-platform font registration """
-    if not os.path.exists(font_path):
-        return False
-    
-    if os.name == 'nt':
-        try:
-            import ctypes
-            ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0)
-            return True
-        except:
-            return False
-    elif sys.platform == 'linux':
-        # Fallback: copy to ~/.local/share/fonts
-        dest = os.path.expanduser("~/.local/share/fonts")
-        os.makedirs(dest, exist_ok=True)
-        import shutil
-        shutil.copy(font_path, dest)
-        # Re-scan fonts
-        subprocess.run(["fc-cache", "-f"], capture_output=True)
-        return True
-    elif sys.platform == 'darwin':
-        dest = os.path.expanduser("~/Library/Fonts")
-        os.makedirs(dest, exist_ok=True)
-        import shutil
-        shutil.copy(font_path, dest)
-        return True
-    return False
-
 class DXTBZ2Header(Structure):
     _fields_ = [
         ("m_Sig", c_int), ("m_DXTLevel", c_int),
@@ -78,6 +49,7 @@ BZ_DARK_GREEN = "#004400"
 BZ_CYAN = "#00ffff"
 
 from bztoolbox.paths import module_data_dir
+from bztoolbox.app.fonts import bz_font
 
 CONFIG_FILE = str(module_data_dir("textures") / "tex_man_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.TextureManager"
@@ -225,14 +197,7 @@ class BZReduxSuite:
         self.resource_dir = os.path.dirname(os.path.abspath(__file__))
         self.base_dir = str(module_data_dir("textures"))
             
-        font_path = os.path.join(self.resource_dir, "bzone.ttf")
-        if not os.path.exists(font_path):
-            font_path = os.path.join(os.path.dirname(self.base_dir), "bzone.ttf")
-            
-        if load_custom_font(font_path):
-            self.custom_font_name = "BZONE"
-        else:
-            self.custom_font_name = "Consolas"
+        self.custom_font_name = bz_font("Consolas")
             
         apply_window_icon(self.root, self.base_dir, self.resource_dir)
 

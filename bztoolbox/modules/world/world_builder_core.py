@@ -33,6 +33,7 @@ BZ_CYAN = "#00ffff"
 
 from bztoolbox.app.widgets import register_wheel_target
 from bztoolbox.paths import module_data_dir
+from bztoolbox.app.fonts import bz_font
 
 CONFIG_FILE = str(module_data_dir("world") / "world_builder_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.WorldBuilder"
@@ -903,13 +904,7 @@ class BZ98TRNArchitect:
         self.audio_loop_last = tk.IntVar(value=27)
         self.audio_loop_skip = tk.IntVar(value=-1)
 
-        font_path = os.path.join(self.resource_dir, "bzone.ttf")
-        if os.path.exists(font_path):
-            self.custom_font_name = "BZONE"
-            try: ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0)
-            except: pass
-        else:
-            self.custom_font_name = "Consolas"
+        self.custom_font_name = bz_font("Consolas")
 
         apply_window_icon(self.root, self.base_dir, self.resource_dir)
 

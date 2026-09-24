@@ -14,7 +14,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from bztoolbox import paths
+from bztoolbox.app import fonts
 
 # --- colour tokens --------------------------------------------------------
 BG = "#0a0a0a"          # window background (matches every legacy tool)
@@ -42,23 +42,16 @@ _fonts_loaded = False
 
 
 def load_fonts(root: tk.Misc) -> None:
-    """Register the bundled BZONE face (Windows) once and pick font families."""
+    """Register the bundled Battlezone face once and pick font families."""
     global _fonts_loaded, HEADING_FAMILY, BODY_FAMILY, MONO_FAMILY
     if _fonts_loaded:
         return
     _fonts_loaded = True
     families = set(tkfont.families(root))
-    if sys.platform == "win32":
-        font_path = paths.resource("fonts", "BZONE.ttf")
-        try:
-            import ctypes
-
-            if font_path.exists() and ctypes.windll.gdi32.AddFontResourceExW(str(font_path), 0x10, 0) > 0:
-                families = set(tkfont.families(root)) | {"BZONE"}
-        except Exception:
-            pass
-    if "BZONE" in families:
-        HEADING_FAMILY = "BZONE"
+    if fonts.bz_font(fallback="") == fonts.BZ_FONT_FAMILY:
+        families = set(tkfont.families(root)) | {fonts.BZ_FONT_FAMILY}
+    if fonts.BZ_FONT_FAMILY in families:
+        HEADING_FAMILY = fonts.BZ_FONT_FAMILY
     elif "Consolas" not in families:
         HEADING_FAMILY = "TkFixedFont" if sys.platform != "win32" else "Courier New"
     if BODY_FAMILY not in families and not BODY_FAMILY.startswith("Tk"):
