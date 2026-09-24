@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import subprocess
 import tkinter as tk
@@ -14,6 +15,22 @@ IS_WINDOWS = sys.platform == "win32"
 BUNDLED_FONT = str(BZ_FONT_FILE)
 
 
+def default_output_dir():
+    """A folder the user can write to and find again, whatever the working
+    directory is (an installed toolbox starts in its read-only install folder)."""
+    documents = os.path.join(os.path.expanduser("~"), "Documents")
+    return os.path.join(documents if os.path.isdir(documents) else os.path.expanduser("~"), "BZ HoloText")
+
+
+def find_texconv():
+    """texconv on PATH, else beside the working directory as the original tool expected."""
+    found = shutil.which("texconv")
+    if found:
+        return found
+    legacy = os.path.join(os.getcwd(), "texconv.exe")
+    return legacy if os.path.exists(legacy) else None
+
+
 class BZFontGenerator:
     def __init__(self, root):
         self.root = root
@@ -26,7 +43,7 @@ class BZFontGenerator:
             "highlight": "#00ff00", "dark_highlight": "#004400", "accent": "#00ffff"
         }
         
-        self.output_dir = tk.StringVar(value=os.path.join(os.getcwd(), "output"))
+        self.output_dir = tk.StringVar(value=default_output_dir())
         self.font_path = tk.StringVar(value=BUNDLED_FONT) 
         self.variant_count = tk.IntVar(value=10)
         self.text_color = "#00FF00"
@@ -258,8 +275,8 @@ class BZFontGenerator:
             else:
                 self.build_individual(chars, out, mf)
 
-        tconv = os.path.join(os.getcwd(), "texconv.exe")
-        if os.path.exists(tconv):
+        tconv = find_texconv()
+        if tconv:
             subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             for f in os.listdir(out):
                 if f.endswith(".png"): os.remove(os.path.join(out, f))

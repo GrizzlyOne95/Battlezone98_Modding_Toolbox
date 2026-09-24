@@ -52,3 +52,40 @@ def module_data_dir(module: str) -> Path:
     path = user_data_dir() / "modules" / module
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+# Secrets kept in the OS credential store rather than in the data directory
+# (service, account). The Publish page stores the Steam Web API key here.
+CREDENTIALS = (("BattlezoneWorkshopUploader", "steam_web_api_key"),)
+
+
+def remove_user_data(*, credentials: bool = True) -> list[str]:
+    """Delete everything the toolbox stored for this user; return what went.
+
+    Used by ``bztoolbox clean-user-data`` and by the Windows uninstaller when
+    the user asks for their settings to be removed too.
+    """
+    import shutil
+
+    removed: list[str] = []
+    base = user_data_dir()
+    home = Path.home().resolve()
+    resolved = base.resolve()
+    # BZTOOLBOX_HOME can point anywhere: never wipe a drive root or the home folder.
+    if resolved == Path(resolved.anchor) or resolved == home or resolved in home.parents:
+        raise ValueError(f"refusing to delete {resolved}: not a toolbox data folder")
+    shutil.rmtree(base, ignore_errors=True)
+    if not base.exists():
+        removed.append(str(base))
+    if credentials:
+        try:
+            import keyring
+        except ImportError:
+            return removed
+        for service, account in CREDENTIALS:
+            try:
+                keyring.delete_password(service, account)
+            except Exception:  # noqa: BLE001 - absent entry or no backend
+                continue
+            removed.append(f"credential {service}/{account}")
+    return removed

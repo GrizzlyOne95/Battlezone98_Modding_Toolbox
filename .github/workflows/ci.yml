@@ -7,8 +7,10 @@ name: CI
 # Merges to main run the same jobs on the merge commit and then publish a
 # GitHub release: the version comes from scripts/release/next_version.py
 # (release: major/minor/patch/skip labels on the merged PR, patch by
-# default), the notes from the merged PRs (.github/release.yml), and the three
-# builds are attached. "Run workflow" on main releases by hand.
+# default), the notes from the merged PRs (.github/release.yml), and the
+# downloads are attached: Windows setup + portable zip, macOS disk image, Linux
+# archive with its install script. The Windows installer and the Linux script
+# are installed and uninstalled on every run. "Run workflow" on main releases by hand.
 
 on:
   pull_request:
@@ -161,22 +163,92 @@ jobs:
           echo "$reported"
           [[ "$reported" == *" $VERSION" ]] || { echo "::error::build reports '$reported', expected $VERSION"; exit 1; }
           run dist/BZModdingToolbox/bztoolbox selftest
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          & $iscc /Qp "/DAppVersion=$env:VERSION" packaging\windows\BZModdingToolbox.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Move-Item "dist\installer\BZModdingToolbox-v$env:VERSION-windows-setup.exe" .
+      - name: Test the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Install for this user, check what Windows sees, then uninstall.
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'BZ Toolbox Install'
+          $setup = Start-Process ".\BZModdingToolbox-v$env:VERSION-windows-setup.exe" -Wait -PassThru -ArgumentList `
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/TASKS=addtopath', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\setup.log`""
+          if ($setup.ExitCode) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "setup exited with $($setup.ExitCode)" }
+
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{63CD0930-D3A1-4F9C-9DFE-251D48C601EF}_is1'
+          $entry = Get-ItemProperty $key
+          $entry | Format-List DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, UninstallString, URLInfoAbout
+          if ($entry.DisplayVersion -ne $env:VERSION) { throw "registered version $($entry.DisplayVersion), expected $env:VERSION" }
+          if ($entry.Publisher -ne 'GrizzlyOne95') { throw "publisher is '$($entry.Publisher)'" }
+          $appPath = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\BZModdingToolbox.exe').'(default)'
+          if (-not (Test-Path $appPath)) { throw "App Paths points at missing $appPath" }
+          $userPath = (Get-ItemProperty 'HKCU:\Environment').Path
+          if (-not (($userPath -split ';') -contains $dir)) { throw "install folder not on the user PATH: $userPath" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Battlezone Modding Toolbox.lnk")) { throw 'no Start menu shortcut' }
+
+          $reported = & "$dir\bztoolbox.exe" --version
+          if ($reported -notlike "* $env:VERSION") { throw "installed build reports '$reported'" }
+
+          # The uninstaller hands off to a temporary copy of itself and returns at once.
+          Start-Process "$dir\unins000.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          $deadline = (Get-Date).AddMinutes(2)
+          while ((Test-Path $key) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (Test-Path $key) { throw 'the uninstall entry is still registered' }
+          if (Test-Path "$dir\bztoolbox.exe") { throw 'program files were left behind' }
+          if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\BZModdingToolbox.exe') { throw 'App Paths entry was left behind' }
+          if (((Get-ItemProperty 'HKCU:\Environment').Path -split ';') -contains $dir) { throw 'install folder is still on PATH' }
+          Write-Host 'Installer and uninstaller behaved.'
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # the portable build, for anyone who does not want to install
           Copy-Item README.md, LICENSE, LICENSING.md, THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
-          Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v$env:VERSION-windows.zip"
+          Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v$env:VERSION-windows-portable.zip"
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/
-          ditto -c -k --keepParent dist/BZModdingToolbox.app "BZModdingToolbox-v$VERSION-macos.zip"
+          # a disk image with the app and a shortcut to drag it into Applications
+          mkdir -p build/dmg
+          cp -R dist/BZModdingToolbox.app build/dmg/
+          ln -s /Applications build/dmg/Applications
+          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md build/dmg/
+          hdiutil create -volname "Battlezone Modding Toolbox" -srcfolder build/dmg -fs HFS+ \
+            -format UDZO -ov "BZModdingToolbox-v$VERSION-macos.dmg"
+          hdiutil verify "BZModdingToolbox-v$VERSION-macos.dmg"
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
+          cp packaging/linux/install.sh packaging/linux/io.github.grizzlyone95.bzmoddingtoolbox.desktop dist/BZModdingToolbox/
+          cp bztoolbox/resources/branding/app_icon.png dist/BZModdingToolbox/io.github.grizzlyone95.bzmoddingtoolbox.png
+          chmod +x dist/BZModdingToolbox/install.sh
           tar -C dist -czf "BZModdingToolbox-v$VERSION-linux.tar.gz" BZModdingToolbox
+      - name: Test the install script (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          home="$RUNNER_TEMP/home"; mkdir -p "$home/extract"
+          tar -C "$home/extract" -xzf "BZModdingToolbox-v$VERSION-linux.tar.gz"
+          export HOME="$home"; unset XDG_DATA_HOME
+          sh "$home/extract/BZModdingToolbox/install.sh"
+          desktop="$home/.local/share/applications/io.github.grizzlyone95.bzmoddingtoolbox.desktop"
+          desktop-file-validate "$desktop" 2>/dev/null || true
+          grep -q "^Exec=\"$home/.local/share/BZModdingToolbox/BZModdingToolbox\" gui$" "$desktop"
+          [[ "$("$home/.local/bin/bztoolbox" --version)" == *" $VERSION" ]]
+          "$home/.local/share/BZModdingToolbox/install.sh" --uninstall
+          left="$(find "$home" -mindepth 1 -not -type d -not -path "$home/extract/*")"
+          [[ -z "$left" ]] || { echo "::error::left behind: $left"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: BZModdingToolbox-${{ matrix.platform }}

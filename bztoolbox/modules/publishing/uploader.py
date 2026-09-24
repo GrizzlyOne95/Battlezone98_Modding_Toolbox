@@ -11,7 +11,7 @@ import requests
 from datetime import datetime, timezone
 from battlezone.validation import validate_project
 from battlezone.validation.mod_scanner import ModScanner
-from bztoolbox.paths import module_data_dir, projects_dir
+from bztoolbox.paths import CREDENTIALS, module_data_dir, projects_dir
 from bztoolbox.modules.publishing.steam_service import SteamService
 from bztoolbox.modules.publishing.workshop_backend import WorkshopBackend
 from bztoolbox.modules.publishing.memory_analyzer import MemoryAnalyzer
@@ -52,8 +52,8 @@ STEAM_TITLE_LIMIT = 128
 STEAM_DESC_LIMIT = 8000
 REQUEST_RETRY_ATTEMPTS = 3
 REQUEST_BACKOFF_SECONDS = 1.0
-KEYRING_SERVICE = "BattlezoneWorkshopUploader"
-KEYRING_API_KEY_ACCOUNT = "steam_web_api_key"
+# the uninstaller's "remove my data" option clears it through paths.CREDENTIALS
+KEYRING_SERVICE, KEYRING_API_KEY_ACCOUNT = CREDENTIALS[0]
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.WorkshopUploader"
 
 

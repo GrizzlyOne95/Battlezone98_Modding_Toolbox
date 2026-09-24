@@ -27,16 +27,35 @@ organised by workflow instead of by executable:
 
 ## Using it
 
-Releases have one download per platform. Nothing else needs to be installed:
+Releases have an installer per platform. Nothing else needs to be installed:
 no FFmpeg, Blender, Ogre tools or LZO library.
 
-* **Windows:** unzip `BZModdingToolbox-<version>-windows.zip` and run
-  `BZModdingToolbox.exe`. `bztoolbox.exe` in the same folder is the command line.
-* **macOS:** unzip `BZModdingToolbox-<version>-macos.zip` and open
-  `BZModdingToolbox.app` (the build is unsigned: right-click > Open the first
-  time). The command line is `BZModdingToolbox.app/Contents/MacOS/bztoolbox`.
+* **Windows:** run `BZModdingToolbox-<version>-windows-setup.exe`. It installs
+  for your account without an administrator prompt (or for all users, if you
+  choose), adds a Start menu entry, registers under *Settings > Apps* with its
+  version and publisher, and can put the `bztoolbox` command line on `PATH`.
+  Running a newer setup upgrades in place; uninstall from *Settings > Apps*,
+  which also offers to delete your settings. The build is unsigned, so
+  SmartScreen may ask you to confirm (*More info > Run anyway*).
+  Prefer no install? `BZModdingToolbox-<version>-windows-portable.zip` is the
+  same program: unzip it and run `BZModdingToolbox.exe`.
+* **macOS:** open `BZModdingToolbox-<version>-macos.dmg` and drag
+  `BZModdingToolbox.app` into *Applications* (the build is unsigned:
+  right-click > Open the first time). The command line is
+  `BZModdingToolbox.app/Contents/MacOS/bztoolbox`.
 * **Linux:** extract `BZModdingToolbox-<version>-linux.tar.gz` and run
-  `BZModdingToolbox/BZModdingToolbox` (or `BZModdingToolbox/bztoolbox`).
+  `BZModdingToolbox/install.sh`. It installs for your user under `~/.local`
+  (or for everyone under `/opt` with `sudo`), adds a menu entry and the
+  `BZModdingToolbox` / `bztoolbox` commands. `install.sh --uninstall` removes
+  it, `--purge` your settings too. You can also run
+  `BZModdingToolbox/BZModdingToolbox` straight from the extracted folder.
+
+Wherever it runs from, the toolbox never writes beside its executable. Your
+settings, project profiles and caches live in one per-user folder
+(`%APPDATA%\BattlezoneModdingToolbox`, `~/Library/Application Support/BattlezoneModdingToolbox`
+or `~/.config/BattlezoneModdingToolbox`; set `BZTOOLBOX_HOME` to move it), shown
+under *Settings > General*. `bztoolbox clean-user-data` deletes it along with
+the saved Steam API key.
 
 **From source** (Python 3.10+ with Tk):
 
@@ -95,6 +114,7 @@ bztoolbox deps DIR [--why FILE] [--json]   asset dependency graph
 bztoolbox zfs list|extract|verify|pack ARCHIVE ...   ZFS archives
 bztoolbox tools [--versions]      external tools and game install detection
 bztoolbox projects                known projects
+bztoolbox clean-user-data [--yes] delete your settings, profiles, caches, saved key
 bztoolbox selftest                open every page once (used by CI)
 
 # The standalone tools' CLIs, arguments unchanged:
@@ -133,7 +153,7 @@ bztoolbox/         the application
   cli.py           the bztoolbox command
   external.py      external tool / game install detection
 tests/             all test suites (the tools' original tests + toolbox tests)
-packaging/         PyInstaller spec and helpers
+packaging/         PyInstaller spec, Windows installer (Inno Setup), Linux install script
 scripts/           migration and research scripts
 docs/              architecture, migration record, per-module docs
 ```
@@ -149,14 +169,17 @@ xvfb-run -a python -m pytest     # Linux; GUI tests need a display
 python -m pytest                 # Windows / macOS
 python -m PyInstaller packaging/bztoolbox.spec --noconfirm   # on each platform
 dist/BZModdingToolbox/bztoolbox selftest
+iscc /DAppVersion=0.1.0 packaging\windows\BZModdingToolbox.iss  # Windows installer (Inno Setup 6.3+)
 ```
 
 ### Releases
 
 Every pull request merged into `main` is released automatically
 (`.github/workflows/ci.yml`). The workflow tests the merge commit, builds
-Windows, macOS and Linux and publishes a GitHub release with the three
-downloads and notes listing the merged pull requests.
+Windows, macOS and Linux, installs and uninstalls the Windows setup and the
+Linux script to check them, and publishes a GitHub release with the Windows
+setup and portable zip, the macOS disk image, the Linux archive and notes
+listing the merged pull requests.
 
 * **Version:** the patch number goes up by default. A label on the pull
   request changes that: `release: minor`, `release: major`, or

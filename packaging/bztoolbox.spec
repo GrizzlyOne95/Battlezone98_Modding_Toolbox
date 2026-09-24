@@ -112,6 +112,9 @@ if sys.platform == "darwin":
             "CFBundleName": "BZ Modding Toolbox",
             "CFBundleDisplayName": "Battlezone Modding Toolbox",
             "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
+            "NSHumanReadableCopyright": "Copyright (c) GrizzlyOne95. MIT License.",
+            "LSApplicationCategoryType": "public.app-category.developer-tools",
             "NSHighResolutionCapable": True,
         },
     )
