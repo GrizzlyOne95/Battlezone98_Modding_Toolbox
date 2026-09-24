@@ -217,14 +217,14 @@ class ZFSPage(ttk.Frame):
         ttk.Checkbutton(options, text="Include subfolders", variable=self.pack_recursive,
                         style="Toolbox.Surface.TCheckbutton").pack(side="left")
         self.pack_button = ttk.Button(card.body, text="Build archive", style="Toolbox.Accent.TButton",
-                                      command=self.pack)
+                                      command=self.build_archive)
         self.pack_button.pack(anchor="e", pady=(10, 0))
 
     def _suggest_output(self, folder: str) -> None:
         if folder and not self.pack_output.get():
             self.pack_output.set(os.path.normpath(folder.rstrip("\\/") + ".zfs"))
 
-    def pack(self) -> None:
+    def build_archive(self) -> None:
         source, output = self.pack_source.get().strip(), self.pack_output.get().strip()
         if not os.path.isdir(source) or not output:
             messagebox.showinfo("Pack", "Choose a source folder and an output archive.")

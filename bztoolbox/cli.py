@@ -209,7 +209,8 @@ def _cmd_selftest(args) -> int:
             while time.time() < deadline:
                 root.update()
                 time.sleep(0.01)
-            ok = shell._pages[page.id].widget is not None
+            widget = shell._pages[page.id].widget
+            ok = widget is not None and bool(widget.winfo_exists())
             print(f"{'ok  ' if ok else 'FAIL'}  {page.id}")
             if not ok:
                 failures.append(page.id)
@@ -220,6 +221,52 @@ def _cmd_selftest(args) -> int:
         pass
     print(f"{len(failures)} page(s) failed" if failures else "all pages loaded")
     return 1 if failures else 0
+
+
+def _cmd_deps(args) -> int:
+    from battlezone.assets import build_graph
+
+    try:
+        graph = build_graph(args.path)
+    except NotADirectoryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    missing = graph.missing()
+    if args.json:
+        print(json.dumps(graph.to_dict(), indent=2))
+        return 1 if missing else 0
+    if args.why:
+        node = graph.find(args.why)
+        if node is None:
+            print(f"error: {args.why} is not in the graph", file=sys.stderr)
+            return 2
+        print(f"{node.key} ({node.kind})")
+        print("  used by (breaks if renamed or removed):")
+        for key in graph.closure(node.key, reverse=True) or ["(nothing)"]:
+            print(f"    {key}")
+        print("  needs:")
+        for key in graph.closure(node.key) or ["(nothing)"]:
+            print(f"    {key}")
+        return 0
+    summary = graph.summary()
+    print(f"{summary['files']} files, {summary['references']} references, "
+          f"{summary['texture_bytes'] / 1048576:.1f} MB estimated texture memory")
+    print(f"\nMissing ({len(missing)}):")
+    for node, refs in missing:
+        print(f"  {node.name:28} <- {', '.join(sorted({e.source for e in refs}))}")
+    others = [item for item in graph.not_in_project() if item not in missing]
+    print(f"\nNot in the project, probably stock ({len(others)}):")
+    for node, refs in others[:50 if not args.verbose else None]:
+        print(f"  {node.name:28} <- {', '.join(sorted({e.source for e in refs}))}")
+    unreferenced = graph.unreferenced()
+    print(f"\nNot referenced by anything in the project ({len(unreferenced)}):")
+    for node in unreferenced:
+        print(f"  {node.key}")
+    if args.verbose:
+        print("\nLargest textures:")
+        for node in graph.textures_by_memory()[:20]:
+            print(f"  {node.texture_bytes / 1048576:8.2f} MB  {node.key}")
+    return 1 if missing else 0
 
 
 def _cmd_zfs(args) -> int:
@@ -313,6 +360,13 @@ def build_parser() -> argparse.ArgumentParser:
     deps.add_argument("--odf-dir", help="folder to look for custom ODFs (default: beside the BZN)")
     deps.add_argument("--json", action="store_true")
     deps.set_defaults(func=_cmd_bzn_deps)
+
+    deps = sub.add_parser("deps", help="asset dependency graph: missing, unreferenced, what uses a file")
+    deps.add_argument("path", help="mod folder")
+    deps.add_argument("--why", metavar="FILE", help="what uses FILE (breaks if it is renamed) and what it needs")
+    deps.add_argument("--json", action="store_true", help="the whole graph as JSON")
+    deps.add_argument("-v", "--verbose", action="store_true", help="all external references and largest textures")
+    deps.set_defaults(func=_cmd_deps)
 
     zfs = sub.add_parser("zfs", help="list, extract, verify or pack ZFS archives")
     zfs_sub = zfs.add_subparsers(dest="zfs_command", required=True)

@@ -169,7 +169,7 @@ class ShellSmokeTests(unittest.TestCase):
                     shell.navigate(page.id)
                     pump(root, 0.2)
                     frame = shell._pages[page.id]
-                    if frame.widget is None:
+                    if frame.widget is None or not frame.widget.winfo_exists():
                         failures.append(page.id)
                 self.assertEqual(failures, [])
                 # The open project reached the migrated tools through their hooks.
@@ -177,6 +177,21 @@ class ShellSmokeTests(unittest.TestCase):
                 self.assertEqual(os.path.normpath(publish.mod_path.get()), str(mod))
                 localization = shell._pages["project.localization"].app
                 self.assertEqual(localization.scan_folder_path.get(), str(mod))
+
+                # Native pages run their work on the job system.
+                deps = shell._pages["project.dependencies"].widget
+                deps.run()
+                pump(root, 5, until=lambda: deps.graph is not None)
+                self.assertEqual(deps.graph.summary()["files"], 1)
+                self.assertEqual(len(deps.files.get_children()), 1)
+
+                from battlezone.archives.zfs import write_zfs
+
+                archive = Path(tmp) / "test.zfs"
+                write_zfs(archive, [("unit.odf", b"[GameObjectClass]\n" * 50)], key="pw")
+                zfs_page = shell._pages["archives.zfs"].widget
+                zfs_page.open(str(archive))
+                self.assertEqual(len(zfs_page.tree.get_children()), 1)
                 shell.close(confirm=False)
         finally:
             try:
