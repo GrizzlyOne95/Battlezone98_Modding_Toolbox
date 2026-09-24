@@ -1,63 +1,4 @@
-# Battlezone Modding Toolbox
-
-One application for Battlezone 98 Redux modding. Open a mod folder, then build
-terrain, inspect missions, edit assets, validate dependencies, localize,
-package and publish it without leaving the toolbox.
-
-It replaces eleven standalone tools. Their features are all still here, now
-organised by workflow instead of by executable:
-
-| Area | Page | Formerly |
-| --- | --- | --- |
-| **Project** | Overview | *(new)* |
-| | Validation | *(new, combines the BZN Toolbox and Workshop Uploader checks)* |
-| | Dependencies | *(new: asset graph, missing / unreferenced files, texture memory)* |
-| | Localization | Localization Tool |
-| | Workshop / Publish | Workshop Uploader |
-| **Missions** | Mission Inspector | BZN Toolbox |
-| **World & Terrain** | World Builder | WorldBuilder |
-| | Generate Terrain | HeightmapGen |
-| **Assets** | Textures & Images | TextureManager |
-| | Fonts | Font Generator |
-| | Holographic Text | HoloTextGen |
-| | Models & Meshes | OgreMeshTools |
-| | Audio | AudioTool |
-| **Archives** | ZFS Archives | ZFS Specialist |
-| **Tools / Settings** | Background Tasks, General, External Tools | *(new)* |
-
-## Using it
-
-Releases have an installer per platform. Nothing else needs to be installed:
-no FFmpeg, Blender, Ogre tools or LZO library.
-
-* **Windows:** run `BZModdingToolbox-<version>-windows-setup.exe`. It installs
-  for your account without an administrator prompt (or for all users, if you
-  choose), adds a Start menu entry, registers under *Settings > Apps* with its
-  version and publisher, and can put the `bztoolbox` command line on `PATH`.
-  Running a newer setup upgrades in place; uninstall from *Settings > Apps*,
-  which also offers to delete your settings. The build is unsigned, so
-  SmartScreen may ask you to confirm (*More info > Run anyway*).
-  Prefer no install? `BZModdingToolbox-<version>-windows-portable.zip` is the
-  same program: unzip it and run `BZModdingToolbox.exe`.
-* **macOS:** open `BZModdingToolbox-<version>-macos.dmg` and drag
-  `BZModdingToolbox.app` into *Applications* (the build is unsigned:
-  right-click > Open the first time). The command line is
-  `BZModdingToolbox.app/Contents/MacOS/bztoolbox`.
-* **Linux:** extract `BZModdingToolbox-<version>-linux.tar.gz` and run
-  `BZModdingToolbox/install.sh`. It installs for your user under `~/.local`
-  (or for everyone under `/opt` with `sudo`), adds a menu entry and the
-  `BZModdingToolbox` / `bztoolbox` commands. `install.sh --uninstall` removes
-  it, `--purge` your settings too. You can also run
-  `BZModdingToolbox/BZModdingToolbox` straight from the extracted folder.
-
-Wherever it runs from, the toolbox never writes beside its executable. Your
-settings, project profiles and caches live in one per-user folder
-(`%APPDATA%\BattlezoneModdingToolbox`, `~/Library/Application Support/BattlezoneModdingToolbox`
-or `~/.config/BattlezoneModdingToolbox`; set `BZTOOLBOX_HOME` to move it), shown
-under *Settings > General*. `bztoolbox clean-user-data` deletes it along with
-the saved Steam API key.
-
-**From source** (Python 3.10+ with Tk):
+# Battlezone 98 Modding Toolbox
 
 **An all-in-one modding workspace for Battlezone 98 Redux.**
 
@@ -236,64 +177,41 @@ Download the latest build from the [Releases page](https://github.com/GrizzlyOne
 
 ### Windows
 
-Extract the Windows ZIP and run:
+Run `BZModdingToolbox-<version>-windows-setup.exe`.
 
-```text
-bztoolbox                         open the GUI (same as `bztoolbox gui`)
-bztoolbox gui --project DIR       open with a project
-bztoolbox validate DIR [--json] [--strict] [--checks a,b] [--add odf-lint]
-bztoolbox bzn-deps MISSION.bzn    ODFs a mission uses, stock/custom/missing
-bztoolbox deps DIR [--why FILE] [--json]   asset dependency graph
-bztoolbox zfs list|extract|verify|pack ARCHIVE ...   ZFS archives
-bztoolbox tools [--versions]      external tools and game install detection
-bztoolbox projects                known projects
-bztoolbox clean-user-data [--yes] delete your settings, profiles, caches, saved key
-bztoolbox selftest                open every page once (used by CI)
+- It installs for your account without an administrator prompt, or for all users if you choose.
+- It adds a Start menu entry and registers under **Settings -> Apps** with its version and publisher.
+- It can add an **Open in BZ Modding Toolbox** entry to the right-click menu of folders, and put the `bztoolbox` command line on `PATH`.
+- To upgrade, run a newer setup; it replaces the old version in place.
+- Uninstall from **Settings -> Apps**. It asks whether to delete your settings too.
 
-# The standalone tools' CLIs, arguments unchanged:
-bztoolbox odf validate PATH             bztoolbox textures makemap ...
-bztoolbox bzn port SRC TEMPLATE ...     bztoolbox textures recompress ...
-bztoolbox bzn classes ...               bztoolbox meshes to-obj ...
-bztoolbox terrain generate ...          bztoolbox meshes normals FILE
-bztoolbox terrain paint ...             bztoolbox fonts dump-st FILE
-bztoolbox terrain legacy-port ...       bztoolbox terrain msn2terrain ...
-bztoolbox terrain preview ...
-```
-
-The command-line version is included as `bztoolbox.exe`.
+Prefer not to install? `BZModdingToolbox-<version>-windows-portable.zip` is the same program: extract it and run `BZModdingToolbox.exe`. The command-line version is `bztoolbox.exe` in the same folder.
 
 ### macOS
 
-Extract the macOS ZIP and open `BZModdingToolbox.app`.
+Open `BZModdingToolbox-<version>-macos.dmg` and drag `BZModdingToolbox.app` into **Applications**.
 
 Current builds are unsigned, so macOS may require **right-click -> Open** the first time.
 
 ### Linux
 
-Extract the Linux archive and run:
+Extract the Linux archive and run `BZModdingToolbox/install.sh`. It installs for your user under `~/.local` (or for everyone under `/opt` with `sudo`) and adds a menu entry and the `BZModdingToolbox` / `bztoolbox` commands. `install.sh --uninstall` removes it and `install.sh --purge` removes your settings too.
 
-```text
-battlezone/        GUI-free Battlezone core: formats, validation, project model
-  archives/        ZFS archives and the LZO1X/LZO1Y codec
-  assets/          asset dependency graph
-  bzn/             BZN parsing, BZCC -> Redux port
-  meshes/          Ogre binary .mesh reader (-> XML, normal patching)
-  odf/             ODF parser, schema, evidence, validator, class labels, unit names
-  terrain/         HG2, LGT, MAT, TRN and stock palettes: one codec each
-  validation/      the unified validation engine
-  project.py       project model and profile store
-bztoolbox/         the application
-  app/             shell, theme, embedding host, jobs, shared widgets, pages
-  modules/         the migrated tools, one package per area, + registry
-  cli.py           the bztoolbox command
-  external.py      external tool / game install detection
-tests/             all test suites (the tools' original tests + toolbox tests)
-packaging/         PyInstaller spec, Windows installer (Inno Setup), Linux install script
-scripts/           migration and research scripts
-docs/              architecture, migration record, per-module docs
-```
+You can also run `BZModdingToolbox/BZModdingToolbox` straight from the extracted folder.
 
-The `bztoolbox` command-line executable is included in the same folder.
+### Updates
+
+The toolbox checks for a new release at most once a day and shows a banner when there is one. An installed Windows copy can update itself from the banner; other copies get a link to the right download. Turn the check off, or check now, under **Settings -> General**.
+
+### Where your settings live
+
+The toolbox never writes next to its program files. Settings, project profiles and caches are kept in one folder per user:
+
+- Windows: `%APPDATA%\BattlezoneModdingToolbox`
+- macOS: `~/Library/Application Support/BattlezoneModdingToolbox`
+- Linux: `~/.config/BattlezoneModdingToolbox`
+
+**Settings -> General** shows the folder. Set `BZTOOLBOX_HOME` to use a different one, or run `bztoolbox clean-user-data` to delete it along with the saved Steam API key.
 
 ### No extra modding utilities required
 
@@ -314,6 +232,7 @@ bztoolbox help
 bztoolbox validate MyMod
 bztoolbox deps MyMod
 bztoolbox bzn-deps mission.bzn
+bztoolbox gui --project MyMod
 
 bztoolbox zfs list archive.zfs
 bztoolbox zfs extract archive.zfs
@@ -359,12 +278,8 @@ python -m bztoolbox
 To run the test suite:
 
 ```bash
-pip install -r requirements.txt pytest
-xvfb-run -a python -m pytest     # Linux; GUI tests need a display
-python -m pytest                 # Windows / macOS
-python -m PyInstaller packaging/bztoolbox.spec --noconfirm   # on each platform
-dist/BZModdingToolbox/bztoolbox selftest
-iscc /DAppVersion=0.1.0 packaging\windows\BZModdingToolbox.iss  # Windows installer (Inno Setup 6.3+)
+pip install pytest
+python -m pytest
 ```
 
 For more information about the internals, see:
@@ -374,12 +289,7 @@ For more information about the internals, see:
 - [Licensing](LICENSING.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-Every pull request merged into `main` is released automatically
-(`.github/workflows/ci.yml`). The workflow tests the merge commit, builds
-Windows, macOS and Linux, installs and uninstalls the Windows setup and the
-Linux script to check them, and publishes a GitHub release with the Windows
-setup and portable zip, the macOS disk image, the Linux archive and notes
-listing the merged pull requests.
+## Contributing
 
 Bug reports, compatibility findings, documentation improvements, and focused pull requests are welcome.
 

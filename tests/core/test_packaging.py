@@ -43,6 +43,11 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertIn(rf"{{userappdata}}\{paths._APP_DIR_NAME}", ISS)
         self.assertIn("clean-user-data --yes", ISS)
 
+    def test_folder_menu_opens_the_folder_as_a_project(self):
+        self.assertIn('"""{app}\\{#AppExe}"" gui --project ""%1"""', ISS)
+        self.assertIn('"""{app}\\{#AppExe}"" gui --project ""%V"""', ISS)
+        self.assertIn("RegDeleteKeyIncludingSubkeys(Root, 'Software\\Classes\\Directory\\shell\\{#MenuKey}')", ISS)
+
     def test_ci_checks_the_registered_app_id(self):
         app_id = re.search(r"^AppId=\{\{([0-9A-F-]{36})\}", ISS, re.M).group(1)
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

@@ -11,6 +11,8 @@
 ; * registers with "Installed apps" / "Programs and Features" (publisher,
 ;   version, icon, size, help and update links) and with App Paths, so
 ;   "BZModdingToolbox" and "bztoolbox" start from Win+R;
+; * adds "Open in BZ Modding Toolbox" to the right-click menu of folders and
+;   folder backgrounds (optional, on by default), opening the folder as a project;
 ; * adds a Start menu shortcut, and optionally a desktop shortcut and the
 ;   install folder on PATH (the bztoolbox command line);
 ; * upgrades in place: the same AppId finds the previous install, and the old
@@ -36,6 +38,8 @@
 #define CliExe "bztoolbox.exe"
 ; bztoolbox.APP_ID: the taskbar groups the running window with its shortcut.
 #define AppUserModelID "GrizzlyOne95.BattlezoneModdingToolbox"
+#define MenuKey "BZModdingToolbox"
+#define MenuText "Open in BZ Modding Toolbox"
 
 [Setup]
 ; Never change the AppId: it is how upgrades and the uninstaller find the install.
@@ -86,6 +90,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "contextmenu"; Description: "Add ""Open in BZ Modding Toolbox"" to the right-click menu of folders"; GroupDescription: "Explorer:"
 Name: "addtopath"; Description: "Add the bztoolbox command line to PATH"; GroupDescription: "Command line:"; Flags: unchecked
 
 [InstallDelete]
@@ -109,6 +114,14 @@ Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#AppExe
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#AppExe}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#CliExe}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#CliExe}"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#CliExe}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
+; Explorer right-click: %1 is the folder clicked on, %V the folder whose background was clicked.
+; (Windows 11 lists these under "Show more options".)
+Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MenuKey}"; ValueType: string; ValueName: ""; ValueData: "{#MenuText}"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MenuKey}"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\shell\{#MenuKey}\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" gui --project ""%1"""; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MenuKey}"; ValueType: string; ValueName: ""; ValueData: "{#MenuText}"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MenuKey}"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExe}"",0"; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MenuKey}\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" gui --project ""%V"""; Tasks: contextmenu
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
@@ -160,6 +173,15 @@ begin
     RegWriteExpandStringValue(EnvRoot, EnvKey, 'Path', Wrapped);
 end;
 
+procedure RemoveContextMenu;
+var
+  Root: Integer;
+begin
+  if IsAdminInstallMode then Root := HKEY_LOCAL_MACHINE else Root := HKEY_CURRENT_USER;
+  RegDeleteKeyIncludingSubkeys(Root, 'Software\Classes\Directory\shell\{#MenuKey}');
+  RegDeleteKeyIncludingSubkeys(Root, 'Software\Classes\Directory\Background\shell\{#MenuKey}');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -168,6 +190,9 @@ begin
       AddToPath(ExpandConstant('{app}'))
     else
       RemoveFromPath(ExpandConstant('{app}'));
+    { an upgrade that turns the menu entry off must not leave the old one behind }
+    if not WizardIsTaskSelected('contextmenu') then
+      RemoveContextMenu;
   end;
 end;
 

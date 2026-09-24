@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from bztoolbox import external, paths
+from bztoolbox import __version__, external, paths
 from bztoolbox.app.widgets import Card, PathPicker, ScrollableFrame, open_in_file_manager
 
 
@@ -41,10 +41,40 @@ class SettingsPage(ScrollableFrame):
                        command=lambda p=path: (p.mkdir(parents=True, exist_ok=True), open_in_file_manager(str(p)))
                        ).pack(side="right")
 
+        updates = Card(body, "Updates", f"You have version {__version__}. The toolbox asks GitHub for a newer "
+                                          "release at most once a day and shows a banner when there is one.")
+        updates.pack(fill="x", pady=(0, 12))
+        self.update_var = tk.BooleanVar(value=bool(settings.get("update_check", True)))
+        ttk.Checkbutton(updates.body, text="Check for updates when the toolbox starts", variable=self.update_var,
+                        style="Toolbox.Surface.TCheckbutton",
+                        command=lambda: settings.set("update_check", bool(self.update_var.get()))).pack(anchor="w")
+        check_row = ttk.Frame(updates.body, style="Toolbox.Surface.TFrame")
+        check_row.pack(fill="x", pady=(6, 0))
+        self.check_button = ttk.Button(check_row, text="Check now", style="Toolbox.TButton",
+                                       command=self._check_updates)
+        self.check_button.pack(side="left")
+        self.update_label = ttk.Label(check_row, text="", style="Toolbox.SurfaceMuted.TLabel")
+        self.update_label.pack(side="left", padx=8)
+
         profiles = Card(body, "Import", "Adopt Workshop Uploader upload profiles (JSON) as toolbox projects.")
         profiles.pack(fill="x")
         ttk.Button(profiles.body, text="Import upload profiles…", style="Toolbox.TButton",
                    command=self._import_profiles).pack(anchor="w")
+
+    def _check_updates(self) -> None:
+        self.check_button.state(["disabled"])
+        self.update_label.configure(text="Checking…")
+
+        def done(update, error):
+            self.check_button.state(["!disabled"])
+            if error is not None:
+                self.update_label.configure(text=f"Could not check: {error}")
+            elif update is None:
+                self.update_label.configure(text=f"You have the latest version ({__version__}).")
+            else:
+                self.update_label.configure(text=f"Version {update.version} is available: see the banner above.")
+
+        self.shell.check_for_updates(force=True, on_done=done)
 
     def _detect(self) -> None:
         found = external.detect_game_installs()

@@ -183,7 +183,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dir = Join-Path $env:RUNNER_TEMP 'BZ Toolbox Install'
           $setup = Start-Process ".\BZModdingToolbox-v$env:VERSION-windows-setup.exe" -Wait -PassThru -ArgumentList `
-            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/TASKS=addtopath', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\setup.log`""
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/TASKS=addtopath,contextmenu', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\setup.log`""
           if ($setup.ExitCode) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "setup exited with $($setup.ExitCode)" }
 
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{63CD0930-D3A1-4F9C-9DFE-251D48C601EF}_is1'
@@ -196,6 +196,11 @@ jobs:
           $userPath = (Get-ItemProperty 'HKCU:\Environment').Path
           if (-not (($userPath -split ';') -contains $dir)) { throw "install folder not on the user PATH: $userPath" }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Battlezone Modding Toolbox.lnk")) { throw 'no Start menu shortcut' }
+          $menu = 'HKCU:\Software\Classes\Directory\shell\BZModdingToolbox'
+          $command = (Get-ItemProperty "$menu\command").'(default)'
+          Write-Host "Folder menu: $command"
+          if ($command -ne "`"$dir\BZModdingToolbox.exe`" gui --project `"%1`"") { throw "unexpected folder menu command: $command" }
+          if (-not (Test-Path 'HKCU:\Software\Classes\Directory\Background\shell\BZModdingToolbox\command')) { throw 'no folder background menu' }
 
           $reported = & "$dir\bztoolbox.exe" --version
           if ($reported -notlike "* $env:VERSION") { throw "installed build reports '$reported'" }
@@ -207,6 +212,8 @@ jobs:
           if (Test-Path $key) { throw 'the uninstall entry is still registered' }
           if (Test-Path "$dir\bztoolbox.exe") { throw 'program files were left behind' }
           if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\BZModdingToolbox.exe') { throw 'App Paths entry was left behind' }
+          if (Test-Path $menu) { throw 'folder menu entry was left behind' }
+          if (Test-Path 'HKCU:\Software\Classes\Directory\Background\shell\BZModdingToolbox') { throw 'folder background menu entry was left behind' }
           if (((Get-ItemProperty 'HKCU:\Environment').Path -split ';') -contains $dir) { throw 'install folder is still on PATH' }
           Write-Host 'Installer and uninstaller behaved.'
       - name: Package (Windows)

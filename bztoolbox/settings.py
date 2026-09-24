@@ -16,6 +16,9 @@ DEFAULTS: dict[str, Any] = {
     "recent_limit": 12,
     "last_page": "home",
     "confirm_exit_with_jobs": True,
+    "update_check": True,          # look for a new release at startup (bztoolbox.updates)
+    "update_last_check": 0,        # time.time() of the last check
+    "update_skipped_version": "",  # "Skip this version" in the update banner
 }
 
 
