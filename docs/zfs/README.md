@@ -1,3 +1,7 @@
+> **Toolbox note:** this is the standalone tool's README, kept for reference.
+> In the toolbox, ZFS archives are *Archives > ZFS Archives* and
+> `bztoolbox zfs list|extract|verify|pack`, backed by `battlezone/archives`.
+
 # Battlezone ZFS Specialist
 
 A high-performance archive explorer and packer for Battlezone (1998) `.zfs` files. This tool allows modders to browse, search, extract, force-extract encrypted ZFS archives, and create encrypted/compressed archives compatible with the BZ1 engine.
@@ -65,8 +69,10 @@ The resulting executable is `dist/BZZFSSpecialist.exe`.
 * **The BZ1 Community**: For keeping the 1998 classic alive.
 
 ## License
-This project is licensed under the **GNU General Public License v2.0 (GPL-2.0)**.
-As this tool utilizes the LZO library (GPL), the source code for this tool and its bridge are provided freely to remain compliant with LZO's licensing terms.
+The standalone ZFS Specialist was GPL-2.0 because it linked the LZO library.
+In the Battlezone Modding Toolbox, ZFS support is `battlezone/archives` (pure
+Python, MIT; see the repository's LICENSING.md) and runs on Windows, macOS and
+Linux without the LZO bridge.
 
 ## Disclaimer
 This tool is provided "as-is" without warranty of any kind. It is a fan-made project and is not affiliated with Activision or Rebellion.

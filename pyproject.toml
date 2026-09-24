@@ -7,8 +7,15 @@ name = "battlezone-modding-toolbox"
 description = "One application for Battlezone 98 Redux modding: missions, worlds, assets, validation, localization and Workshop publishing."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT (GPL-2.0-only for bztoolbox/modules/zfs; see LICENSING.md)" }
+license = { text = "MIT" }
 authors = [{ name = "GrizzlyOne95" }]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+]
 dynamic = ["version"]
 dependencies = [
     "numpy>=1.21",
@@ -26,7 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dnd = ["tkinterdnd2>=0.3"]            # drag & drop in Textures
-mesh-preview = ["ogre-python"]        # live 3D preview in Models & Meshes (Windows, Python 3.10)
+mesh-preview = ["ogre-python"]        # optional live 3D preview in Models & Meshes
 dev = ["pytest>=7", "pyinstaller>=6"]
 
 [project.scripts]
@@ -42,9 +49,8 @@ version = { file = "VERSION" }
 include = ["battlezone*", "bztoolbox*"]
 
 [tool.setuptools.package-data]
-"*" = ["**/*.txt", "**/*.ttf", "**/*.ico", "**/*.png", "**/*.wav", "**/*.material", "**/*.dll",
-       "**/*.exe", "**/*.cpp", "LICENSE", "VERSION"]
-"bztoolbox.modules.meshes" = ["blender/*.py"]
+"*" = ["**/*.txt", "**/*.ttf", "**/*.ico", "**/*.png", "**/*.wav", "**/*.material", "**/*.json",
+       "**/*.csv", "LICENSE", "VERSION"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

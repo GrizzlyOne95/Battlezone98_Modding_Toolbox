@@ -11,6 +11,7 @@ organised by workflow instead of by executable:
 | --- | --- | --- |
 | **Project** | Overview | *(new)* |
 | | Validation | *(new, combines the BZN Toolbox and Workshop Uploader checks)* |
+| | Dependencies | *(new: asset graph, missing / unreferenced files, texture memory)* |
 | | Localization | Localization Tool |
 | | Workshop / Publish | Workshop Uploader |
 | **Missions** | Mission Inspector | BZN Toolbox |
@@ -26,10 +27,16 @@ organised by workflow instead of by executable:
 
 ## Using it
 
-**Windows:** download `BZModdingToolbox-<version>-windows.zip` from Releases,
-unzip, and run `BZModdingToolbox.exe`. The same folder contains
-`bztoolbox.exe` for the command line. A `-mit` variant without the GPL ZFS
-component is published too (see [LICENSING.md](LICENSING.md)).
+Releases have one download per platform. Nothing else needs to be installed:
+no FFmpeg, Blender, Ogre tools or LZO library.
+
+* **Windows:** unzip `BZModdingToolbox-<version>-windows.zip` and run
+  `BZModdingToolbox.exe`. `bztoolbox.exe` in the same folder is the command line.
+* **macOS:** unzip `BZModdingToolbox-<version>-macos.zip` and open
+  `BZModdingToolbox.app` (the build is unsigned: right-click > Open the first
+  time). The command line is `BZModdingToolbox.app/Contents/MacOS/bztoolbox`.
+* **Linux:** extract `BZModdingToolbox-<version>-linux.tar.gz` and run
+  `BZModdingToolbox/BZModdingToolbox` (or `BZModdingToolbox/bztoolbox`).
 
 **From source** (Python 3.10+ with Tk):
 
@@ -64,7 +71,18 @@ Publish selects the content folder and Localization scans it).
 | `legacy` | old `.map` textures left in the upload | Workshop Uploader |
 | `odf-lint` *(opt-in)* | older list-based ODF header/field scan | Workshop Uploader |
 
-Validation never modifies the mod folder.
+Validation never modifies the mod folder. The Workshop page's readiness check
+runs the `bzn` and `odf` checks too: their errors block publishing (you can
+still choose *Publish anyway*).
+
+### Dependencies
+
+*Project > Dependencies* and `bztoolbox deps` map how the files of a mod refer
+to each other: mission `.ini` -> `.bzn` -> ODFs -> meshes -> materials ->
+textures, and `.trn` -> `.hg2`/`.mat`/`.lgt`, palette and textures. Pick a file
+to see what uses it (what breaks if it is renamed) and what it needs. The page
+also lists references that are not in the project (missing, or stock), files
+nothing refers to, and estimated texture memory.
 
 ### Command line
 
@@ -73,6 +91,8 @@ bztoolbox                         open the GUI (same as `bztoolbox gui`)
 bztoolbox gui --project DIR       open with a project
 bztoolbox validate DIR [--json] [--strict] [--checks a,b] [--add odf-lint]
 bztoolbox bzn-deps MISSION.bzn    ODFs a mission uses, stock/custom/missing
+bztoolbox deps DIR [--why FILE] [--json]   asset dependency graph
+bztoolbox zfs list|extract|verify|pack ARCHIVE ...   ZFS archives
 bztoolbox tools [--versions]      external tools and game install detection
 bztoolbox projects                known projects
 bztoolbox selftest                open every page once (used by CI)
@@ -89,23 +109,22 @@ bztoolbox terrain preview ...
 
 ### External tools
 
-The toolbox runs without any of these; only the features listed need them.
-*Settings > External Tools* shows what was found and lets you pick paths.
-
-| Tool | Needed for |
-| --- | --- |
-| FFmpeg | Audio conversion and radio VO mastering |
-| SteamCMD | Workshop uploads |
-| Blender | Ogre mesh to glTF export |
-| OgreXMLConverter / OgreMeshUpgrader | bundled (Windows) |
-| LZO bridge | compressed ZFS archives (bundled, Windows) |
+Only Workshop uploads use an outside program, SteamCMD (*Settings > External
+Tools* shows what was found and lets you pick a path). Everything else is
+built in and works the same on Windows, macOS and Linux: ZFS/LZO archives,
+audio decoding/encoding and the radio effects, and Ogre `.mesh` reading for
+OBJ export and normal fixes.
 
 ## Repository layout
 
 ```text
 battlezone/        GUI-free Battlezone core: formats, validation, project model
+  archives/        ZFS archives and the LZO1X/LZO1Y codec
+  assets/          asset dependency graph
   bzn/             BZN parsing, BZCC -> Redux port
-  odf/             ODF parser, schema, evidence, validator, class labels
+  meshes/          Ogre binary .mesh reader (-> XML, normal patching)
+  odf/             ODF parser, schema, evidence, validator, class labels, unit names
+  terrain/         HG2, LGT, MAT, TRN and stock palettes: one codec each
   validation/      the unified validation engine
   project.py       project model and profile store
 bztoolbox/         the application
@@ -128,11 +147,11 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 pip install -r requirements.txt pytest
 xvfb-run -a python -m pytest     # Linux; GUI tests need a display
 python -m pytest                 # Windows / macOS
-python -m PyInstaller packaging/bztoolbox.spec --noconfirm
+python -m PyInstaller packaging/bztoolbox.spec --noconfirm   # on each platform
 dist/BZModdingToolbox/bztoolbox selftest
 ```
 
 ## License
 
-MIT, except the ZFS module (GPL-2.0) and the Blender-side Ogre importer. See
-[LICENSING.md](LICENSING.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT. See [LICENSING.md](LICENSING.md) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
