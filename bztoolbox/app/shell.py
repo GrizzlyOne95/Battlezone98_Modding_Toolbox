@@ -56,6 +56,10 @@ class Shell:
         self.jobs.add_listener(self._on_job)
 
         self._build_header()
+        # holds the "new version available" banner (empty otherwise)
+        self.banner_slot = ttk.Frame(root, style="Toolbox.TFrame")
+        self.banner_slot.pack(fill="x")
+        self._update_bar: Optional[ttk.Frame] = None
         body = ttk.Frame(root, style="Toolbox.TFrame")
         body.pack(fill="both", expand=True)
         self._build_sidebar(body)
@@ -238,6 +242,105 @@ class Shell:
             self.jobs_progress.configure(value=100 * sum(known) / len(known))
         else:
             self.jobs_progress.pack_forget()
+
+    # ------------------------------------------------------------------ updates
+    def check_for_updates(self, force: bool = False,
+                          on_done: Optional[Callable[[object, Optional[Exception]], None]] = None) -> None:
+        """Ask GitHub for a newer release on a worker thread; show a banner if there is one."""
+        from bztoolbox import updates
+
+        def done(update, error):
+            if update is not None:
+                self.show_update(update)
+            if on_done is not None:
+                on_done(update, error)
+
+        self._run_in_background(lambda: updates.check(self.settings, force=force), done)
+
+    def _run_in_background(self, work: Callable[[], object],
+                           done: Callable[[object, Optional[Exception]], None]) -> None:
+        """Run *work* off the Tk thread and call *done(result, error)* back on it."""
+        import threading
+
+        outcome: dict = {}
+
+        def target():
+            try:
+                outcome["result"] = work()
+            except Exception as exc:  # noqa: BLE001 - offline, rate limited, bad download...
+                outcome["error"] = exc
+
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+
+        def poll():
+            if thread.is_alive():
+                self.root.after(200, poll)
+            else:
+                done(outcome.get("result"), outcome.get("error"))
+
+        try:
+            self.root.after(200, poll)
+        except tk.TclError:
+            pass  # window already closed
+
+    def show_update(self, update) -> None:
+        import webbrowser
+
+        self.hide_update()
+        bar = ttk.Frame(self.banner_slot, style="Toolbox.Surface.TFrame", padding=(14, 6))
+        bar.pack(fill="x")
+        ttk.Separator(self.banner_slot, orient="horizontal", style="Toolbox.TSeparator").pack(fill="x")
+        self._update_bar = bar
+        self._update_label = ttk.Label(
+            bar, text=f"{APP_NAME} {update.version} is available (you have {__version__}).",
+            style="Toolbox.Surface.TLabel")
+        self._update_label.pack(side="left")
+        ttk.Button(bar, text="✕", width=3, style="Toolbox.Link.TButton",
+                   command=self.hide_update).pack(side="right")
+        ttk.Button(bar, text="Skip this version", style="Toolbox.Link.TButton",
+                   command=lambda: (self.settings.set("update_skipped_version", update.version),
+                                    self.hide_update())).pack(side="right")
+        ttk.Button(bar, text="What's new", style="Toolbox.Link.TButton",
+                   command=lambda: webbrowser.open(update.page_url)).pack(side="right")
+        if update.can_install:
+            primary = ttk.Button(bar, text="Update now", style="Toolbox.Accent.TButton")
+            primary.configure(command=lambda: self._install_update(update, primary))
+        else:
+            primary = ttk.Button(bar, text="Download", style="Toolbox.Accent.TButton",
+                                 command=lambda: webbrowser.open(update.download_url or update.page_url))
+        primary.pack(side="right", padx=(0, 8))
+
+    def hide_update(self) -> None:
+        for child in self.banner_slot.winfo_children():
+            child.destroy()
+        self._update_bar = None
+
+    def _install_update(self, update, button) -> None:
+        """Download the Windows setup, then hand over to it and exit."""
+        from bztoolbox import updates
+
+        button.state(["disabled"])
+        self._update_label.configure(text=f"Downloading {APP_NAME} {update.version}…")
+
+        def done(path, error):
+            if error is not None or path is None:
+                button.state(["!disabled"])
+                self._update_label.configure(text=f"{APP_NAME} {update.version} is available.")
+                messagebox.showerror("Update", f"The update could not be downloaded:\n{error}")
+                return
+            if not messagebox.askokcancel(
+                    "Update", f"The toolbox will close and the installer will update it to {update.version}."):
+                button.state(["!disabled"])
+                return
+            try:
+                updates.launch_installer(path)
+            except OSError as exc:
+                messagebox.showerror("Update", f"The installer could not be started:\n{exc}")
+                return
+            self.close()
+
+        self._run_in_background(lambda: updates.download(update), done)
 
     # -------------------------------------------------------------------- close
     def close(self, confirm: bool = True) -> None:
@@ -424,5 +527,6 @@ def run(project: Optional[str] = None, page: Optional[str] = None) -> int:
             page = matches[0] if matches else None
         if page:
             shell.navigate(page)
+    root.after(2000, shell.check_for_updates)   # quiet: at most daily, off in Settings
     root.mainloop()
     return 0

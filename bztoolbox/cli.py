@@ -102,7 +102,12 @@ _DELEGATE_INDEX = {(d.group, d.name): d for d in DELEGATES}
 def _cmd_gui(args) -> int:
     from bztoolbox.app.shell import run
 
-    return run(project=args.project, page=args.page)
+    project = args.project
+    if project and project.endswith('"'):
+        # Explorer's "Open in..." on a drive root passes "D:\", which Windows
+        # argument parsing turns into D:" (a quote can never be part of a path).
+        project = project[:-1] + "\\"
+    return run(project=project, page=args.page)
 
 
 def _cmd_validate(args) -> int:

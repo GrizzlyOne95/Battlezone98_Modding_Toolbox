@@ -7,6 +7,7 @@ import os
 import tempfile
 import time
 import tkinter as tk
+import tkinter.ttk  # noqa: F401 - tk.ttk in the shell test
 import unittest
 from pathlib import Path
 
@@ -192,6 +193,25 @@ class ShellSmokeTests(unittest.TestCase):
                 zfs_page = shell._pages["archives.zfs"].widget
                 zfs_page.open(str(archive))
                 self.assertEqual(len(zfs_page.tree.get_children()), 1)
+
+                # The update banner offers the right action and goes away again.
+                from bztoolbox.updates import Update
+
+                def banner_buttons():
+                    return [w.cget("text") for w in shell._update_bar.winfo_children()
+                            if isinstance(w, tk.ttk.Button)]
+
+                shell.show_update(Update("99.0.0", "https://example.invalid/r",
+                                         "https://example.invalid/s.exe", "BZModdingToolbox-v99.0.0-windows-setup.exe"))
+                self.assertIn("Update now", banner_buttons())
+                shell.show_update(Update("99.0.0", "https://example.invalid/r"))
+                self.assertIn("Download", banner_buttons())
+                self.assertEqual(len(shell.banner_slot.winfo_children()), 2)   # one bar + separator
+                skip = next(w for w in shell._update_bar.winfo_children()
+                            if isinstance(w, tk.ttk.Button) and w.cget("text") == "Skip this version")
+                skip.invoke()
+                self.assertEqual(shell.settings.get("update_skipped_version"), "99.0.0")
+                self.assertEqual(shell.banner_slot.winfo_children(), [])
                 shell.close(confirm=False)
         finally:
             try:

@@ -72,6 +72,13 @@ class CliTests(unittest.TestCase):
             self.assertTrue(rows["avtank.odf"]["stock"])
             self.assertEqual(rows["mine.odf"]["status"], "MISSING")
 
+    def test_gui_repairs_a_drive_root_mangled_by_windows_quoting(self):
+        from unittest import mock
+
+        with mock.patch("bztoolbox.app.shell.run", return_value=0) as run_gui:
+            self.assertEqual(run("gui", "--project", 'D:"')[0], 0)
+            run_gui.assert_called_once_with(project="D:\\", page=None)
+
     def test_clean_user_data_removes_the_data_folder(self):
         from bztoolbox import paths
 
