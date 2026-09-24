@@ -20,7 +20,7 @@ from bztoolbox.modules.terrain_generator import (
     write_lgt,
 )
 
-APP_VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
+from bztoolbox import __version__ as APP_VERSION
 
 
 def cli() -> int:

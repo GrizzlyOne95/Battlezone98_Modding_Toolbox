@@ -11,6 +11,9 @@ from tkinter import ttk, filedialog, messagebox
 import ctypes
 from datetime import datetime
 
+from bztoolbox import external
+from bztoolbox.app.host import EmbeddedRoot
+
 # --- UTILITY FUNCTIONS ---
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.AudioTool"
 
@@ -25,15 +28,9 @@ def _set_app_user_model_id():
 
 
 def get_resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    if getattr(sys, 'frozen', False):
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        return os.path.join(sys._MEIPASS, relative_path)
+    """Resources live beside this module, from source and in the toolbox bundle."""
     here = os.path.dirname(os.path.abspath(__file__))
-    bundled = os.path.join(here, relative_path)
-    if os.path.exists(bundled):
-        return bundled
-    return os.path.join(os.path.abspath("."), relative_path)
+    return os.path.join(here, relative_path)
 
 
 def apply_window_icon(window):
@@ -62,7 +59,11 @@ def apply_window_icon(window):
 _set_app_user_model_id()
 
 # Resource Constants
-FFMPEG_EXE = get_resource_path("ffmpeg.exe")
+def ffmpeg_exe():
+    """FFmpeg chosen in toolbox Settings, else bundled, else from PATH."""
+    return external.executable("ffmpeg", fallback="ffmpeg")
+
+
 COMM_BEEP = get_resource_path("commbeep.wav")
 UNIT_BEEP = get_resource_path("unitbeep.wav")
 
@@ -115,9 +116,9 @@ class ToolTip:
             self.tip_window.destroy()
             self.tip_window = None
 
-class BZRadio(tk.Tk):
-    def __init__(self):
-        super().__init__()
+class BZRadio(EmbeddedRoot):
+    def __init__(self, master=None):
+        super().__init__(master)
         
         # --- WINDOW CONFIGURATION ---
         self.title("BZRadio - Battlezone 98 Redux Audio Tool")
@@ -403,7 +404,7 @@ class BZRadio(tk.Tk):
 
                 if wav_profile == WAV_PROFILE_LOOP:
                     cmd = [
-                        FFMPEG_EXE, '-y', '-i', f, '-map', '0:a:0',
+                        ffmpeg_exe(), '-y', '-i', f, '-map', '0:a:0',
                         '-af', 'aresample=11025'
                     ] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '11025', '-ac', '1', temp_out_f]
                 else:
@@ -434,15 +435,15 @@ class BZRadio(tk.Tk):
                         af_chain += ",tremolo=d=0.05:f=30"
 
                     if beep:
-                        cmd = [FFMPEG_EXE, '-y', '-i', beep, '-i', f, '-i', beep, '-filter_complex', 
+                        cmd = [ffmpeg_exe(), '-y', '-i', beep, '-i', f, '-i', beep, '-filter_complex', 
                                f"[0:a]aresample=22050,volume=0.3[b1]; [1:a]{af_chain}[m]; [2:a]aresample=22050,volume=0.3[b2]; [b1][m][b2]concat=n=3:v=0:a=1[out]",
                                '-map', '[out]'] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '22050', '-ac', '1', temp_out_f]
                     else:
-                        cmd = [FFMPEG_EXE, '-y', '-i', f, '-af', af_chain] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '22050', '-ac', '1', temp_out_f]
+                        cmd = [ffmpeg_exe(), '-y', '-i', f, '-af', af_chain] + scrub_args + ['-fflags', '+bitexact', '-flags', '+bitexact', '-c:a', 'pcm_u8', '-ar', '22050', '-ac', '1', temp_out_f]
             
             else:
                 # OGG LOGIC
-                cmd = [FFMPEG_EXE, '-y', '-i', f, '-map', '0:a'] + scrub_args + ['-c:a', 'libvorbis', '-q:a', '5', '-ar', '44100', out_f]
+                cmd = [ffmpeg_exe(), '-y', '-i', f, '-map', '0:a'] + scrub_args + ['-c:a', 'libvorbis', '-q:a', '5', '-ar', '44100', out_f]
 
             # Execute
             try:

@@ -11,29 +11,28 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from bztoolbox import external, paths
+from bztoolbox.app.host import ctk_embedded_root
+
 IS_WINDOWS = sys.platform == "win32"
 CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
 
 
-def get_app_dir():
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-APP_DIR = get_app_dir()
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = str(paths.user_data_dir())
 CONFIG_FILE = os.path.join(APP_DIR, "ogre_tools_config.json")
 
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.OgreMeshTools"
 
 
 def get_resource_path(relative_path):
-    """Get absolute path to resource for dev and PyInstaller bundling."""
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = APP_DIR
-    return os.path.join(base_path, relative_path)
+    """Resources live beside this module, from source and in the toolbox bundle."""
+    return os.path.join(MODULE_DIR, relative_path)
+
+
+def xml_converter_path():
+    return external.executable(
+        "ogrexmlconverter", fallback=get_resource_path(os.path.join("bin", "OgreXMLConverter.exe")))
 
 
 def _set_app_user_model_id():
@@ -77,19 +76,33 @@ def apply_window_icon(window):
 
 _set_app_user_model_id()
 
-# Ensure current dir is in sys.path for imports
-current_dir = get_resource_path(".")
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+WORKER_THREAD_NAME = "ogre-mesh-tools-job"
+
 
 class ConsoleRedirector:
-    def __init__(self, log_func):
+    """Route print() output into the tool log.
+
+    Standalone, everything is captured (the original behaviour). Inside the
+    toolbox only this tool's worker threads are captured; other output goes
+    to ``fallback`` so modules do not steal each other's console.
+    """
+
+    def __init__(self, log_func, fallback=None, worker_only=False):
         self.log_func = log_func
+        self.fallback = fallback
+        self.worker_only = worker_only
+
     def write(self, string):
+        if self.worker_only and threading.current_thread().name != WORKER_THREAD_NAME:
+            if self.fallback is not None:
+                self.fallback.write(string)
+            return
         if string.strip():
             self.log_func(string.strip())
+
     def flush(self):
-        pass
+        if self.fallback is not None and hasattr(self.fallback, "flush"):
+            self.fallback.flush()
 
 
 def obj_output_name(source_name):
@@ -110,27 +123,9 @@ def resolve_executable_path(command):
         return command if os.path.exists(command) else None
     return shutil.which(command)
 
-# ── COMMAND LINE MODE (FOR SUBPROCESSES) ──────────────────────────────────────
-# If the EXE is launched with arguments, check if we need to run a tool instead
-# of the GUI. This handles any legacy code using sys.executable subprocess calls.
-if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
-    # Check for script-proxy mode
-    arg1 = sys.argv[1].lower()
-    if "meshtoobj" in arg1:
-        from bztoolbox.modules.meshes import MeshToObj
-        # Mock sys.argv for the target script
-        sys.argv = sys.argv[1:]
-        result = MeshToObj.main()
-        sys.exit(result if isinstance(result, int) else 0)
-    elif "batch_ogre_to_gltf" in arg1:
-        import batch_ogre_to_gltf
-        sys.argv = sys.argv[1:]
-        result = batch_ogre_to_gltf.main()
-        sys.exit(result if isinstance(result, int) else 0)
-
-class OgreMeshToolsGUI(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+class OgreMeshToolsGUI(ctk_embedded_root()):
+    def __init__(self, master=None):
+        super().__init__(master)
 
         self._ui_queue = Queue()
         self._main_thread_id = threading.get_ident()
@@ -173,8 +168,9 @@ class OgreMeshToolsGUI(ctk.CTk):
         self.setup_ui()
         
         # Capture stdout/stderr AFTER UI is setup
-        sys.stdout = ConsoleRedirector(self.log)
-        sys.stderr = ConsoleRedirector(self.log)
+        embedded = self._toolbox_standalone is None
+        sys.stdout = ConsoleRedirector(self.log, fallback=sys.stdout, worker_only=embedded)
+        sys.stderr = ConsoleRedirector(self.log, fallback=sys.stderr, worker_only=embedded)
         self.after(50, self._process_ui_queue)
         
     def load_config(self):
@@ -182,10 +178,10 @@ class OgreMeshToolsGUI(ctk.CTk):
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                    self.blender_path.set(cfg.get("blender_path", "blender"))
+                    self.blender_path.set(cfg.get("blender_path", "") or external.executable("blender", "blender"))
             except: pass
         else:
-            self.blender_path.set("blender")
+            self.blender_path.set(external.executable("blender", "blender"))
 
     def save_config(self):
         cfg = {
@@ -574,7 +570,7 @@ class OgreMeshToolsGUI(ctk.CTk):
         self._set_progress(0)
         self.log("Starting operation sequence...")
 
-        thread = threading.Thread(target=self.run_operations, args=(job,), daemon=True)
+        thread = threading.Thread(target=self.run_operations, args=(job,), daemon=True, name=WORKER_THREAD_NAME)
         thread.start()
 
     def run_operations(self, job):
@@ -583,7 +579,7 @@ class OgreMeshToolsGUI(ctk.CTk):
         try:
             input_p = job["input_path"]
             requested_output = job["output_path"]
-            xml_converter = get_resource_path("OgreXMLConverter.exe")
+            xml_converter = xml_converter_path()
             is_batch = job["batch_mode"]
             blender_exe = self._validate_job_tools(job, xml_converter)
 
@@ -733,7 +729,7 @@ class OgreMeshToolsGUI(ctk.CTk):
                 self.log("--- STARTING glTF CONVERSION (Blender) ---")
 
                 try:
-                    gltf_script = get_resource_path("batch_ogre_to_gltf.py")
+                    gltf_script = get_resource_path(os.path.join("blender", "batch_ogre_to_gltf.py"))
                     default_output = os.path.join(
                         input_p if is_batch else os.path.dirname(input_p),
                         "glTF_Export",

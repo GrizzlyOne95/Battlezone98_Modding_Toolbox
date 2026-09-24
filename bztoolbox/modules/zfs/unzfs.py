@@ -8,17 +8,12 @@ from ctypes import *
 import zlib
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+    """Resources live beside this module, from source and in the toolbox bundle."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 # --- DLL Integration (SINGLE BLOCK) ---
 try:
-    dll_path = resource_path('lzo_bridge.dll')
+    dll_path = resource_path(os.path.join('native', 'lzo_bridge.dll'))
     lzo_dll = WinDLL(dll_path)
     
     # Define signatures to match bridge.cpp (lzo_uint -> c_size_t)

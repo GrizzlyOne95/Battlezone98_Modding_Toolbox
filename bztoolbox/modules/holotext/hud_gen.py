@@ -10,6 +10,9 @@ import ctypes
 # Platform check
 IS_WINDOWS = sys.platform == "win32"
 
+BUNDLED_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BZONE.ttf")
+
+
 class BZFontGenerator:
     def __init__(self, root):
         self.root = root
@@ -23,7 +26,7 @@ class BZFontGenerator:
         }
         
         self.output_dir = tk.StringVar(value=os.path.join(os.getcwd(), "output"))
-        self.font_path = tk.StringVar(value="BZONE.ttf") 
+        self.font_path = tk.StringVar(value=BUNDLED_FONT) 
         self.variant_count = tk.IntVar(value=10)
         self.text_color = "#00FF00"
         self.spacing = tk.DoubleVar(value=1.5)
@@ -40,7 +43,7 @@ class BZFontGenerator:
     def load_custom_fonts(self):
         self.current_font = "Consolas"
         if IS_WINDOWS:
-            font_path = os.path.join(os.getcwd(), "BZONE.ttf")
+            font_path = BUNDLED_FONT
             if os.path.exists(font_path):
                 try:
                     if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:

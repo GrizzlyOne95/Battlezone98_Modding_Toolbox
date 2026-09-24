@@ -13,7 +13,17 @@ try:
 except ImportError:
     HAS_DND = False
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def _dnd_ready(widget):
+    """Drag & drop needs a tkdnd-enabled root (TkinterDnD.Tk), not just the package."""
+    if not HAS_DND:
+        return False
+    try:
+        widget.tk.call("package", "present", "tkdnd")
+        return True
+    except tk.TclError:
+        return False
+
 from bztoolbox.modules.textures import bcpack
 from bztoolbox.modules.textures import uiscan
 from bztoolbox.modules.textures import recompress
@@ -65,7 +75,9 @@ BZ_GREEN = "#00ff00"
 BZ_DARK_GREEN = "#004400"
 BZ_CYAN = "#00ffff"
 
-CONFIG_FILE = "tex_man_config.json"
+from bztoolbox.paths import module_data_dir
+
+CONFIG_FILE = str(module_data_dir("textures") / "tex_man_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.TextureManager"
 
 
@@ -206,12 +218,10 @@ class BZReduxSuite:
         self.root.configure(bg=BZ_BG)
         
         # --- RESOURCES ---
-        if getattr(sys, 'frozen', False):
-            self.base_dir = os.path.dirname(sys.executable)
-            self.resource_dir = sys._MEIPASS
-        else:
-            self.base_dir = os.path.dirname(os.path.abspath(__file__))
-            self.resource_dir = self.base_dir
+        # Toolbox layout: bundled resources beside this module, per-user
+        # state in the toolbox data directory.
+        self.resource_dir = os.path.dirname(os.path.abspath(__file__))
+        self.base_dir = str(module_data_dir("textures"))
             
         font_path = os.path.join(self.resource_dir, "bzone.ttf")
         if not os.path.exists(font_path):
@@ -824,7 +834,7 @@ class BZReduxSuite:
         self.tex_single_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         ttk.Button(src_f, text="Browse", width=8, command=self.browse_single_tex).pack(side="left")
         
-        if HAS_DND:
+        if _dnd_ready(self.root):
             self.tex_single_entry.drop_target_register(DND_FILES)
             self.tex_single_entry.dnd_bind('<<Drop>>', self.on_tex_drop)
         
@@ -1384,7 +1394,7 @@ class BZReduxSuite:
         e2.pack(fill="x", pady=(0, 5))
         ttk.Button(f, text="Browse Alpha", command=lambda: self.pack_alpha_path.set(filedialog.askopenfilename())).pack(anchor="e", pady=(0, 15))
         
-        if HAS_DND:
+        if _dnd_ready(self.root):
             for e in [e1, e2]:
                 e.drop_target_register(DND_FILES)
                 e.dnd_bind('<<Drop>>', lambda event, var=e.cget("textvariable"): self.root.setvar(var, event.data.strip('{}')))

@@ -29,13 +29,10 @@ except ImportError:
 
 import sys
 
-# In PyInstaller, we want the log next to the EXE, not in the temp _MEIPASS dir
-if getattr(sys, "frozen", False):
-    APP_DIR = os.path.dirname(sys.executable)
-else:
-    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+from bztoolbox import paths
 
-LOG_FILE = os.path.join(APP_DIR, "OgrePreview.log")
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(str(paths.user_data_dir()), "OgrePreview.log")
 
 def log_msg(msg):
     try:
@@ -222,10 +219,7 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
             log_msg(f"[OgrePreview] Error in locateResources (Ogre Media):\n{traceback.format_exc()}")
 
         # 3. Register project directory (for BZBase.material)
-        if getattr(sys, 'frozen', False):
-            _project_dir = getattr(sys, "_MEIPASS", APP_DIR)
-        else:
-            _project_dir = os.path.dirname(os.path.abspath(__file__))
+        _project_dir = MODULE_DIR
 
         try:
             _rgm.addResourceLocation(_project_dir, "FileSystem", "General")

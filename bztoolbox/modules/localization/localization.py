@@ -108,10 +108,7 @@ class BZ98GuiApp:
         self.main_font = "Consolas"
         self.header_font = "Consolas"
         
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(os.path.abspath(__file__))
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
         if IS_WINDOWS:
             font_path = os.path.join(base_path, "BZONE.ttf")

@@ -1,13 +1,29 @@
+"""Workshop content scanner (moved from the Workshop Uploader).
+
+Used by the Publishing module for its upload readiness checks and by the
+unified :mod:`battlezone.validation` engine.
+"""
+
 import configparser
 import hashlib
 import os
 import re
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
 
 class ModScanner:
-    def __init__(self, resource_dir, logger=None):
+    def __init__(self, resource_dir=None, logger=None):
         self.resource_dir = resource_dir
         self.logger = logger
+
+    def _resource(self, name):
+        """Rule list lookup: an explicit resource dir wins, else the bundled copy."""
+        if self.resource_dir:
+            candidate = os.path.join(self.resource_dir, name)
+            if os.path.exists(candidate):
+                return candidate
+        return os.path.join(DATA_DIR, name)
 
     def log(self, msg):
         if self.logger:
@@ -18,12 +34,12 @@ class ModScanner:
         allowed_params = {}
         required_params = {}
 
-        header_list_path = os.path.join(self.resource_dir, "odfHeaderList.txt")
+        header_list_path = self._resource("odfHeaderList.txt")
         if os.path.exists(header_list_path):
             with open(header_list_path, "r", encoding="utf-8", errors="ignore") as f:
                 allowed_headers = {line.strip().lower() for line in f if line.strip()}
 
-        params_list_path = os.path.join(self.resource_dir, "bzrODFparams.txt")
+        params_list_path = self._resource("bzrODFparams.txt")
         if os.path.exists(params_list_path):
             current_class = None
             with open(params_list_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -231,7 +247,12 @@ class ModScanner:
                 legacy_files.append(entry["path"])
         return legacy_files
 
-    def validate_content_structure(self, mod_dir):
+    def validate_content_structure(self, mod_dir, remove_system_files=True):
+        """Check the Workshop content-root layout.
+
+        The uploader historically deletes ``desktop.ini`` before checking; the
+        read-only validation engine passes ``remove_system_files=False``.
+        """
         errors = []
         warnings = []
 
@@ -242,6 +263,9 @@ class ModScanner:
             return errors, warnings
 
         for name in files[:]:
+            if name.lower() == "desktop.ini" and not remove_system_files:
+                files.remove(name)
+                continue
             if name.lower() == "desktop.ini":
                 try:
                     os.remove(os.path.join(mod_dir, name))

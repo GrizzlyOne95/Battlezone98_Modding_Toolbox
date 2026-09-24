@@ -38,15 +38,15 @@ DEFAULT_OVERLAY_OPACITY = 40
 
 
 def bundle_dir():
-    if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS)
+    """Bundled fonts live beside this module, from source and in the toolbox bundle."""
     return Path(__file__).resolve().parent
 
 
 def app_dir():
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    """Per-user state (profiles) lives in the toolbox data directory."""
+    from bztoolbox.paths import module_data_dir
+
+    return module_data_dir("fonts")
 
 
 def resource_path(relative_path):
@@ -243,7 +243,7 @@ class BzoneApp:
     def load_custom_fonts(self):
         self.current_font = "Segoe UI"
         font_path = resource_path("BZONE.ttf")
-        if os.path.exists(font_path):
+        if os.path.exists(font_path) and sys.platform == "win32":
             try:
                 if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
                     self.current_font = "BZONE"

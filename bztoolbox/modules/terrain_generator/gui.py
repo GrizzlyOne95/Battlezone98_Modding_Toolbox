@@ -79,22 +79,30 @@ def apply_window_icon(window) -> None:
         pass
 
 
-def run_gui() -> None:
+def run_gui(root=None) -> None:
+    """Build the generator UI in ``root``; standalone when ``root`` is None.
+
+    Inside the toolbox ``root`` is an embedded frame: the shell owns the ttk
+    theme and the main loop, so neither is touched here.
+    """
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
-    _set_app_user_model_id()
-    root = tk.Tk()
+    standalone = root is None
+    if standalone:
+        _set_app_user_model_id()
+        root = tk.Tk()
     apply_window_icon(root)
     root.title("BZR Heightmap Generator — Live HG2 / LGT Preview")
     root.geometry("1380x920")
     root.configure(bg="#0a0a0a")
 
     style = ttk.Style(root)
-    try:
-        style.theme_use("clam")
-    except tk.TclError:
-        pass
+    if standalone:
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
 
     main = ttk.Frame(root, padding=8)
     main.pack(fill="both", expand=True)
@@ -563,4 +571,5 @@ def run_gui() -> None:
     # Polling is created on the Tk thread; workers communicate only by queue.
     poll["after_id"] = root.after(25, poll_worker_results)
     schedule_generate(preserve_seed=True, immediate=True)
-    root.mainloop()
+    if standalone:
+        root.mainloop()

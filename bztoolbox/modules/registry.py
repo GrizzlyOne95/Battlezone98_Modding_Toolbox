@@ -1,0 +1,131 @@
+"""Navigation model: every page of the toolbox, grouped by workflow area.
+
+Pages are declared here and imported lazily, so opening the toolbox does not
+import SciPy, customtkinter, Ogre, ... until a page that needs them is shown.
+
+``kind="native"``  - a page written for the shell; ``factory(parent, shell)``
+                     returns a widget.
+``kind="legacy"``  - a migrated tool UI hosted through
+                     :mod:`bztoolbox.app.host`; ``factory(container)`` returns
+                     ``(root_widget, app)``.
+"""
+
+from __future__ import annotations
+
+import importlib
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Sequence
+
+SECTIONS: Sequence[tuple[str, str]] = (
+    ("home", "Home"),
+    ("project", "Project"),
+    ("missions", "Missions"),
+    ("world", "World & Terrain"),
+    ("assets", "Assets"),
+    ("archives", "Archives"),
+    ("tools", "Tools"),
+    ("settings", "Settings"),
+)
+
+
+@dataclass(frozen=True)
+class PageSpec:
+    id: str
+    section: str
+    title: str
+    summary: str
+    factory: str                       # "package.module:function"
+    kind: str = "native"
+    origin: str = ""                   # the standalone tool this replaces
+    requires: Sequence[str] = ()       # external tool ids (bztoolbox.external)
+    project_hook: Optional[str] = None # "package.module:function(app, project)"
+    keywords: Sequence[str] = field(default_factory=tuple)
+
+    def load_factory(self) -> Callable:
+        return _resolve(self.factory)
+
+    def load_project_hook(self) -> Optional[Callable]:
+        return _resolve(self.project_hook) if self.project_hook else None
+
+
+def _resolve(dotted: str) -> Callable:
+    module_name, _, attr = dotted.partition(":")
+    return getattr(importlib.import_module(module_name), attr)
+
+
+_L = "bztoolbox.modules.legacy"
+_P = "bztoolbox.app.pages"
+
+PAGES: Sequence[PageSpec] = (
+    # --- Home -------------------------------------------------------------
+    PageSpec("home", "home", "Home", "Recent projects, quick actions and install detection.",
+             f"{_P}.home:HomePage"),
+
+    # --- Project ----------------------------------------------------------
+    PageSpec("project.overview", "project", "Overview",
+             "The open mod: metadata shared by every module and what the folder contains.",
+             f"{_P}.project:ProjectPage"),
+    PageSpec("project.validation", "project", "Validation",
+             "One validation engine for missions, ODFs, assets and Workshop layout.",
+             f"{_P}.validation:ValidationPage", keywords=("odf", "preflight", "check")),
+    PageSpec("project.localization", "project", "Localization",
+             "Scan ODF unit names and build Redux localization tables.",
+             f"{_L}:localization", kind="legacy", origin="Localization Tool",
+             project_hook=f"{_L}:localization_project"),
+    PageSpec("project.publish", "project", "Workshop / Publish",
+             "Readiness checks, content fixes and Steam Workshop uploads.",
+             f"{_L}:publishing", kind="legacy", origin="Workshop Uploader", requires=("steamcmd",),
+             project_hook=f"{_L}:publishing_project"),
+
+    # --- Missions ---------------------------------------------------------
+    PageSpec("missions.inspector", "missions", "Mission Inspector",
+             "BZN dependencies, ODF validation and BZ2/BZCC to Redux mission ports.",
+             f"{_L}:missions", kind="legacy", origin="BZN Toolbox", keywords=("bzn", "odf", "bzcc")),
+
+    # --- World & Terrain --------------------------------------------------
+    PageSpec("world.builder", "world", "World Builder",
+             "Create worlds, legacy/BZ2 terrain ports, auto-painting, atlases, skies and mission preview.",
+             f"{_L}:world", kind="legacy", origin="WorldBuilder",
+             keywords=("trn", "hg2", "mat", "atlas", "sky", "legacy")),
+    PageSpec("world.generate", "world", "Generate Terrain",
+             "Procedural HG2 terrain with live HG2/LGT preview.",
+             f"{_L}:terrain_generator", kind="legacy", origin="HeightmapGen", keywords=("hg2", "lgt", "heightmap")),
+
+    # --- Assets -----------------------------------------------------------
+    PageSpec("assets.textures", "assets", "Textures & Images",
+             "ACT palettes, texture conversion, MAP/MakeMAP, LGT, DXTBZ2 and channel packing.",
+             f"{_L}:textures", kind="legacy", origin="TextureManager", keywords=("dds", "map", "act", "lgt")),
+    PageSpec("assets.fonts", "assets", "Fonts",
+             "Generate bzfont.dds font sheets.",
+             f"{_L}:fonts", kind="legacy", origin="Font Generator"),
+    PageSpec("assets.holotext", "assets", "Holographic Text",
+             "Holo text sprites, materials, ODFs and Lua.",
+             f"{_L}:holotext", kind="legacy", origin="HoloTextGen"),
+    PageSpec("assets.meshes", "assets", "Models & Meshes",
+             "Ogre mesh fixes and OBJ/glTF export with live preview.",
+             f"{_L}:meshes", kind="legacy", origin="OgreMeshTools", requires=("blender", "ogrexmlconverter")),
+    PageSpec("assets.audio", "assets", "Audio",
+             "Radio VO mastering, engine WAV conversion, music OGG and timing manifests.",
+             f"{_L}:audio", kind="legacy", origin="AudioTool", requires=("ffmpeg",)),
+
+    # --- Archives ---------------------------------------------------------
+    PageSpec("archives.zfs", "archives", "ZFS Archives",
+             "Browse, extract and pack ZFS archives.",
+             f"{_L}:zfs", kind="legacy", origin="ZFS Specialist", requires=("lzo_bridge",)),
+
+    # --- Tools ------------------------------------------------------------
+    PageSpec("tools.tasks", "tools", "Background Tasks", "Everything running in the background.",
+             f"{_P}.tasks:TasksPage"),
+
+    # --- Settings ---------------------------------------------------------
+    PageSpec("settings.general", "settings", "General", "Game install and data folders.",
+             f"{_P}.settings:SettingsPage"),
+    PageSpec("settings.external", "settings", "External Tools", "FFmpeg, SteamCMD, Blender and bundled helpers.",
+             f"{_P}.settings:ExternalToolsPage"),
+)
+
+PAGES_BY_ID = {page.id: page for page in PAGES}
+
+
+def pages_in(section: str) -> list[PageSpec]:
+    return [page for page in PAGES if page.section == section]

@@ -69,5 +69,14 @@ class ProjectStore:
         profile_path = payload.get("profile_path") or self._profile_path_for_mod(mod_path or payload.get("title", "project"))
         payload["profile_path"] = profile_path
         payload["last_opened"] = datetime.now(timezone.utc).isoformat()
+        # The profile is shared with the toolbox project model: keep fields
+        # this module does not manage (author, notes, per-module state, ...).
+        if os.path.exists(profile_path):
+            try:
+                existing = self.file_manager.load_profile(profile_path)
+            except Exception:
+                existing = None
+            if isinstance(existing, dict):
+                payload = {**existing, **payload}
         self.file_manager.save_profile(profile_path, payload)
         return profile_path

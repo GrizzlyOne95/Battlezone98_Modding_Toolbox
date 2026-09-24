@@ -29,7 +29,10 @@ BZ_GREEN = "#00ff00"
 BZ_DARK_GREEN = "#004400"
 BZ_CYAN = "#00ffff"
 
-CONFIG_FILE = "world_builder_config.json"
+from bztoolbox.app.widgets import register_wheel_target
+from bztoolbox.paths import module_data_dir
+
+CONFIG_FILE = str(module_data_dir("world") / "world_builder_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.WorldBuilder"
 
 
@@ -832,12 +835,10 @@ class BZ98TRNArchitect:
         self.root.configure(bg=BZ_BG)
         
         # Font/Icon logic - Moved up for config loading
-        if getattr(sys, 'frozen', False):
-            self.base_dir = os.path.dirname(sys.executable)
-            self.resource_dir = sys._MEIPASS
-        else:
-            self.base_dir = os.path.dirname(os.path.abspath(__file__))
-            self.resource_dir = self.base_dir
+        # Toolbox layout: bundled resources beside this module, per-user
+        # state in the toolbox data directory.
+        self.resource_dir = os.path.dirname(os.path.abspath(__file__))
+        self.base_dir = str(module_data_dir("world"))
 
         self.config = self.load_config()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -1880,9 +1881,9 @@ class BZ98TRNArchitect:
                   command=lambda: self.notebook.select(self.tab_help)).pack(side="right")
 
 
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # Shared wheel dispatcher: scrolls this panel only while the pointer is
+        # over it (a bare bind_all would scroll it from every toolbox page).
+        register_wheel_target(canvas, lambda units: canvas.yview_scroll(units, "units"))
 
         # --- WIDGETS ---
         # 1. SOURCE SELECT (Moved to Top)

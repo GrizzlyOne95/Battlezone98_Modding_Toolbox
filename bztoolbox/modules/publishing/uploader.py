@@ -9,7 +9,8 @@ import ctypes
 import re
 import requests
 from datetime import datetime, timezone
-from bztoolbox.modules.publishing.mod_scanner import ModScanner
+from battlezone.validation.mod_scanner import ModScanner
+from bztoolbox.paths import module_data_dir, projects_dir
 from bztoolbox.modules.publishing.steam_service import SteamService
 from bztoolbox.modules.publishing.workshop_backend import WorkshopBackend
 from bztoolbox.modules.publishing.memory_analyzer import MemoryAnalyzer
@@ -277,15 +278,14 @@ class WorkshopUploader:
         except Exception:
             pass
         
-        if getattr(sys, 'frozen', False):
-            self.base_dir = os.path.dirname(sys.executable)
-            self.resource_dir = sys._MEIPASS
-        else:
-            self.base_dir = os.path.dirname(os.path.abspath(__file__))
-            self.resource_dir = self.base_dir
+        # Toolbox layout: bundled resources beside this module, per-user
+        # state in the toolbox data directory.
+        self.resource_dir = os.path.dirname(os.path.abspath(__file__))
+        self.base_dir = str(module_data_dir("publishing"))
         self.config_path = os.path.join(self.base_dir, CONFIG_FILE_NAME)
             
-        self.profiles_dir = os.path.join(self.base_dir, "profiles")
+        # Upload profiles are the toolbox project profiles (same format).
+        self.profiles_dir = str(projects_dir())
         os.makedirs(self.profiles_dir, exist_ok=True)
             
         self.temp_dir = os.path.join(self.base_dir, "temp_previews")
