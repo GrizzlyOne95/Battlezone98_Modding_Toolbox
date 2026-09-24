@@ -12,6 +12,15 @@ import re
 from battlezone.terrain.trn import TRNDocument
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+_INDEX_SUFFIX = re.compile(r"\d+$")
+
+
+def _param_allowed(key, allowed):
+    """``key`` is listed, or is ``base<digits>`` for a listed ``base#`` family."""
+    if key in allowed:
+        return True
+    match = _INDEX_SUFFIX.search(key)
+    return bool(match) and key[:match.start()] + "#" in allowed
 
 
 class ModScanner:
@@ -162,7 +171,7 @@ class ModScanner:
                             key = line.split("=", 1)[0].strip()
                             key_key = key.lower()
                             if current_header_key in allowed_params:
-                                if key_key not in allowed_params[current_header_key]:
+                                if not _param_allowed(key_key, allowed_params[current_header_key]):
                                     issues.append((path, "Unknown Field", f"[{current_header}] {key}", i + 1))
                                 else:
                                     found_params.add(key_key)

@@ -78,6 +78,13 @@ class ClassLabelTests(unittest.TestCase):
         redux = OdfIndex([self.root / "redux"])
         diff = diff_classes(["peclif01"], self.bzcc, redux, ("ubtart",), None, True)[0]
         self.assertEqual(diff.status, "invalid-redux-label")
+
+    def test_base_class_label_is_valid_but_noted(self):
+        write_odfs(self.root / "redux", {"ivscout": "hover"})
+        redux = OdfIndex([self.root / "redux"])
+        diff = diff_classes(["ivscout"], self.bzcc, redux, (), {"ivscout": "ivscout"})[0]
+        self.assertNotEqual(diff.status, "invalid-redux-label")
+        self.assertTrue(any("base class" in note for note in diff.notes))
         write_odfs(self.root / "bzcc", {"pbtele01a": "i76building"})
         diff = diff_classes(["pbtele01a"], OdfIndex([self.root / "bzcc"]), redux, ("ubtart",))[0]
         self.assertEqual(diff.status, "id-too-long")

@@ -31,21 +31,36 @@ import re
 import sys
 
 
-# Labels used by the stock Redux ODFs (StockODFFiles survey, 796 ODFs), plus
-# "bullet" and "i76building2", which the Redux executable registers next to
-# i76building and i76sign but no stock ODF uses.
+# Every prototype label the Redux executable registers, taken from the
+# prototype constructors in the Redux decompile (BZ1_Source, Redux/Raw .C:
+# each installs a vftable, a four-byte signature and the label that
+# XxxClass::Find matches classLabel against), plus i76building2 and i76sign,
+# which a static initialiser registers as BuildingClass variants. Short labels
+# (apc, beam, bolt, mine, sav, tug) are data references in the decompile; their
+# spelling comes from the 1.5 loader schema (research/odf_loader_schema.json).
+#
+# The base prototypes (REDUX_BASE_LABELS) are registered like any other, so
+# Find accepts them, but no stock ODF uses them: an object built from one gets
+# only the base class behaviour. animbuilding, dropoff and shieldtower are
+# complete classes that no stock ODF uses either.
 REDUX_CLASS_LABELS = frozenset("""
-ammopack anchor apc armory artifact barracks beam beamgun bolt bouncebomb
-bullet camerapod cannon chargegun commtower constructionrig daywrecker
-detonator dispenser explosion factory flamepuff flare geyser grenade
-groundblast howitzer i76building i76building2 i76sign imagelauncher imagemissile
-imagerefract lobber machinegun magnet minelayer missile mortar person
-planarexpl popper poppergun portal powerplant proximity quakeblast
-radardamper radarlauncher recycler repairdepot repairkit rocket sav scavenger
-scrap scrapfield scrapsilo seismic shockblast snipergun snipershell spawnpnt
+ammopack anchor animbuilding apc armory artifact barracks beam beamgun bolt
+bouncebomb bullet camerapod cannon chargegun commtower constructionrig craft
+daywrecker detonator dispenser dropoff explosion factory flamepuff flare geyser
+grenade groundblast hover howitzer i76building i76building2 i76sign
+imagelauncher imagemissile imagerefract launcher lobber machinegun magnet mine
+minelayer missile mortar ordnance person planarexpl popper poppergun portal
+powerplant powerup producer proximity quakeblast radardamper radarlauncher
+recycler repairdepot repairkit rocket sav scavenger scrap scrapfield scrapsilo
+seismic shieldtower shockblast snipergun snipershell spawnpnt specialitem
 spraybomb supplydepot switcher targeting terrainexpose thermallauncher
-thermalmissile torpedo tracer tug turret turrettank walker weaponmine wingman
-wpnpower
+thermalmissile torpedo tracer tug turret turrettank walker weapon weaponmine
+wingman wpnpower
+""".split())
+
+# Base prototypes: accepted by the engine, but almost never what a port wants.
+REDUX_BASE_LABELS = frozenset("""
+craft hover launcher mine ordnance powerup producer specialitem weapon
 """.split())
 
 # Redux classes whose mission-save BZN records hold only the base GameObject
@@ -320,6 +335,9 @@ def _status(diff: ClassDiff, rule: ClassRule, tiers, explicit: bool) -> str:
         diff.problems.append(f"Redux ODF classLabel {diff.target_label!r} is not a Redux class"
                              + (f"; use {rule.redux!r}" if rule.redux else ""))
         return "invalid-redux-label"
+    if diff.target_label in REDUX_BASE_LABELS:
+        diff.notes.append(f"{diff.target_label!r} is a Redux base class: the object gets only "
+                          "the base behaviour")
     if not explicit and rule.tier not in tiers:
         diff.problems.append(f"{rule.tier} class {diff.source_label!r}: map it by hand"
                              + (f" ({rule.note})" if rule.note else ""))
