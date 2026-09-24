@@ -211,7 +211,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
             self.preview_frame = ogre_preview.OgrePreviewFrame(self.right_col)
             self.preview_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
         except (ImportError, Exception):
-            lbl = ctk.CTkLabel(self.right_col, text="Ogre preview not available.\nRun 'py -3.10 -m pip install ogre-python' first.")
+            lbl = ctk.CTkLabel(self.right_col, text="Ogre preview not available.\nOptional: pip install ogre-python for a live preview.")
             lbl.pack(expand=True)
             self.preview_frame = None
 

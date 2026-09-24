@@ -795,10 +795,30 @@ class TestWorkshopUploader(unittest.TestCase):
         response.content = buffer.getvalue()
 
         request_with_retry = MagicMock(return_value=response)
-        exe_path = manager.download_steamcmd(self.test_dir, request_with_retry)
+        exe_path = manager.download_steamcmd(self.test_dir, request_with_retry, platform="win32")
 
         self.assertTrue(os.path.exists(exe_path))
         request_with_retry.assert_called_once()
+
+    def test_app_file_manager_downloads_steamcmd_tarball_on_macos_and_linux(self):
+        import tarfile
+
+        for platform in ("linux", "darwin"):
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                data = b"#!/bin/sh\n"
+                info = tarfile.TarInfo("steamcmd.sh")
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+            response = MagicMock()
+            response.content = buffer.getvalue()
+            request_with_retry = MagicMock(return_value=response)
+            target = os.path.join(self.test_dir, platform)
+            exe_path = AppFileManager().download_steamcmd(target, request_with_retry, platform=platform)
+            self.assertTrue(exe_path.endswith("steamcmd.sh"))
+            self.assertIn(platform if platform == "linux" else "osx", request_with_retry.call_args[0][1])
+            if os.name != "nt":
+                self.assertTrue(os.access(exe_path, os.X_OK))
 
     def test_upload_preflight_validate_inputs_rejects_missing_username_without_cached_creds(self):
         preflight = UploadPreflight()

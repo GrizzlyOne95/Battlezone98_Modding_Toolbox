@@ -28,7 +28,7 @@ from scipy import signal
 
 try:
     import soundfile as sf
-except ImportError:  # pragma: no cover - listed in requirements
+except (ImportError, OSError):  # pragma: no cover - listed in requirements; OSError: no libsndfile
     sf = None
 
 INPUT_EXTENSIONS = (".wav", ".mp3", ".ogg", ".flac", ".aif", ".aiff")

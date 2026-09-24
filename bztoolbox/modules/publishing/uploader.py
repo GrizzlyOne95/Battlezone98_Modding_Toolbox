@@ -21,6 +21,7 @@ from bztoolbox.modules.publishing.project_store import ProjectStore
 from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
 from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
 from bztoolbox.app.fonts import bz_font
+from bztoolbox.system import open_in_file_manager
 
 try:
     from PIL import Image
@@ -988,10 +989,7 @@ class WorkshopUploader:
         if not path or not os.path.exists(path):
             return False
         try:
-            if IS_WINDOWS:
-                os.startfile(path)
-            else:
-                subprocess.call(["xdg-open", path])
+            open_in_file_manager(path)
             return True
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {e}")
@@ -1122,10 +1120,7 @@ class WorkshopUploader:
                 messagebox.showinfo("Changes", "The selected entry is not a local file you can open.", parent=win)
                 return
             try:
-                if IS_WINDOWS:
-                    os.startfile(path)
-                else:
-                    subprocess.call(["xdg-open", path])
+                open_in_file_manager(path)
             except Exception as e:
                 messagebox.showerror("Error", f"Could not open file: {e}", parent=win)
 
@@ -2255,7 +2250,7 @@ class WorkshopUploader:
         self.log_box.config(state="disabled")
 
     def browse_steamcmd(self):
-        f = filedialog.askopenfilename(filetypes=[("Executable", "*.exe")])
+        f = filedialog.askopenfilename(filetypes=[("SteamCMD", "steamcmd.exe steamcmd.sh steamcmd"), ("All files", "*")])
         if f:
             self.steamcmd_path.set(f)
             self._sync_steam_identity_from_local_state()
@@ -2664,7 +2659,7 @@ class WorkshopUploader:
             if sel:
                 full_path = issue_map.get(sel[0])
                 if full_path and os.path.exists(full_path):
-                    try: os.startfile(full_path) if IS_WINDOWS else subprocess.call(['xdg-open', full_path])
+                    try: open_in_file_manager(full_path)
                     except Exception as e: messagebox.showerror("Error", f"Could not open file: {e}", parent=win)
 
         def on_continue():

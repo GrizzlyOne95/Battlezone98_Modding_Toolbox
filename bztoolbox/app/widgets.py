@@ -3,26 +3,13 @@
 from __future__ import annotations
 
 import os
-import sys
-import subprocess
 import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import Callable, Iterable, List, Optional, Sequence
 
 from bztoolbox.app import theme
 from bztoolbox.app.jobs import CANCELLED, DONE, FAILED, FINISHED, Job, JobManager
-
-
-def open_in_file_manager(path: str) -> None:
-    """Reveal ``path`` in Explorer/Finder/the desktop file manager."""
-    if not path or not os.path.exists(path):
-        return
-    if sys.platform == "win32":
-        os.startfile(path)  # type: ignore[attr-defined]
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", path])
-    else:
-        subprocess.Popen(["xdg-open", path])
+from bztoolbox.system import open_in_file_manager  # noqa: F401  (re-exported for pages)
 
 
 _WHEEL_TARGETS: dict = {}

@@ -12,8 +12,6 @@ Headers across the toolbox and the hosted tools use :func:`bz_font`.
 
 from __future__ import annotations
 
-import ctypes
-import ctypes.util
 import os
 import sys
 from pathlib import Path
@@ -29,11 +27,16 @@ _failed: Set[str] = set()
 
 
 def _register_windows(path: str) -> bool:
+    import ctypes
+
     FR_PRIVATE = 0x10
     return ctypes.windll.gdi32.AddFontResourceExW(path, FR_PRIVATE, 0) > 0  # type: ignore[attr-defined]
 
 
 def _register_fontconfig(path: str) -> bool:
+    import ctypes
+    import ctypes.util
+
     name = ctypes.util.find_library("fontconfig")
     if not name:
         return False
@@ -44,6 +47,8 @@ def _register_fontconfig(path: str) -> bool:
 
 
 def _register_coretext(path: str) -> bool:
+    import ctypes
+
     cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
     ct = ctypes.CDLL("/System/Library/Frameworks/CoreText.framework/CoreText")
     cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
@@ -77,7 +82,7 @@ def register_font_file(path) -> bool:
             ok = _register_coretext(path)
         else:
             ok = _register_fontconfig(path)
-    except (OSError, AttributeError, ValueError):
+    except (ImportError, OSError, AttributeError, ValueError, TypeError):
         ok = False
     (_registered if ok else _failed).add(path)
     return ok

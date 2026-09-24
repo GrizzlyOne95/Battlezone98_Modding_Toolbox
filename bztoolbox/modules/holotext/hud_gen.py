@@ -260,7 +260,7 @@ class BZFontGenerator:
 
         tconv = os.path.join(os.getcwd(), "texconv.exe")
         if os.path.exists(tconv):
-            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=subprocess.CREATE_NO_WINDOW)
+            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             for f in os.listdir(out):
                 if f.endswith(".png"): os.remove(os.path.join(out, f))
         

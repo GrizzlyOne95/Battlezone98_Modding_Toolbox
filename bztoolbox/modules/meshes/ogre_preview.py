@@ -25,7 +25,7 @@ except ImportError:
     Ogre = None
     OgreBites = None
     RTShader = None
-    print("WARNING: Ogre python module not found! Run: py -3.10 -m pip install ogre-python")
+    print("WARNING: Ogre python module not found (optional preview): pip install ogre-python")
 
 import sys
 
@@ -546,7 +546,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
         if not Ogre:
             lbl = ctk.CTkLabel(
                 self,
-                text="Ogre bindings not found.\nRun: py -3.10 -m pip install ogre-python",
+                text="Live preview needs the optional ogre-python package\n(pip install ogre-python). Conversions work without it.",
             )
             lbl.pack(expand=True)
             return
