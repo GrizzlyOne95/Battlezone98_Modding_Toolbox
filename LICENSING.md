@@ -12,7 +12,10 @@ Earlier, two parts were GPL:
 
 The ZFS archive handling in `battlezone/archives/zfs.py` follows ZFS
 Specialist's format logic (header detection, directory decryption, the
-MakeZFS XOR key). ZFS Specialist and this toolbox have the same author.
+MakeZFS XOR key). ZFS Specialist and this toolbox have the same author, who
+releases that logic, as it appears here, under the MIT license. ZFS Specialist
+was GPL-2.0 only because it linked the LZO library, which the toolbox does not
+use.
 
 ## Third-party components
 
