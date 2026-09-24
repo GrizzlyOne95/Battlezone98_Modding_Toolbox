@@ -14,6 +14,8 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageDraw, ImageFilter, ImageTk, ImageOps, ImageEnhance
+from battlezone.terrain.hg2 import read_hg2, write_hg2
+from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world.custom_atlas_builder import (
     build_custom_atlas,
     generate_normal_map as atlas_generate_normal_map,
@@ -677,53 +679,14 @@ class TRNParser:
         }
         if not os.path.exists(path):
             return data
-            
-        current_section = None
-        
         try:
-            with open(path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('//') or line.startswith(';'): 
-                        continue
-                        
-                    if line.startswith('[') and line.endswith(']'):
-                        current_section = line[1:-1]
-                        
-                        # Parse Texture Types
-                        if current_section.lower().startswith("texturetype"):
-                            try:
-                                # Extract ID from "TextureType0" -> 0
-                                tid_str = current_section[11:] 
-                                tid = int(tid_str)
-                                if tid not in data["TextureTypes"]:
-                                    data["TextureTypes"].append(tid)
-                            except: 
-                                pass
-                        continue
-
-                    # Handle "MinX=123"
-                    if "=" in line:
-                        key, val = [x.strip() for x in line.split("=", 1)]
-                        
-                        # Global / Atlases scope
-                        if key.lower() == "minx":
-                            data["MinX"] = float(val)
-                        elif key.lower() == "minz":
-                            data["MinZ"] = float(val)
-                        elif key.lower() == "width":
-                            try: data["Width"] = float(val)
-                            except: pass
-                        elif key.lower() == "depth":
-                            try: data["Depth"] = float(val)
-                            except: pass
-                        elif key.lower() == "materialname":
-                            data["MaterialName"] = val
-                            
+            doc = TRNDocument.read(path)
         except Exception as e:
             print(f"TRN Parser Error: {e}")
-        
-        data["TextureTypes"].sort()
+            return data
+        size = doc.size
+        data.update(MinX=size.min_x, MinZ=size.min_z, Width=size.width, Depth=size.depth,
+                    MaterialName=doc.material_name, TextureTypes=sorted(doc.texture_types()))
         return data
 
 class BZNParser:
@@ -1560,25 +1523,7 @@ class BZ98TRNArchitect:
         self.btn_hg2_png.config(text="CONVERTING...", state="disabled")
         try:
             if path.lower().endswith(".hg2"):
-                with open(path, "rb") as f:
-                    header = f.read(12)
-                    _, depth, z_w, z_l, _, _ = struct.unpack("<HHHHHH", header)
-                    
-                    zone_size = 2**depth
-                    full_w, full_h = z_w * zone_size, z_l * zone_size
-                    
-                    raw_data = np.frombuffer(f.read(), dtype=np.uint16)
-                    img_array = np.zeros((full_h, full_w), dtype=np.uint16)
-                    
-                    idx = 0
-                    for zy in range(z_l):
-                        for zx in range(z_w):
-                            start_x, start_y = zx * zone_size, zy * zone_size
-                            zone_data = raw_data[idx : idx + (zone_size * zone_size)]
-                            if zone_data.size == (zone_size * zone_size):
-                                img_array[start_y:start_y+zone_size, start_x:start_x+zone_size] = \
-                                    zone_data.reshape((zone_size, zone_size))
-                            idx += (zone_size * zone_size)
+                _header, img_array = read_hg2(path)
             elif path.lower().endswith(".hgt"):
                 zone_size = 128
                 z_w = self.hg2_target_zw.get()
@@ -1761,27 +1706,9 @@ class BZ98TRNArchitect:
                     f.write(output_data)
                 self.log(f"Success: Exported {z_w}x{z_l} HGT", "success")
             else:
-                # 6. Construct 12-byte HG2 Header using the calculated depth
-                # Format: version, depth, width_zones, length_zones, map_version(low), map_version(high)/padding
-                # BZMapIO.py uses a 4-byte integer '10' for the last chunk.
-                # My previous code used 10 for the first 2 bytes and 0 for padding.
-                # struct.pack("<I") of 10 is b'\x0A\x00\x00\x00'
-                # struct.pack("<HH") of (10, 0) is b'\x0A\x00\x00\x00'
-                # So (10, 0) is identical to BZMapIO's implementation.
-                header = struct.pack("<HHHHHH", 1, depth, z_w, z_l, 10, 0)
-                
-                # 7. Pack data into zones
-                output_data = bytearray()
-                for zy in range(z_l):
-                    for zx in range(z_w):
-                        zone = img_final_arr[zy*zone_size : (zy+1)*zone_size, zx*zone_size : (zx+1)*zone_size]
-                        output_data.extend(zone.tobytes())
-                
                 out_path = cfg["path"].rsplit('.', 1)[0] + "_export.hg2"
-                with open(out_path, "wb") as f:
-                    f.write(header)
-                    f.write(output_data)
-                        
+                write_hg2(out_path, img_final_arr, z_w, z_l, zone_bits=depth)
+
                 self.log(f"Success: Exported {z_w}x{z_l} HG2 (Zone Size: {zone_size})", "success")
             
         except Exception as e:
@@ -2361,37 +2288,22 @@ class BZ98TRNArchitect:
         """Pull every .map texture reference out of a legacy .trn, tagged with
         the kind of material Redux needs for it."""
         wanted = []
-        section = ""
         pending = []
-        with open(trn_path, 'r', errors='ignore') as f:
-            for raw in f:
-                line = raw.split('//')[0].strip()
-                if not line:
-                    continue
-                if line.startswith('[') and ']' in line:
-                    section = line[1:line.index(']')].strip().lower()
-                    continue
-                if '=' not in line:
-                    continue
-                key, val = line.split('=', 1)
-                key, val = key.strip(), val.strip()
-                if not val:
-                    continue
-                if not val.lower().endswith('.map'):
-                    continue
-                if section == 'sky':
-                    if re.match(r'^(Sky|Backdrop|Sun)Texture$', key, re.IGNORECASE):
-                        wanted.append((val, 'sky', None))
-                elif section == 'clouds':
-                    if re.match(r'^Texture\d+$', key, re.IGNORECASE):
-                        wanted.append((val, 'cloud', None))
-                elif section == 'stars':
-                    m = re.match(r'^Texture(\d+)$', key, re.IGNORECASE)
-                    if m:
-                        pending.append((val, m.group(1)))
-                elif section == 'starlist':
-                    if key.lower() == 'texture':
-                        wanted.append((val, 'star', 'alpha_blend'))
+        for section, key, val in TRNDocument.read(trn_path).map_references():
+            section = section.lower()
+            if section == 'sky':
+                if re.match(r'^(Sky|Backdrop|Sun)Texture$', key, re.IGNORECASE):
+                    wanted.append((val, 'sky', None))
+            elif section == 'clouds':
+                if re.match(r'^Texture\d+$', key, re.IGNORECASE):
+                    wanted.append((val, 'cloud', None))
+            elif section == 'stars':
+                m = re.match(r'^Texture(\d+)$', key, re.IGNORECASE)
+                if m:
+                    pending.append((val, m.group(1)))
+            elif section == 'starlist':
+                if key.lower() == 'texture':
+                    wanted.append((val, 'star', 'alpha_blend'))
 
         for val, _num in pending:
             # Every stock [Stars] planet material (earth, milkyway, saturn,
@@ -2713,23 +2625,13 @@ class BZ98TRNArchitect:
             depth = 7
             zone_res = 128
             
-            # Header: version(1), depth, x_zones, z_zones, 10, 0
-            header = struct.pack("<HHHHHH", 1, depth, zones, zones, 10, 0)
-            
             # Create flat data (mid-grey or 0?) BZ1 usually 0 is bottom.
             # Let's use 0 for flat ground.
             total_res = zones * zone_res
             flat_data = np.zeros((total_res, total_res), dtype=np.uint16)
-            
+
             hg2_path = os.path.join(out_dir, f"{name}.hg2")
-            with open(hg2_path, "wb") as f:
-                f.write(header)
-                # Pack data zone by zone
-                for zy in range(zones):
-                    for zx in range(zones):
-                        # Extract chunk (all zeros here)
-                        chunk = flat_data[zy*zone_res:(zy+1)*zone_res, zx*zone_res:(zx+1)*zone_res]
-                        f.write(chunk.tobytes())
+            write_hg2(hg2_path, flat_data, zones, zones, zone_bits=depth)
 
             # 2. Generate TRN File
             trn_path = os.path.join(out_dir, f"{name}.trn")

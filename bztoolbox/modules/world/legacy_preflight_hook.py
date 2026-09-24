@@ -5,6 +5,7 @@ import re
 import shutil
 import sys
 
+from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world import legacy_port
 from bztoolbox.modules.world.legacy_preflight import validate_legacy_port_folder
 
@@ -41,22 +42,12 @@ def _copy_runtime_support_files(source_dir: os.PathLike | str, output_dir: os.Pa
 def _runtime_map_refs_from_trn(path: str) -> list[str]:
     """Return non-terrain MAP lookup names exactly as authored in the TRN."""
     refs: list[str] = []
-    section = ""
-    with open(path, "r", encoding="cp1252", errors="ignore") as stream:
-        for raw in stream:
-            line = raw.split("//", 1)[0].split(";", 1)[0].strip()
-            if not line:
-                continue
-            match = re.match(r"^\[([^\]]+)\]", line)
-            if match:
-                section = match.group(1).strip().lower()
-                continue
-            if re.fullmatch(r"texturetype\d+", section) or "=" not in line:
-                continue
-            _key, value = line.split("=", 1)
-            value = value.strip().strip('"').strip("'")
-            if value.lower().endswith(".map") and value not in refs:
-                refs.append(os.path.basename(value))
+    for section, _key, value in TRNDocument.read(path).map_references():
+        if re.fullmatch(r"texturetype\d+", section.lower()):
+            continue
+        name = os.path.basename(value)
+        if name not in refs:
+            refs.append(name)
     return refs
 
 

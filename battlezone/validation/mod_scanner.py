@@ -9,6 +9,8 @@ import hashlib
 import os
 import re
 
+from battlezone.terrain.trn import TRNDocument
+
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 
@@ -226,15 +228,11 @@ class ModScanner:
                 continue
             path = entry["path"]
             try:
-                with open(path, "r", encoding="utf-8", errors="ignore", newline="") as f:
-                    text = f.read()
-
-                if re.search(r"(?<!\r)\n", text) or re.search(r"\r(?!\n)", text):
+                doc = TRNDocument.read(path)
+                if doc.line_endings != "crlf":
                     le_issues.append(path)
-
-                if len(re.findall(r"^\s*\[Size\]", text, re.MULTILINE | re.IGNORECASE)) > 1:
+                if len(doc.sections_named("size")) > 1:
                     dup_issues.append(path)
-
             except Exception as e:
                 self.log(f"Warning: Could not scan TRN {entry['name']}: {e}")
         return le_issues, dup_issues

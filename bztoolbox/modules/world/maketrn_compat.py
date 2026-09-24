@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from battlezone.terrain.trn import TRNDocument
+
 
 METERS_PER_HG2_SAMPLE = 5
 HG2_SAMPLES_PER_ZONE = 256
@@ -252,24 +254,8 @@ def convert_hgt_to_hg2_no_smoothing(
 
 def read_legacy_trn_zone_geometry(trn_path: os.PathLike | str) -> tuple[int, int]:
     """Read legacy TRN Width/Depth and return exact 1280 m terrain zones."""
-    width = None
-    depth = None
-    with open(trn_path, "r", errors="ignore") as stream:
-        for raw in stream:
-            line = raw.split("//", 1)[0].split(";", 1)[0].strip()
-            if not line or "=" not in line:
-                continue
-            key, value = (part.strip() for part in line.split("=", 1))
-            if key.lower() == "width":
-                try:
-                    width = float(value.rstrip("fF"))
-                except ValueError:
-                    pass
-            elif key.lower() == "depth":
-                try:
-                    depth = float(value.rstrip("fF"))
-                except ValueError:
-                    pass
+    size = TRNDocument.read(trn_path).size   # the first [Size] section, as the engine reads it
+    width, depth = size.width, size.depth
 
     if not width or not depth:
         raise ValueError(f"{os.path.basename(str(trn_path))} does not define Width and Depth")

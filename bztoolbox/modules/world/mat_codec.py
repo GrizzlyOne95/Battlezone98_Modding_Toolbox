@@ -4,8 +4,12 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw
 
-MAT_ZONE_SIZE=64
-MAT_ENTRY_BYTES=2
+from battlezone.terrain.trn import TRNDocument
+from battlezone.terrain.mat import (  # noqa: F401  (the MAT file format lives in the core)
+    MAT_ENTRY_BYTES, MAT_ZONE_SIZE, MatEntry, _range, decode_entry, encode_entry, encode_mix_entry,
+    entry_from_bytes, entry_to_bytes, expected_mat_bytes, pack_mat_zones, read_mat, unpack_mat_zones,
+    write_mat,
+)
 HG2_SAMPLES_PER_ZONE=256
 MAKE_TRN_SAMPLE_STEP=4
 MAKE_TRN_LAYER_LIMIT=8
@@ -15,16 +19,6 @@ PAINTER_MAX_MATERIAL=7
 PAINTER_MAX_ELEVATION=4095.0
 PAINTER_MAX_ELEVATION_DM=PAINTER_MAX_ELEVATION
 WORLD_ZONE_METERS=1280.0
-
-@dataclass(frozen=True)
-class MatEntry:
-    base:int; next:int; cap:int; flip:int; rotation:int; variant:int
-    @property
-    def mix(self): return ((self.cap&1)<<3)|((self.flip&1)<<2)|(self.rotation&3)
-    @property
-    def documented_variant(self): return self.variant&3
-    @property
-    def reserved(self): return (self.variant>>2)&3
 
 @dataclass
 class PaintStats:
@@ -49,52 +43,6 @@ class MSVCRand:
         self.state=(self.state*214013+2531011)&0xffffffff
         return (self.state>>16)&0x7fff
 
-def _range(name,v,lo,hi):
-    if not lo<=int(v)<=hi: raise ValueError(f"{name} must be in {lo}..{hi}, got {v}")
-
-def encode_entry(base,next_mat,cap=0,flip=0,rotation=0,variant=0,reserved=None):
-    for n,v,lo,hi in (("base",base,0,15),("next_mat",next_mat,0,15),("cap",cap,0,1),("flip",flip,0,1),("rotation",rotation,0,3)): _range(n,v,lo,hi)
-    if reserved is None: _range("variant",variant,0,15); low=int(variant)&15
-    else: _range("variant",variant,0,3); _range("reserved",reserved,0,3); low=(int(variant)&3)|((int(reserved)&3)<<2)
-    mix=((int(cap)&1)<<3)|((int(flip)&1)<<2)|(int(rotation)&3)
-    return low|((mix&15)<<4)|((int(next_mat)&15)<<8)|((int(base)&15)<<12)
-
-def encode_mix_entry(base,next_mat,mix,variant=0):
-    _range("mix",mix,0,15); return encode_entry(base,next_mat,(mix>>3)&1,(mix>>2)&1,mix&3,variant)
-
-def decode_entry(value):
-    _range("MAT entry",value,0,0xffff); mix=(int(value)>>4)&15
-    return MatEntry((value>>12)&15,(value>>8)&15,(mix>>3)&1,(mix>>2)&1,mix&3,value&15)
-
-def entry_to_bytes(value): _range("MAT entry",value,0,0xffff); return int(value).to_bytes(2,"little")
-def entry_from_bytes(raw):
-    if len(raw)!=2: raise ValueError("A MAT entry is exactly two bytes")
-    return int.from_bytes(raw,"little")
-def expected_mat_bytes(zx,zz):
-    if zx<=0 or zz<=0: raise ValueError("MAT zone dimensions must be positive")
-    return zx*zz*MAT_ZONE_SIZE*MAT_ZONE_SIZE*2
-
-def pack_mat_zones(entries,zx,zz):
-    a=np.asarray(entries); shape=(zz*64,zx*64)
-    if a.shape!=shape: raise ValueError(f"MAT shape {a.shape} does not match {shape}")
-    a=np.rint(a).astype("<u2"); out=bytearray(expected_mat_bytes(zx,zz)); p=0
-    for z in range(zz):
-        for x in range(zx):
-            raw=a[z*64:(z+1)*64,x*64:(x+1)*64].tobytes(order="C"); out[p:p+8192]=raw; p+=8192
-    return bytes(out)
-
-def unpack_mat_zones(payload,zx,zz):
-    if len(payload)!=expected_mat_bytes(zx,zz): raise ValueError("MAT size mismatch")
-    raw=np.frombuffer(payload,dtype="<u2"); out=np.empty((zz*64,zx*64),np.uint16); p=0
-    for z in range(zz):
-        for x in range(zx): out[z*64:(z+1)*64,x*64:(x+1)*64]=raw[p:p+4096].reshape(64,64); p+=4096
-    return out
-
-def write_mat(path,entries,zx,zz):
-    with open(path,"wb") as f: f.write(pack_mat_zones(entries,zx,zz))
-def read_mat(path,zx,zz):
-    with open(path,"rb") as f: return unpack_mat_zones(f.read(),zx,zz)
-
 def _num(v):
     m=re.search(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?",v)
     if not m: raise ValueError(v)
@@ -104,36 +52,23 @@ def _iv(v,d):
     except:return d
 
 def parse_trn_painter(path):
-    sec={}; cur=""
-    with open(path,"r",encoding="cp1252",errors="replace") as f:
-        for s in f:
-            s=s.strip()
-            if not s or s.startswith(("//",";")): continue
-            if s.startswith("[") and s.endswith("]"): cur=s[1:-1].strip(); sec.setdefault(cur,[]); continue
-            if "=" in s and cur: k,v=s.split("=",1); sec[cur].append((k.strip(),v.strip()))
-    size={"minx":0.,"minz":0.,"width":None,"depth":None}; types=set(); caps=set(); diags=set(); layers=[]
-    for name,items in sec.items():
-        low=name.lower(); vals={k.lower():v for k,v in items}
-        if low=="size":
-            for k in size:
-                if k in vals:
-                    try:size[k]=_num(vals[k])
-                    except:pass
-            continue
+    doc=TRNDocument.read(path); size=doc.size
+    types=set(); caps=set(); diags=set(); layers={}
+    for section in doc.sections:
+        low=section.name.lower()
         m=re.fullmatch(r"texturetype(\d+)",low)
         if m:
             b=int(m.group(1)); types.add(b)
-            for k,_ in items:
-                c=re.match(r"capto(\d+)_",k,re.I); d=re.match(r"diagonalto(\d+)_",k,re.I)
+            for entry in section.entries:
+                c=re.match(r"capto(\d+)_",entry.key,re.I); d=re.match(r"diagonalto(\d+)_",entry.key,re.I)
                 if c:caps.add((b,int(c.group(1))))
                 if d:diags.add((b,int(d.group(1))))
             continue
         m=re.fullmatch(r"layer(\d+)",low)
-        if m and int(m.group(1))<8:
-            mat=_iv(vals.get("material","8"),8)
-            if mat<8: layers.append((int(m.group(1)),{"mat_id":mat,"min_h":_iv(vals.get("elevationstart","4095"),4095),"max_h":_iv(vals.get("elevationend","4095"),4095),"min_s":_iv(vals.get("slopestart","90"),90),"max_s":_iv(vals.get("slopeend","90"),90),"mask_path":""}))
-    layers.sort()
-    return TRNPainterConfig(tuple(v for _,v in layers),tuple(sorted(types)),frozenset(caps),frozenset(diags),float(size["minx"] or 0),float(size["minz"] or 0),size["width"],size["depth"])
+        if m and int(m.group(1))<8 and int(m.group(1)) not in layers:
+            vals=section.as_dict(); mat=_iv(vals.get("material","8"),8)
+            if mat<8: layers[int(m.group(1))]={"mat_id":mat,"min_h":_iv(vals.get("elevationstart","4095"),4095),"max_h":_iv(vals.get("elevationend","4095"),4095),"min_s":_iv(vals.get("slopestart","90"),90),"max_s":_iv(vals.get("slopeend","90"),90),"mask_path":""}
+    return TRNPainterConfig(tuple(v for _,v in sorted(layers.items())),tuple(sorted(types)),frozenset(caps),frozenset(diags),float(size.min_x or 0),float(size.min_z or 0),size.width,size.depth)
 
 def default_make_trn_rules():
     return [{"mat_id":0,"min_h":0,"max_h":4095,"min_s":0,"max_s":15,"mask_path":""},{"mat_id":3,"min_h":0,"max_h":4095,"min_s":15,"max_s":90,"mask_path":""}]
