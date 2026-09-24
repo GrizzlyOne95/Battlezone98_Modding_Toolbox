@@ -1,7 +1,5 @@
-import json
 import os
 import shutil
-import subprocess
 import sys
 import threading
 import traceback
@@ -11,16 +9,15 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from bztoolbox import external, paths
+from battlezone.meshes import ogre
+
 from bztoolbox.app.host import ctk_embedded_root
+from bztoolbox.app.widgets import open_in_file_manager
 
 IS_WINDOWS = sys.platform == "win32"
-CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
 
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
-APP_DIR = str(paths.user_data_dir())
-CONFIG_FILE = os.path.join(APP_DIR, "ogre_tools_config.json")
 
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.OgreMeshTools"
 
@@ -28,11 +25,6 @@ APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.OgreMeshTools"
 def get_resource_path(relative_path):
     """Resources live beside this module, from source and in the toolbox bundle."""
     return os.path.join(MODULE_DIR, relative_path)
-
-
-def xml_converter_path():
-    return external.executable(
-        "ogrexmlconverter", fallback=get_resource_path(os.path.join("bin", "OgreXMLConverter.exe")))
 
 
 def _set_app_user_model_id():
@@ -116,13 +108,6 @@ def obj_output_name(source_name):
     return source_name + ".obj"
 
 
-def resolve_executable_path(command):
-    if not command:
-        return None
-    if os.path.isabs(command) or os.path.dirname(command):
-        return command if os.path.exists(command) else None
-    return shutil.which(command)
-
 class OgreMeshToolsGUI(ctk_embedded_root()):
     def __init__(self, master=None):
         super().__init__(master)
@@ -157,14 +142,11 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         # --- VARIABLES ---
         self.input_path = ctk.StringVar()
         self.output_path = ctk.StringVar()
-        self.do_gltf = ctk.BooleanVar(value=True)
-        self.do_obj = ctk.BooleanVar(value=False)
+        self.do_obj = ctk.BooleanVar(value=True)
         self.do_normals = ctk.BooleanVar(value=False)
         self.batch_mode = ctk.BooleanVar(value=False)
-        self.blender_path = ctk.StringVar()
         self.last_output_dir = ""
         
-        self.load_config()
         self.setup_ui()
         
         # Capture stdout/stderr AFTER UI is setup
@@ -172,25 +154,6 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         sys.stdout = ConsoleRedirector(self.log, fallback=sys.stdout, worker_only=embedded)
         sys.stderr = ConsoleRedirector(self.log, fallback=sys.stderr, worker_only=embedded)
         self.after(50, self._process_ui_queue)
-        
-    def load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f)
-                    self.blender_path.set(cfg.get("blender_path", "") or external.executable("blender", "blender"))
-            except: pass
-        else:
-            self.blender_path.set(external.executable("blender", "blender"))
-
-    def save_config(self):
-        cfg = {
-            "blender_path": self.blender_path.get()
-        }
-        try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(cfg, f, indent=4)
-        except: pass
         
     def load_custom_fonts(self):
         self.main_font = "Consolas"
@@ -291,22 +254,6 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         self.mode_switch = ctk.CTkSwitch(self.input_frame, text="BATCH DIRECTORY MODE", variable=self.batch_mode, font=(self.main_font, 11), progress_color=self.colors["highlight"])
         self.mode_switch.pack(anchor="w", padx=10, pady=(0, 10))
 
-        # --- CONFIG SECTION ---
-        self.cfg_frame = ctk.CTkFrame(self.left_col, fg_color=self.colors["dark"])
-        self.cfg_frame.pack(fill="x", pady=10, padx=5)
-        
-        ctk.CTkLabel(self.cfg_frame, text="SETTINGS", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"]).pack(anchor="w", padx=10, pady=(5,0))
-        
-        self.blender_row = ctk.CTkFrame(self.cfg_frame, fg_color="transparent")
-        self.blender_row.pack(fill="x", padx=10, pady=(5, 5))
-        
-        ctk.CTkLabel(self.blender_row, text="Blender Path:", font=(self.main_font, 11)).pack(side="left", padx=(0, 10))
-        self.blender_entry = ctk.CTkEntry(self.blender_row, textvariable=self.blender_path, fg_color="#050505", border_color=self.colors["highlight"], height=24)
-        self.blender_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        
-        self.blender_browse = ctk.CTkButton(self.blender_row, text="...", width=30, height=24, command=self.browse_blender)
-        self.blender_browse.pack(side="right")
-
         # --- PROGRESS SECTION ---
         self.progress_frame = ctk.CTkFrame(self.left_col, fg_color="transparent")
         self.progress_frame.pack(fill="x", pady=(10, 0), padx=5)
@@ -324,22 +271,15 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         
         ctk.CTkLabel(self.ops_frame, text="OPERATIONS", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"]).pack(anchor="w", padx=10, pady=(5,5))
         
-        # glTF Row
-        self.gltf_row = ctk.CTkFrame(self.ops_frame, fg_color="transparent")
-        self.gltf_row.pack(fill="x", padx=20, pady=2)
-        self.check_gltf = ctk.CTkCheckBox(self.gltf_row, text="CONVERT TO glTF (.glb)", variable=self.do_gltf, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
-        self.check_gltf.pack(side="left")
-        ctk.CTkLabel(self.gltf_row, text="[ANIMATED / RIGGED - REQUIRES BLENDER]", font=(self.main_font, 10), text_color=self.colors["accent"]).pack(side="left", padx=10)
-        
         # OBJ Row
         self.obj_row = ctk.CTkFrame(self.ops_frame, fg_color="transparent")
         self.obj_row.pack(fill="x", padx=20, pady=5)
         self.check_obj = ctk.CTkCheckBox(self.obj_row, text="CONVERT TO OBJ", variable=self.do_obj, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
         self.check_obj.pack(side="left")
-        ctk.CTkLabel(self.obj_row, text="[STATIC MESH - STANDALONE]", font=(self.main_font, 10), text_color=self.colors["fg"]).pack(side="left", padx=10)
+        ctk.CTkLabel(self.obj_row, text="[GEOMETRY, UVS, NORMALS + MTL]", font=(self.main_font, 10), text_color=self.colors["fg"]).pack(side="left", padx=10)
         
         # Normals
-        self.check_normals = ctk.CTkCheckBox(self.ops_frame, text="RECALCULATE NORMALS (Requires XML)", variable=self.do_normals, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
+        self.check_normals = ctk.CTkCheckBox(self.ops_frame, text="RECALCULATE NORMALS (.mesh or .mesh.xml)", variable=self.do_normals, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
         self.check_normals.pack(anchor="w", padx=20, pady=5)
 
         # --- LOGGING ---
@@ -435,43 +375,6 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         os.makedirs(output_dir, exist_ok=True)
         return output_dir
 
-    def _validate_job_tools(self, job, xml_converter):
-        if not os.path.exists(xml_converter):
-            raise FileNotFoundError(f"Missing OgreXMLConverter.exe at {xml_converter}")
-
-        if job["do_gltf"]:
-            resolved_blender = resolve_executable_path(job["blender_path"])
-            if not resolved_blender:
-                raise FileNotFoundError(
-                    f"Blender executable not found: {job['blender_path']}"
-                )
-            return resolved_blender
-
-        return None
-
-    def _run_command(self, cmd, check=True):
-        self.log(f"Running: {' '.join(str(part) for part in cmd)}")
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            creationflags=CREATE_NO_WINDOW,
-        )
-
-        if result.stdout.strip():
-            self.log(result.stdout.strip())
-        if result.stderr.strip():
-            self.log(result.stderr.strip(), self.colors["warning"])
-
-        if check and result.returncode != 0:
-            raise subprocess.CalledProcessError(
-                result.returncode,
-                cmd,
-                output=result.stdout,
-                stderr=result.stderr,
-            )
-        return result
-
     @staticmethod
     def _summarize_errors(errors):
         if not errors:
@@ -481,12 +384,6 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         if len(errors) > len(preview):
             summary += f"\n- ... and {len(errors) - len(preview)} more"
         return summary
-
-    def browse_blender(self):
-        f = filedialog.askopenfilename(filetypes=[("Executable", "*.exe"), ("All Files", "*.*")])
-        if f: 
-            self.blender_path.set(f)
-            self.save_config()
 
     def browse_input(self):
         if self.batch_mode.get():
@@ -502,10 +399,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
 
     def open_output_folder(self):
         if self.last_output_dir and os.path.exists(self.last_output_dir):
-            if IS_WINDOWS:
-                os.startfile(self.last_output_dir)
-            else:
-                subprocess.run(["xdg-open", self.last_output_dir], creationflags=CREATE_NO_WINDOW)
+            open_in_file_manager(self.last_output_dir)
         else:
             messagebox.showinfo("Note", "No export directory has been created yet.")
 
@@ -549,20 +443,16 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
             messagebox.showerror("Error", "Input path does not exist.")
             return
 
-        if not (self.do_normals.get() or self.do_obj.get() or self.do_gltf.get()):
+        if not (self.do_normals.get() or self.do_obj.get()):
             messagebox.showerror("Error", "Select at least one operation.")
             return
-
-        self.save_config()
 
         job = {
             "input_path": os.path.abspath(input_path),
             "output_path": self.output_path.get().strip(),
             "do_normals": self.do_normals.get(),
             "do_obj": self.do_obj.get(),
-            "do_gltf": self.do_gltf.get(),
             "batch_mode": self.batch_mode.get(),
-            "blender_path": self.blender_path.get().strip() or "blender",
         }
 
         self._set_run_state(False, "PROCESSING...")
@@ -579,9 +469,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         try:
             input_p = job["input_path"]
             requested_output = job["output_path"]
-            xml_converter = xml_converter_path()
             is_batch = job["batch_mode"]
-            blender_exe = self._validate_job_tools(job, xml_converter)
 
             files_to_process = []
             if is_batch:
@@ -600,7 +488,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                 corrected_count = 0
                 total_files = max(len(files_to_process), 1)
                 for i, f_path in enumerate(files_to_process):
-                    progress = (i / total_files) * 0.33 if (job["do_obj"] or job["do_gltf"]) else (i / total_files)
+                    progress = (i / total_files) * 0.5 if job["do_obj"] else (i / total_files)
                     self._set_progress(progress)
 
                     f_name = os.path.basename(f_path)
@@ -609,10 +497,8 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
 
                     try:
                         if f_path.lower().endswith(".mesh"):
-                            self._run_command([xml_converter, f_path])
-                            candidate_paths = [f_path + ".xml", os.path.splitext(f_path)[0] + ".xml"]
-                            temp_xml = next((path for path in candidate_paths if os.path.exists(path)), None)
-                            target_xml = temp_xml or candidate_paths[0]
+                            temp_xml = str(ogre.mesh_to_xml_file(f_path, f_path + ".normals-tmp.xml"))
+                            target_xml = temp_xml
 
                         if not os.path.exists(target_xml):
                             raise FileNotFoundError(f"Could not find XML for {f_name}")
@@ -627,8 +513,8 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                             raise RuntimeError(f"Normal recalculation failed for {f_name}")
 
                         if temp_xml and status == "CHANGED":
-                            self.log(f"Exporting updated {f_name} back to binary mesh...")
-                            self._run_command([xml_converter, target_xml])
+                            self.log(f"Writing updated normals back into {f_name}...")
+                            ogre.patch_normals(f_path, ogre.normals_from_xml(target_xml))
                     except Exception as exc:
                         errors.append(f"Normals: {f_name}: {exc}")
                         self.log(f"WARNING: {f_name}: {exc}", self.colors["warning"])
@@ -643,7 +529,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
 
             if job["do_obj"]:
                 self._set_progress_label("CONVERTING TO OBJ...")
-                self._set_progress(0.5 if job["do_gltf"] else 0.8)
+                self._set_progress(0.6)
                 self.log("--- STARTING OBJ CONVERSION ---")
 
                 try:
@@ -656,7 +542,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                     output_dir = self._resolve_output_dir(requested_output, default_output)
                     self.last_output_dir = output_dir
 
-                    xml_conv = MeshToObj.OgreXMLConverter(os.path.dirname(xml_converter))
+                    xml_conv = MeshToObj.OgreXMLConverter()
 
                     if is_batch:
                         output_p = Path(output_dir)
@@ -722,44 +608,6 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                 except Exception as exc:
                     errors.append(f"OBJ: {exc}")
                     self.log(f"OBJ ERROR: {exc}", self.colors["warning"])
-
-            if job["do_gltf"]:
-                self._set_progress_label("CONVERTING TO glTF (BLENDER)...")
-                self._set_progress(0.9)
-                self.log("--- STARTING glTF CONVERSION (Blender) ---")
-
-                try:
-                    gltf_script = get_resource_path(os.path.join("blender", "batch_ogre_to_gltf.py"))
-                    default_output = os.path.join(
-                        input_p if is_batch else os.path.dirname(input_p),
-                        "glTF_Export",
-                    )
-                    output_dir = self._resolve_output_dir(requested_output, default_output)
-                    self.last_output_dir = output_dir
-
-                    if not is_batch and not input_p.lower().endswith(".mesh"):
-                        raise RuntimeError("Single-file glTF conversion requires a .mesh input.")
-
-                    result = self._run_command(
-                        [
-                            blender_exe,
-                            "-b",
-                            "-P",
-                            gltf_script,
-                            "--",
-                            input_p,
-                            output_dir,
-                            xml_converter,
-                        ],
-                        check=False,
-                    )
-                    if result.returncode != 0:
-                        raise RuntimeError(f"Blender exited with code {result.returncode}.")
-
-                    self.log("glTF Conversion completed.")
-                except Exception as exc:
-                    errors.append(f"glTF: {exc}")
-                    self.log(f"glTF ERROR: {exc}", self.colors["warning"])
 
             self._set_progress(1.0)
 
