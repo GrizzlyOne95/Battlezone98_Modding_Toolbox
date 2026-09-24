@@ -103,7 +103,7 @@ class BZ2TextureResolverTests(unittest.TestCase):
             (loose / "pluto.tga").write_bytes(b"loose")
             trn = root / "map.trn"
             trn.write_text("[Texture]\nTileTexture1=pluto.tga\n", encoding="cp1252")
-            self.assertEqual(find_loose_texture_root(manifest, trn, [packed, loose]), loose)
+            self.assertEqual(find_loose_texture_root(manifest, trn, [packed, loose]), loose.resolve())
             self.assertIsNone(find_loose_texture_root(manifest, trn, [packed]))
 
     def test_resolves_exact_names_case_insensitively_without_renumbering(self):
