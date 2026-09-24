@@ -9,6 +9,7 @@ import ctypes
 import re
 import requests
 from datetime import datetime, timezone
+from battlezone.validation import validate_project
 from battlezone.validation.mod_scanner import ModScanner
 from bztoolbox.paths import module_data_dir, projects_dir
 from bztoolbox.modules.publishing.steam_service import SteamService
@@ -798,6 +799,19 @@ class WorkshopUploader:
                 "action": "",
             })
 
+        engine_types = {"bzn": "Mission", "odf": "ODF"}
+        for issue in findings.get("engine_issues", []):
+            location = issue.location()
+            rows.append({
+                "severity": "Blocking" if issue.severity == "error" else "Warning",
+                "type": engine_types.get(issue.check, issue.check.upper()),
+                "detail": f"{location} {issue.message}".strip(),
+                "raw_detail": issue.message,
+                "full_path": os.path.join(mod_dir, issue.path) if issue.path else "",
+                "line": issue.line or 0,
+                "action": "",
+            })
+
         for path in findings["trn_duplicate_headers"]:
             rows.append({
                 "severity": "Fixable",
@@ -915,6 +929,12 @@ class WorkshopUploader:
         mode = f"UPDATE ({item_id})" if item_id.isdigit() and item_id != "0" else "CREATE NEW"
         blockers = list(findings["validation_errors"])
         warnings = list(findings["validation_warnings"])
+        engine_issues = findings.get("engine_issues", [])
+        blockers.extend(f"{issue.location()} {issue.message}".strip()
+                        for issue in engine_issues if issue.severity == "error")
+        engine_warnings = sum(1 for issue in engine_issues if issue.severity == "warning")
+        if engine_warnings:
+            warnings.append(f"{engine_warnings} mission/ODF validation warnings.")
         warnings.extend(
             [f"{len(findings['issues'])} scanner issues found."] if findings["issues"] else []
         )
@@ -1184,10 +1204,11 @@ class WorkshopUploader:
             findings_tree.insert("", "end", values=("Blocking", blocker))
         for warning in plan["warnings"]:
             findings_tree.insert("", "end", values=("Warning", warning))
-        for severity, issue_type, detail in self._build_readiness_rows(findings):
-            if severity in ("Ready",):
+        for row in self._build_readiness_rows(findings):
+            # blockers/warnings above already list validation and engine findings
+            if row["severity"] == "Ready" or row["type"] in ("Validation", "Mission", "ODF"):
                 continue
-            findings_tree.insert("", "end", values=(severity, f"{issue_type}: {detail}"))
+            findings_tree.insert("", "end", values=(row["severity"], f"{row['type']}: {row['detail']}"))
 
         result = {"publish": False, "fixups": []}
 
@@ -2572,8 +2593,23 @@ class WorkshopUploader:
     def _fingerprint_inventory(self, inventory):
         return self._get_mod_scanner().fingerprint_inventory(inventory)
 
+    # Checks from the toolbox validation engine that the scanner above does
+    # not already cover: mission (BZN) dependencies and the Redux ODF rules.
+    ENGINE_CHECKS = ("bzn", "odf")
+
     def _collect_mod_findings(self, mod_dir, inventory=None):
-        return self._get_mod_scanner().collect_findings(mod_dir, inventory=inventory)
+        findings = self._get_mod_scanner().collect_findings(mod_dir, inventory=inventory)
+        findings["engine_issues"] = self._collect_engine_issues(mod_dir)
+        return findings
+
+    def _collect_engine_issues(self, mod_dir):
+        """Error/warning issues from battlezone.validation (read-only)."""
+        try:
+            report = validate_project(mod_dir, self.ENGINE_CHECKS)
+        except Exception as exc:
+            self.log(f"Validation engine could not scan {mod_dir}: {exc}")
+            return []
+        return [issue for issue in report.issues if issue.severity in ("error", "warning")]
 
     def analyze_memory_usage(self):
         mod_dir = self.mod_path.get()

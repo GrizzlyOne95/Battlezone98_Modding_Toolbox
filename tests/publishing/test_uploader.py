@@ -734,6 +734,25 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertIn(("TRN Line Endings", "fix_trn_endings"), actions)
         self.assertIn(("Legacy File", "delete_legacy"), actions)
 
+    def test_readiness_includes_validation_engine_findings(self):
+        with open(os.path.join(self.test_dir, "mission.bzn"), "w", encoding="utf-8") as f:
+            f.write("PrjID [1] =\nghosttank\nPrjID [1] =\navtank\n")
+        self.uploader.mod_path.set(self.test_dir)
+
+        findings = self.uploader._collect_mod_findings(self.test_dir)
+        engine = findings["engine_issues"]
+        self.assertTrue(any("ghosttank.odf" in issue.message for issue in engine))
+
+        rows = self.uploader._build_readiness_rows(findings)
+        mission_rows = [row for row in rows if row["type"] == "Mission"]
+        self.assertEqual(mission_rows[0]["severity"], "Blocking")
+        self.assertTrue(mission_rows[0]["full_path"].endswith("mission.bzn"))
+
+        self.uploader.username_var.set("tester")
+        self.uploader.title_var.set("Sample")
+        plan = self.uploader._build_publish_plan(self.test_dir, self.test_dir, True, findings, [])
+        self.assertTrue(any("ghosttank.odf" in blocker for blocker in plan["blockers"]))
+
     def test_build_publish_plan_includes_changed_file_preview(self):
         self.uploader.username_var.set("tester")
         self.uploader.title_var.set("Sample")
