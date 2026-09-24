@@ -84,6 +84,10 @@ pyz = PYZ(a.pure)
 branding = ROOT / "bztoolbox" / "resources" / "branding"
 icon = str(branding / ("app_icon.ico" if sys.platform == "win32" else "app_icon.png"))
 version_file = (os.environ.get("BZTOOLBOX_VERSION_FILE") or None) if sys.platform == "win32" else None
+if version_file:
+    # PyInstaller resolves relative paths against the spec's folder; the
+    # variable is relative to the repository root.
+    version_file = str((ROOT / version_file).resolve())
 
 # Windowed launcher for users, plus a console twin for the command line
 # (a windowed Windows .exe cannot print to a terminal). Both share one folder.
