@@ -1,40 +1,20 @@
 # Licensing
 
-The toolbox is a combination of components under different licenses. The
-component boundaries are kept explicit in the source tree so each one can be
-built, replaced or left out on its own.
+Everything in this repository is MIT-licensed ([LICENSE](LICENSE)), and so is
+every build: there is one build per platform and it contains no GPL code.
 
-| Component | Path | License |
-| --- | --- | --- |
-| Toolbox shell, shared core, and every module not listed below | `bztoolbox/`, `battlezone/` | MIT ([LICENSE](LICENSE)) |
-| ZFS archive module and LZO bridge | `bztoolbox/modules/zfs/` (incl. `native/`) | GPL-2.0 ([bztoolbox/modules/zfs/LICENSE](bztoolbox/modules/zfs/LICENSE)) |
-| Blender-side Ogre importer | `bztoolbox/modules/meshes/blender/OgreImport.py` | GPL-2.0-or-later (file header) |
-| Ogre command-line helpers | `bztoolbox/modules/meshes/bin/` | OGRE project license (MIT) |
+Earlier, two parts were GPL:
 
-## Why the ZFS module is separate
+| Was | Replaced by |
+| --- | --- |
+| ZFS Specialist's `lzo_bridge.dll` (links the GPL-2.0 LZO library), which made that tool GPL-2.0 | `battlezone/archives/lzo.py`: an independent pure-Python LZO1X/LZO1Y implementation, written from the bitstream format rather than from the LZO library's code. It is tested against liblzo2 only as a reference, which is not shipped. |
+| OgreMeshTools' Blender importer script (GPL-2.0-or-later) | glTF export is gone; `battlezone/meshes/ogre.py` reads Ogre meshes directly. |
 
-ZFS Specialist was GPL-2.0 because its compressed-archive support links the
-GPL LZO library (`native/lzo_bridge.dll`, built from `native/bridge.cpp`).
-Consolidation keeps that code inside `bztoolbox/modules/zfs/` and nothing
-else imports it: the shell only reaches it through the page registry.
+The ZFS archive handling in `battlezone/archives/zfs.py` follows ZFS
+Specialist's format logic (header detection, directory decryption, the
+MakeZFS XOR key). ZFS Specialist and this toolbox have the same author.
 
-* The **full** Windows build includes the ZFS module. Because the
-  distributed program then contains GPL-2.0 code, that build as a whole must
-  be distributed under GPL-2.0 terms (the MIT-licensed parts are
-  GPL-compatible and stay MIT when taken on their own).
-* The **MIT-only** build (`BZTOOLBOX_EXCLUDE_GPL=1`, see
-  `packaging/bztoolbox.spec`) leaves the module and the DLL out entirely; the
-  Archives page simply does not appear.
+## Third-party components
 
-CI produces both variants. Replacing LZO with a permissively licensed
-decompressor would let the ZFS module move under MIT as well.
-
-## Blender script
-
-`OgreImport.py` runs inside Blender (`blender -b -P ...`) as a separate
-program; the toolbox only launches Blender with it. It keeps its original
-GPL-2.0-or-later header.
-
-## Third-party assets
-
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Bundled fonts and game sounds, and the Python libraries the builds include,
+are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

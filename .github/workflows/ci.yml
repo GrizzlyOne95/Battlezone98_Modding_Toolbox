@@ -17,14 +17,15 @@ jobs:
           - { os: ubuntu-latest, python: '3.10' }
           - { os: ubuntu-latest, python: '3.12' }
           - { os: windows-latest, python: '3.12' }
+          - { os: macos-latest, python: '3.12' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install Tk and a virtual display (Linux)
+      - name: Install Tk, fontconfig and a virtual display (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb libsndfile1
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb fontconfig
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -32,27 +33,32 @@ jobs:
       - name: Run tests (Linux, under Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m pytest -q
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
+      - name: Run tests (Windows / macOS)
+        if: runner.os != 'Linux'
         run: python -m pytest -q
       - name: CLI smoke test
         run: python -m bztoolbox help
 
   build:
-    name: Build (${{ matrix.variant }})
+    name: Build (${{ matrix.platform }})
     needs: test
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { variant: full, exclude_gpl: '0', suffix: '' }
-          - { variant: mit-only, exclude_gpl: '1', suffix: '-mit' }
+          - { os: windows-latest, platform: windows }
+          - { os: macos-latest, platform: macos }
+          # the oldest supported Ubuntu, so the build runs on older glibc too
+          - { os: ubuntu-22.04, platform: linux }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install Tk and a virtual display (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb fontconfig
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -64,25 +70,39 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then version="${GITHUB_REF_NAME#v}"; else version="$(tr -d '[:space:]' < VERSION)"; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Windows version resource
+        if: runner.os == 'Windows'
         run: python packaging/generate_version_info.py --version "${{ steps.version.outputs.version }}" --output build/version_info.txt
       - name: Build with PyInstaller
+        shell: bash
         env:
-          BZTOOLBOX_EXCLUDE_GPL: ${{ matrix.exclude_gpl }}
-          BZTOOLBOX_VERSION_FILE: build/version_info.txt
+          BZTOOLBOX_VERSION_FILE: ${{ runner.os == 'Windows' && 'build/version_info.txt' || '' }}
         run: python -m PyInstaller packaging/bztoolbox.spec --noconfirm
       - name: Self-test the frozen build (every page must load)
+        shell: bash
         run: |
-          dist/BZModdingToolbox/bztoolbox.exe --version
-          dist/BZModdingToolbox/bztoolbox.exe selftest
-      - name: Package
+          run() { if [[ "$RUNNER_OS" == "Linux" ]]; then xvfb-run -a "$@"; else "$@"; fi; }
+          dist/BZModdingToolbox/bztoolbox --version
+          run dist/BZModdingToolbox/bztoolbox selftest
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Copy-Item README.md, LICENSE, LICENSING.md dist/BZModdingToolbox/
-          Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v${{ steps.version.outputs.version }}-windows${{ matrix.suffix }}.zip"
+          Copy-Item README.md, LICENSE, LICENSING.md, THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
+          Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v${{ steps.version.outputs.version }}-windows.zip"
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/
+          ditto -c -k --keepParent dist/BZModdingToolbox.app "BZModdingToolbox-v${{ steps.version.outputs.version }}-macos.zip"
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
+          tar -C dist -czf "BZModdingToolbox-v${{ steps.version.outputs.version }}-linux.tar.gz" BZModdingToolbox
       - uses: actions/upload-artifact@v4
         with:
-          name: BZModdingToolbox-windows${{ matrix.suffix }}
-          path: BZModdingToolbox-v*.zip
+          name: BZModdingToolbox-${{ matrix.platform }}
+          path: BZModdingToolbox-v*
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -97,5 +117,5 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.zip
+          files: artifacts/BZModdingToolbox-v*
           generate_release_notes: true

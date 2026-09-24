@@ -6,11 +6,12 @@ from tkinter import ttk, colorchooser, filedialog, messagebox
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import math
 import ctypes
+from bztoolbox.app.fonts import BZ_FONT_FILE, bz_font
 
 # Platform check
 IS_WINDOWS = sys.platform == "win32"
 
-BUNDLED_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BZONE.ttf")
+BUNDLED_FONT = str(BZ_FONT_FILE)
 
 
 class BZFontGenerator:
@@ -41,14 +42,7 @@ class BZFontGenerator:
         self.variant_count.trace_add("write", lambda *args: self.update_preview())
 
     def load_custom_fonts(self):
-        self.current_font = "Consolas"
-        if IS_WINDOWS:
-            font_path = BUNDLED_FONT
-            if os.path.exists(font_path):
-                try:
-                    if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                        self.current_font = "BZONE"
-                except: pass
+        self.current_font = bz_font("Consolas")
 
     def setup_styles(self):
         style = ttk.Style()
@@ -266,7 +260,7 @@ class BZFontGenerator:
 
         tconv = os.path.join(os.getcwd(), "texconv.exe")
         if os.path.exists(tconv):
-            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=subprocess.CREATE_NO_WINDOW)
+            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             for f in os.listdir(out):
                 if f.endswith(".png"): os.remove(os.path.join(out, f))
         

@@ -41,7 +41,8 @@ class PakTests(unittest.TestCase):
             trn = root / "map.trn"
             trn.write_text("[Texture]\nTileTexture1=pluto.tga\n", encoding="cp1252")
             manifest = build_texture_slot_manifest(source_with_slots(1, 1, 1, 1))
-            self.assertEqual(find_texture_asset_root(manifest, trn, [root]), root)
+            # the resolver returns resolved paths (on Windows, long names rather than 8.3)
+            self.assertEqual(find_texture_asset_root(manifest, trn, [root]), root.resolve())
             resolved = resolve_trn_texture_slots(manifest, trn, root)
             self.assertTrue(resolved["ready_for_atlas"])
             self.assertEqual(resolved["slots"][1]["source_member"], "Pluto.TGA")

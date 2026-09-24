@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 import tempfile
 from dataclasses import dataclass
 
+from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world.stock_palettes import (
     get_stock_act_bytes,
     get_stock_palette,
@@ -53,22 +53,7 @@ def _validate_act_file(path: os.PathLike | str) -> None:
 
 def read_trn_palette_reference(trn_path: os.PathLike | str) -> str | None:
     """Return the [Color] Palette= reference from a legacy TRN, if present."""
-    section = ""
-    with open(trn_path, "r", encoding="cp1252", errors="ignore") as stream:
-        for raw in stream:
-            line = raw.split("//", 1)[0].split(";", 1)[0].strip()
-            if not line:
-                continue
-            match = re.match(r"^\[([^\]]+)\]", line)
-            if match:
-                section = match.group(1).strip().lower()
-                continue
-            if section != "color" or "=" not in line:
-                continue
-            key, value = (part.strip() for part in line.split("=", 1))
-            if key.lower() == "palette" and value:
-                return os.path.basename(value.strip().strip('"'))
-    return None
+    return TRNDocument.read(trn_path).palette
 
 
 def scan_trn_palette_references(source_dir: os.PathLike | str) -> dict[str, str | None]:

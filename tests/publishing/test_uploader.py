@@ -734,6 +734,25 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertIn(("TRN Line Endings", "fix_trn_endings"), actions)
         self.assertIn(("Legacy File", "delete_legacy"), actions)
 
+    def test_readiness_includes_validation_engine_findings(self):
+        with open(os.path.join(self.test_dir, "mission.bzn"), "w", encoding="utf-8") as f:
+            f.write("PrjID [1] =\nghosttank\nPrjID [1] =\navtank\n")
+        self.uploader.mod_path.set(self.test_dir)
+
+        findings = self.uploader._collect_mod_findings(self.test_dir)
+        engine = findings["engine_issues"]
+        self.assertTrue(any("ghosttank.odf" in issue.message for issue in engine))
+
+        rows = self.uploader._build_readiness_rows(findings)
+        mission_rows = [row for row in rows if row["type"] == "Mission"]
+        self.assertEqual(mission_rows[0]["severity"], "Blocking")
+        self.assertTrue(mission_rows[0]["full_path"].endswith("mission.bzn"))
+
+        self.uploader.username_var.set("tester")
+        self.uploader.title_var.set("Sample")
+        plan = self.uploader._build_publish_plan(self.test_dir, self.test_dir, True, findings, [])
+        self.assertTrue(any("ghosttank.odf" in blocker for blocker in plan["blockers"]))
+
     def test_build_publish_plan_includes_changed_file_preview(self):
         self.uploader.username_var.set("tester")
         self.uploader.title_var.set("Sample")
@@ -776,10 +795,30 @@ class TestWorkshopUploader(unittest.TestCase):
         response.content = buffer.getvalue()
 
         request_with_retry = MagicMock(return_value=response)
-        exe_path = manager.download_steamcmd(self.test_dir, request_with_retry)
+        exe_path = manager.download_steamcmd(self.test_dir, request_with_retry, platform="win32")
 
         self.assertTrue(os.path.exists(exe_path))
         request_with_retry.assert_called_once()
+
+    def test_app_file_manager_downloads_steamcmd_tarball_on_macos_and_linux(self):
+        import tarfile
+
+        for platform in ("linux", "darwin"):
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                data = b"#!/bin/sh\n"
+                info = tarfile.TarInfo("steamcmd.sh")
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+            response = MagicMock()
+            response.content = buffer.getvalue()
+            request_with_retry = MagicMock(return_value=response)
+            target = os.path.join(self.test_dir, platform)
+            exe_path = AppFileManager().download_steamcmd(target, request_with_retry, platform=platform)
+            self.assertTrue(exe_path.endswith("steamcmd.sh"))
+            self.assertIn(platform if platform == "linux" else "osx", request_with_retry.call_args[0][1])
+            if os.name != "nt":
+                self.assertTrue(os.access(exe_path, os.X_OK))
 
     def test_upload_preflight_validate_inputs_rejects_missing_username_without_cached_creds(self):
         preflight = UploadPreflight()

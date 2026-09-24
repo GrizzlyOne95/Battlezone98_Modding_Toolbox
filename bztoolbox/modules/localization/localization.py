@@ -12,6 +12,8 @@ import os
 import ctypes
 import re
 import sys
+from battlezone.odf.names import read_unit_name
+from bztoolbox.app.fonts import bz_font
 
 # Platform check
 IS_WINDOWS = sys.platform == "win32"
@@ -106,17 +108,7 @@ class BZ98GuiApp:
 
     def load_custom_font(self):
         self.main_font = "Consolas"
-        self.header_font = "Consolas"
-        
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-        if IS_WINDOWS:
-            font_path = os.path.join(base_path, "BZONE.ttf")
-            if os.path.exists(font_path):
-                try:
-                    if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                        self.header_font = "BZONE"
-                except: pass
+        self.header_font = bz_font("Consolas")
 
     def setup_styles(self):
         style = ttk.Style()
@@ -1246,31 +1238,12 @@ class BZ98GuiApp:
         """Return only the player-visible unitName value from an ODF.
 
         Internal filenames and other ODF fields are intentionally ignored.
+        Parsing is the shared battlezone.odf reader.
         """
         try:
-            with open(path, 'r', errors='ignore') as f:
-                for raw_line in f:
-                    line = raw_line.strip()
-                    if not line or line.startswith(("//", ";", "#")):
-                        continue
-
-                    # Drop a normal inline ODF comment before parsing the field.
-                    line = line.split("//", 1)[0].strip()
-                    if "=" not in line:
-                        continue
-
-                    field_name, raw_value = line.split("=", 1)
-                    if field_name.strip().lower() != "unitname":
-                        continue
-
-                    value = raw_value.strip().rstrip(";").strip()
-                    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
-                        value = value[1:-1].strip()
-
-                    return value or None
+            return read_unit_name(path)
         except Exception as e:
             self.log(f"Could not read ODF '{path}': {e}")
-
         return None
 
     def start_bulk_thread(self):

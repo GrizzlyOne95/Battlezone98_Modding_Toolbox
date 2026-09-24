@@ -1,7 +1,16 @@
 import io
 import json
 import os
+import stat
+import sys
+import tarfile
 import zipfile
+
+STEAMCMD_URLS = {
+    "win32": "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip",
+    "darwin": "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz",
+    "linux": "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz",
+}
 
 
 class AppFileManager:
@@ -65,17 +74,27 @@ class AppFileManager:
                 return out_path
         return None
 
-    def download_steamcmd(self, base_dir, request_with_retry):
-        url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
+    def download_steamcmd(self, base_dir, request_with_retry, platform=None):
+        """Download Valve's SteamCMD for this OS; returns the program to run."""
+        platform = platform or ("win32" if sys.platform == "win32" else
+                                "darwin" if sys.platform == "darwin" else "linux")
+        url = STEAMCMD_URLS[platform]
         response = request_with_retry("GET", url, operation_name="Download SteamCMD", timeout=30)
 
         target_dir = os.path.join(base_dir, "steamcmd")
         os.makedirs(target_dir, exist_ok=True)
 
-        archive = zipfile.ZipFile(io.BytesIO(response.content))
-        archive.extractall(target_dir)
-
-        exe_path = os.path.join(target_dir, "steamcmd.exe")
+        if platform == "win32":
+            archive = zipfile.ZipFile(io.BytesIO(response.content))
+            archive.extractall(target_dir)
+            exe_path = os.path.join(target_dir, "steamcmd.exe")
+        else:
+            with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:gz") as archive:
+                safe = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+                archive.extractall(target_dir, **safe)
+            exe_path = os.path.join(target_dir, "steamcmd.sh")
+            if os.path.exists(exe_path):
+                os.chmod(exe_path, os.stat(exe_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         if not os.path.exists(exe_path):
-            raise FileNotFoundError("steamcmd.exe not found after extraction.")
+            raise FileNotFoundError(f"{os.path.basename(exe_path)} not found after extraction.")
         return exe_path

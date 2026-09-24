@@ -56,6 +56,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from battlezone.terrain.trn import TRNDocument
+
 from .hg2 import HG2Map, DEFAULT_ZONE_BITS, HG2_MAP_VERSION, HG2_STRUCTURE_VERSION
 
 # --- legacy grid geometry (FUN_00785f50) ---------------------------------
@@ -100,45 +102,11 @@ def read_trn_zone_counts(path: os.PathLike | str) -> Optional[Tuple[int, int]]:
     (``FUN_00786340``). Some stock TRNs carry more than one ``[Size]`` block;
     the first one is authoritative -- ``lcbench.trn`` declares 5120 then 3840
     and the shipped ``lcbench.hg2`` header says 4x4, matching the first.
+    The engine refuses the terrain unless the declared size is an exact
+    number of zones, so a TRN that fails this is not a dimension source.
+    (Implemented by :meth:`battlezone.terrain.trn.TRNDocument.zone_counts`.)
     """
-    width = depth = None
-    in_size = False
-    seen_size = False
-    with open(path, "r", errors="replace") as stream:
-        for line in stream:
-            section = _SECTION_RE.match(line)
-            if section is not None:
-                if in_size:
-                    break                      # first [Size] block ends here
-                in_size = section.group("name").strip().lower() == "size"
-                seen_size = seen_size or in_size
-                continue
-            if not in_size:
-                continue
-            key, sep, value = line.partition("=")
-            if not sep:
-                continue
-            key = key.strip().lower()
-            try:
-                number = float(value.strip())
-            except ValueError:
-                continue
-            if key == "width":
-                width = number
-            elif key == "depth":
-                depth = number
-    if not seen_size or width is None or depth is None:
-        return None
-    zones_x = int(width * 0.1) >> LEGACY_ZONE_BITS
-    zones_z = int(depth * 0.1) >> LEGACY_ZONE_BITS
-    if zones_x <= 0 or zones_z <= 0:
-        return None
-    # The engine refuses the terrain unless the declared size is an exact
-    # number of zones, so a TRN that fails this is not usable as a dimension
-    # source either.
-    if width != zones_x * ZONE_WORLD_SIZE or depth != zones_z * ZONE_WORLD_SIZE:
-        return None
-    return zones_x, zones_z
+    return TRNDocument.read(path).zone_counts()
 
 
 def find_trn(hgt_path: os.PathLike | str) -> Optional[str]:

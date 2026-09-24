@@ -24,38 +24,11 @@ def _dnd_ready(widget):
     except tk.TclError:
         return False
 
+from battlezone.terrain import lgt as lgt_codec
+from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.textures import bcpack
 from bztoolbox.modules.textures import uiscan
 from bztoolbox.modules.textures import recompress
-
-def load_custom_font(font_path):
-    """ Cross-platform font registration """
-    if not os.path.exists(font_path):
-        return False
-    
-    if os.name == 'nt':
-        try:
-            import ctypes
-            ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0)
-            return True
-        except:
-            return False
-    elif sys.platform == 'linux':
-        # Fallback: copy to ~/.local/share/fonts
-        dest = os.path.expanduser("~/.local/share/fonts")
-        os.makedirs(dest, exist_ok=True)
-        import shutil
-        shutil.copy(font_path, dest)
-        # Re-scan fonts
-        subprocess.run(["fc-cache", "-f"], capture_output=True)
-        return True
-    elif sys.platform == 'darwin':
-        dest = os.path.expanduser("~/Library/Fonts")
-        os.makedirs(dest, exist_ok=True)
-        import shutil
-        shutil.copy(font_path, dest)
-        return True
-    return False
 
 class DXTBZ2Header(Structure):
     _fields_ = [
@@ -76,6 +49,7 @@ BZ_DARK_GREEN = "#004400"
 BZ_CYAN = "#00ffff"
 
 from bztoolbox.paths import module_data_dir
+from bztoolbox.app.fonts import bz_font
 
 CONFIG_FILE = str(module_data_dir("textures") / "tex_man_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.TextureManager"
@@ -223,14 +197,7 @@ class BZReduxSuite:
         self.resource_dir = os.path.dirname(os.path.abspath(__file__))
         self.base_dir = str(module_data_dir("textures"))
             
-        font_path = os.path.join(self.resource_dir, "bzone.ttf")
-        if not os.path.exists(font_path):
-            font_path = os.path.join(os.path.dirname(self.base_dir), "bzone.ttf")
-            
-        if load_custom_font(font_path):
-            self.custom_font_name = "BZONE"
-        else:
-            self.custom_font_name = "Consolas"
+        self.custom_font_name = bz_font("Consolas")
             
         apply_window_icon(self.root, self.base_dir, self.resource_dir)
 
@@ -710,17 +677,13 @@ class BZReduxSuite:
         path = filedialog.askopenfilename(filetypes=[("Terrain File", "*.trn")])
         if not path: return
         try:
-            with open(path, 'r') as f:
-                content = f.read()
-                # Find Width=XXXX in the [Size] section
-                import re
-                width_match = re.search(r'Width\s*=\s*(\d+)', content)
-                if width_match:
-                    world_width = int(width_match.group(1))
-                    # Redux zones are 1280 units wide
-                    zones_wide = world_width // 1280
-                    self.lgt_width_var.set(str(zones_wide))
-                    self.log_msg(self.lgt_log, f"TRN Parsed: World Width {world_width} = {zones_wide} Zones Wide.")
+            width = TRNDocument.read(path).size.width
+            if width:
+                world_width = int(width)
+                # Redux zones are 1280 units wide
+                zones_wide = world_width // 1280
+                self.lgt_width_var.set(str(zones_wide))
+                self.log_msg(self.lgt_log, f"TRN Parsed: World Width {world_width} = {zones_wide} Zones Wide.")
         except Exception as e:
             self.log_msg(self.lgt_log, f"TRN Error: {e}")
 
@@ -732,9 +695,7 @@ class BZReduxSuite:
             file_size = os.path.getsize(path)
             if file_size % chunk_size != 0:
                 raise Exception(f"Invalid LGT size: {file_size} bytes is not a multiple of {chunk_size}.")
-
-            total_chunks = file_size // chunk_size
-            map_chunks = total_chunks - 1
+            map_chunks = file_size // chunk_size - 1
             if map_chunks <= 0:
                 raise Exception("File too small to contain the leading special chunk and map data.")
 
@@ -746,35 +707,13 @@ class BZReduxSuite:
             if map_chunks % gw != 0:
                 raise Exception(f"{map_chunks} map chunks cannot form a grid {gw} zones wide.")
             gh = map_chunks // gw
-            
-            with open(path, 'rb') as f:
-                # BzrLgt treats the first 65,536 bytes as a special non-image chunk.
-                special = f.read(chunk_size)
-                if len(special) != chunk_size:
-                    raise Exception("Truncated LGT special chunk.")
-                
-                full_img = Image.new('L', (gw * ZONE_RES, gh * ZONE_RES))
-                
-                # Sequential map chunks are stored left-to-right. Chunk rows and
-                # scanlines are south-to-north, which is equivalent to assembling
-                # normally and then flipping the complete image vertically.
-                for yseg in range(gh): 
-                    for xseg in range(gw):
-                        data = f.read(chunk_size)
-                        if len(data) != chunk_size:
-                            raise Exception("Truncated LGT map chunk.")
-                        
-                        zone_img = Image.frombytes('L', (ZONE_RES, ZONE_RES), data)
-                        pos_x = xseg * ZONE_RES
-                        pos_y = yseg * ZONE_RES
-                        full_img.paste(zone_img, (pos_x, pos_y))
-                
-                full_img = full_img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
 
-                out = os.path.splitext(path)[0] + ".png"
-                full_img.save(out)
-                self.log_msg(self.lgt_log, f"Exported {gw}x{gh} zones from BZR LGT.")
-                
+            # battlezone.terrain.lgt reads the bordered Redux layout (the
+            # leading 65,536-byte chunk is the border, not image data).
+            lightmap, _, _, _ = lgt_codec.read_lgt(path, gw, gh, zone_size=ZONE_RES)
+            out = os.path.splitext(path)[0] + ".png"
+            Image.fromarray(lgt_codec.lgt_to_image(lightmap), mode="L").save(out)
+            self.log_msg(self.lgt_log, f"Exported {gw}x{gh} zones from BZR LGT.")
         except Exception as e: self.log_msg(self.lgt_log, f"ERROR: {e}")
 
     def png_to_lgt(self):
@@ -787,30 +726,12 @@ class BZReduxSuite:
             if img.width % ZONE_RES != 0 or img.height % ZONE_RES != 0:
                 raise Exception(f"LGT images must be multiples of {ZONE_RES} pixels; got {img.width}x{img.height}.")
 
-            # Critical BzrLgt behavior: the leading 65,536-byte special chunk is
-            # filled from the UNFLIPPED source image's top-left pixel. Sampling
-            # after the storage flip incorrectly uses the source bottom-left.
-            special_value = img.getpixel((0, 0))
-
-            # BzrLgt stores the map south-to-north. A whole-image vertical flip
-            # followed by ordinary 256x256 chunking produces the same byte order.
-            stored_img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
             gw, gh = img.width // ZONE_RES, img.height // ZONE_RES
-            chunk_size = ZONE_RES * ZONE_RES
-            
             out = os.path.splitext(path)[0] + ".lgt"
-            with open(out, 'wb') as f:
-                # 1. Leading special chunk (reference-compatible).
-                f.write(bytes([special_value]) * chunk_size)
-                
-                # 2. Map chunks, left-to-right and south-to-north in file order.
-                for yseg in range(gh):
-                    for xseg in range(gw):
-                        box = (xseg * ZONE_RES, yseg * ZONE_RES, 
-                               (xseg + 1) * ZONE_RES, (yseg + 1) * ZONE_RES)
-                        zone = stored_img.crop(box)
-                        f.write(zone.tobytes())
-                        
+            # Critical BzrLgt behavior: the leading special chunk is filled from
+            # the UNFLIPPED (north-up) image's top-left pixel.
+            lgt_codec.write_lgt(out, lgt_codec.image_to_lgt(np.asarray(img)), gw, gh,
+                                border=img.getpixel((0, 0)))
             self.log_msg(self.lgt_log, f"Packed {gw*gh} zones into BzrLgt-compatible .LGT.")
         except Exception as e: self.log_msg(self.lgt_log, f"ERROR: {e}")
 

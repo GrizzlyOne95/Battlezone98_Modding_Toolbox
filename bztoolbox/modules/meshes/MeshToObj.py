@@ -2,17 +2,16 @@
 """
 Ogre Mesh to OBJ Converter
 Converts Ogre .mesh files to OBJ format via XML intermediate
+(the binary reader is built in; no Ogre command-line tools are needed)
 """
 
 import os
 import sys
-import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import argparse
 
-# Hide console window on Windows
-CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+from battlezone.meshes.ogre import MeshError, mesh_to_xml_file
 
 
 def obj_output_name(source_name):
@@ -26,92 +25,41 @@ def obj_output_name(source_name):
     return source_name + ".obj"
 
 class OgreXMLConverter:
-    """Handles batch conversion of Ogre binary files to XML using OgreXMLConverter"""
-    
+    """Binary .mesh -> .mesh.xml, in pure Python (battlezone.meshes.ogre).
+
+    Replaces the OgreXMLConverter executable, so conversion works on every
+    platform. The XML layout matches what OgreXMLConverter wrote.
+    """
+
     def __init__(self, ogre_tools_path=None):
-        self.converter = self._find_converter(ogre_tools_path)
-        
-    def _find_converter(self, tools_path):
-        """Find OgreXMLConverter executable"""
-        possible_names = ['OgreXMLConverter', 'OgreXMLConverter.exe']
-        
-        if tools_path:
-            for name in possible_names:
-                path = Path(tools_path) / name
-                if path.exists():
-                    return str(path)
-        
-        # Try system PATH
-        for name in possible_names:
-            try:
-                # On Windows, 'where' is used; on Unix, 'which'
-                cmd = ['where' if os.name == 'nt' else 'which', name]
-                result = subprocess.run(cmd, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
-                if result.returncode == 0:
-                    return result.stdout.strip().splitlines()[0]
-            except Exception:
-                pass
-        
-        return 'OgreXMLConverter'  # Hope it's in PATH
-    
+        # ogre_tools_path is accepted for compatibility; no external tool is used
+        self.converter = "built-in"
+
     def convert_to_xml(self, input_file, output_dir=None):
-        """Convert a single .mesh or .skeleton file to XML"""
+        """Convert a single .mesh file to XML; returns the XML path or None."""
         input_path = Path(input_file)
-        
         if output_dir:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
             output_path = Path(output_dir) / input_path.name
         else:
             output_path = input_path
-        
-        # OgreXMLConverter adds .xml to the filename
         xml_output = str(output_path) + '.xml'
-        
         try:
-            cmd = [self.converter, str(input_path)]
-            if output_dir:
-                # Add output directory parameter
-                cmd = [self.converter, str(input_path), '-d', str(output_dir)]
-            
-            print(f"Running: {' '.join(cmd)}")
-            # Don't use check=True because OgreXMLConverter returns non-zero for skeleton warnings
-            result = subprocess.run(cmd, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
-            
-            # Check if file was actually created regardless of return code
-            if Path(xml_output).exists():
-                print(f"✓ Converted {input_path.name} to XML")
-                return xml_output
-            
-            # Try alternative naming
-            alt_xml = str(output_path.with_suffix('')) + '.xml'
-            if Path(alt_xml).exists():
-                print(f"✓ Converted {input_path.name} to XML")
-                return alt_xml
+            mesh_to_xml_file(input_path, xml_output)
+        except (OSError, MeshError) as e:
+            print(f"✗ Failed to convert {input_path.name}: {e}")
+            return None
+        print(f"✓ Converted {input_path.name} to XML")
+        return xml_output
 
-            if result.returncode != 0:
-                print(f"✗ Failed to convert {input_path.name}")
-                print(f"  stdout: {result.stdout}")
-                print(f"  stderr: {result.stderr}")
-            else:
-                print(f"  Warning: Expected XML file not found at {xml_output}")
-            return None
-                
-        except FileNotFoundError:
-            print(f"✗ OgreXMLConverter not found at: {self.converter}")
-            print(f"  Please specify path with --ogre-tools")
-            return None
-        except Exception as e:
-            print(f"✗ Error during XML conversion of {input_path.name}: {e}")
-            return None
-    
     def batch_convert(self, input_dir, output_dir=None, extensions=(".mesh",)):
         """Convert all Ogre files in a directory"""
         input_path = Path(input_dir)
         converted_files = []
-        
+
         if output_dir:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+
         for ext in extensions:
             for file in input_path.rglob(f'*{ext}'):
                 xml_output_dir = None
@@ -121,7 +69,7 @@ class OgreXMLConverter:
                 xml_file = self.convert_to_xml(file, xml_output_dir)
                 if xml_file:
                     converted_files.append(xml_file)
-        
+
         return converted_files
 
 
@@ -430,15 +378,13 @@ Examples:
   # Batch convert all meshes in directory
   python MeshToObj.py --batch input_dir/ -o output_dir/
   
-  # Specify Ogre tools location
-  python MeshToObj.py mesh.mesh -o output.obj --ogre-tools /path/to/ogre/tools/
         """
     )
     
     parser.add_argument('input', help='Input .mesh/.xml file or directory (with --batch)')
     parser.add_argument('-o', '--output', required=True, help='Output .obj file or directory')
     parser.add_argument('--batch', action='store_true', help='Batch process directory')
-    parser.add_argument('--ogre-tools', help='Path to Ogre command line tools')
+    parser.add_argument('--ogre-tools', help=argparse.SUPPRESS)  # accepted, no longer needed
     parser.add_argument('--keep-xml', action='store_true', help='Keep intermediate XML files')
     parser.add_argument('--no-mtl', action='store_true', help='Do not create MTL file')
     

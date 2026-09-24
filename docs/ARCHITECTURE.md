@@ -14,7 +14,8 @@
                          |
             +------------v---------------------------------------------+
             |  battlezone  (GUI-free core)                              |
-            |  project model . validation engine . bzn . odf            |
+            |  project . validation . assets . bzn . odf . terrain      |
+            |  archives (ZFS/LZO) . meshes (Ogre)                       |
             +-----------------------------------------------------------+
 ```
 
@@ -36,6 +37,9 @@ belongs there.
   each tool still saves its settings), and a menubar is drawn as a button
   row. Constructed without a master, the same class opens its own window, so
   modules stay runnable on their own during the migration.
+* `fonts.py` - registers the bundled Battlezone font for the running process
+  (GDI / fontconfig / CoreText); the shell and every tool take header fonts
+  from it.
 * `jobs.py` - one background task system. Work runs on a thread pool;
   progress, completion and errors are delivered on the Tk thread. The
   *Background Tasks* page and the status bar show everything that runs.
@@ -43,8 +47,9 @@ belongs there.
   `Toolbox.*` ttk styles) and shared widgets (cards, path pickers, issue
   table, log view, jobs panel, scrollable frames with a single mouse-wheel
   dispatcher).
-* `pages/` - native pages: Home, Project overview, Validation, Tasks,
-  Settings, External Tools.
+* `pages/` - native pages: Home, Project overview, Validation, Dependencies,
+  Tasks, Settings, External Tools. (The ZFS page is native too, in
+  `modules/archives`.)
 
 ### Styling and migrated modules
 
@@ -65,8 +70,7 @@ customtkinter or Ogre until a page needs them. `legacy.py` holds the loaders
 that mount the migrated tools and the *project hooks* that push the open
 project into them.
 
-A page whose package is missing from a build is hidden (this is how the
-MIT-only build drops the ZFS module).
+A page whose package is missing from a build is hidden.
 
 ## Core (`battlezone`)
 
@@ -77,7 +81,22 @@ MIT-only build drops the ZFS module).
   indexes the folder once and runs independent checks that all return
   `Issue(severity, check, message, path, line, rule_id, suggestion, ...)`.
 * `odf/`, `bzn/` - ODF parser/schema/evidence/validator and BZN parsing /
-  BZCC port, moved unchanged from BZN Toolbox.
+  BZCC port, moved unchanged from BZN Toolbox; `odf/names.py` reads the
+  player-visible `unitName` (Localization).
+* `terrain/` - one reader/writer per terrain format: `hg2`, `lgt`, `mat`,
+  `trn` (a TRN document model: sections, duplicates, line endings, the first
+  `[Size]` as the engine reads it) and the stock ACT `palettes`. The older
+  module files (`world/hg2_codec.py`, `terrain_generator/hg2.py`, ...)
+  re-export these names.
+* `archives/` - ZFS archives (read, extract, verify, write; encrypted and
+  legacy LZO205 archives) on a pure-Python LZO1X/LZO1Y codec.
+* `meshes/ogre.py` - Ogre binary `.mesh` reader (serializer v1.0-v1.100, both
+  byte orders) that writes OgreXMLConverter's XML layout and patches normals
+  back into the binary.
+* `assets/` - the dependency graph built from all of the above.
+
+Because none of this needs a native helper program, every feature works on
+Windows, macOS and Linux.
 
 ## Per-user state
 
@@ -93,4 +112,4 @@ Resources live beside the module that uses them and are looked up relative
 to the module file. The PyInstaller spec (`packaging/bztoolbox.spec`) keeps
 the package layout inside the bundle, so the same lookup works frozen.
 `bztoolbox selftest` opens every page and is run against the frozen build in
-CI.
+CI on Windows, macOS and Linux.

@@ -1,3 +1,9 @@
+> **Toolbox note:** this is the standalone tool's README, kept for reference.
+> In the toolbox (*Assets > Models & Meshes*, `bztoolbox meshes ...`) binary
+> meshes are read by `battlezone/meshes/ogre.py` on every platform, so neither
+> OgreXMLConverter nor Blender is needed. glTF export was removed; OBJ export
+> and normal recalculation remain.
+
 # Battlezone Mesh Tools
 
 Battlezone Mesh Tools is a Windows GUI utility for fixing and converting Ogre `.mesh` / `.xml` files. It wraps the core Ogre tools with a Battlezone-inspired interface and a clean, single-button workflow.

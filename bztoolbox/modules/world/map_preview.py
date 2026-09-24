@@ -32,6 +32,7 @@ import sys
 import numpy as np
 from PIL import Image
 
+from battlezone.terrain.trn import TRNDocument, parse_number
 from bztoolbox.modules.world.hg2_codec import read_hg2
 from bztoolbox.modules.world.mat_codec import read_mat, decode_entry
 
@@ -67,35 +68,21 @@ def _strip_comments(text: str) -> str:
 
 def parse_trn(path: str) -> dict:
     """Material name, per-texture-type solid tile, and declared world size."""
-    text = _strip_comments(open(path, "r", errors="ignore").read())
-    parts = _SECT.split(text)
-    sections = {parts[i].lower(): parts[i + 1] for i in range(1, len(parts), 2)}
-
-    material = None
-    if "atlases" in sections:
-        m = re.search(r"MaterialName\s*=\s*(\S+)", sections["atlases"], re.I)
-        if m:
-            material = m.group(1).strip()
-
+    doc = TRNDocument.read(path)
     solids: dict[int, str] = {}
-    for name, body in sections.items():
-        m = re.fullmatch(r"texturetype(\d+)", name)
-        if not m:
-            continue
+    for type_id, section in doc.texture_types().items():
         # SolidA0 is the material's plain face; caps and diagonals are edges.
-        s = re.search(r"SolidA0\s*=\s*(\S+\.map)", body, re.I)
-        if not s:
-            s = re.search(r"Solid[A-D]0\s*=\s*(\S+\.map)", body, re.I)
-        if s:
-            solids[int(m.group(1))] = s.group(1).strip().upper()
-
+        candidates = [section.get("SolidA0")] + [section.get(f"Solid{c}0") for c in "ABCD"]
+        tile = next((v.split()[0] for v in candidates if v and v.split()[0].lower().endswith(".map")), None)
+        if tile:
+            solids[type_id] = tile.upper()
     size = {}
-    for k, v in _KEY.findall(sections.get("size", "")):
-        try:
-            size[k.lower()] = float(v)
-        except ValueError:
-            pass
-    return {"material": material, "solids": solids, "size": size}
+    first_size = doc.section("size")
+    for key, value in (first_size.as_dict().items() if first_size else ()):
+        number = parse_number(value)
+        if number is not None:
+            size[key] = number
+    return {"material": doc.material_name, "solids": solids, "size": size}
 
 
 def _find(name: str, dirs) -> str | None:

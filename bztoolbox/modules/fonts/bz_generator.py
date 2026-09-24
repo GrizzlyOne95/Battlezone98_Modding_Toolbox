@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import webbrowser
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
+from bztoolbox.app.fonts import bz_font
 
 APP_TITLE = "BZ98 Redux Font Generator"
 STOCK_REFERENCE_SIZE = 128
@@ -241,15 +242,7 @@ class BzoneApp:
         self.log("Application Initialized.")
 
     def load_custom_fonts(self):
-        self.current_font = "Segoe UI"
-        font_path = resource_path("BZONE.ttf")
-        if os.path.exists(font_path) and sys.platform == "win32":
-            try:
-                if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                    self.current_font = "BZONE"
-                    self.log("Loaded bundled BZONE.ttf for UI.")
-            except OSError as exc:
-                self.log(f"UI font load skipped: {exc}")
+        self.current_font = bz_font("Segoe UI")
 
     def setup_styles(self):
         style = ttk.Style()

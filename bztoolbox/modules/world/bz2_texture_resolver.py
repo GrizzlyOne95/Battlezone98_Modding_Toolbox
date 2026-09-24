@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable
 from pathlib import Path, PureWindowsPath
 
+from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world.bz2_ter_codec import SourceTerrain
 from bztoolbox.modules.world.bz2_pak import PakArchive, safe_member_name
 
@@ -58,23 +59,15 @@ def extract_trn_texture_slots(trn_path: str | Path) -> dict[int, str]:
     missing key remains unresolved instead of being guessed from filenames.
     """
     result: dict[int, str] = {}
-    in_texture_section = False
-    with open(trn_path, "r", encoding="cp1252", errors="replace") as stream:
-        for raw in stream:
-            header = re.match(r"^\s*\[([^\]]+)\]", raw)
-            if header:
-                in_texture_section = header.group(1).strip().casefold() == "texture"
-                continue
-            if not in_texture_section:
-                continue
-            match = re.match(r"^\s*TileTexture(\d+)\s*=\s*(.*?)\s*$", raw,
-                             flags=re.IGNORECASE)
+    for section in TRNDocument.read(trn_path).sections_named("texture"):
+        for entry in section.entries:
+            match = re.fullmatch(r"TileTexture(\d+)", entry.key, flags=re.IGNORECASE)
             if not match:
                 continue
             slot = int(match.group(1))
             if not 0 <= slot < 16:
                 raise ValueError(f"TRN texture slot {slot} is outside the supported 0..15 range")
-            value = match.group(2).strip()
+            value = entry.value.strip()
             if value.startswith('"') and value.endswith('"') and len(value) >= 2:
                 value = value[1:-1]
             if not value:

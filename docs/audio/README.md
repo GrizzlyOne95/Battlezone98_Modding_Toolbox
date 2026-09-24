@@ -1,3 +1,9 @@
+> **Toolbox note:** this is the standalone tool's README, kept for reference.
+> In the toolbox the Audio page needs no FFmpeg: decoding and encoding use
+> soundfile (libsndfile) and the radio effects are NumPy/SciPy
+> (`bztoolbox/modules/audio/processing.py`). Inputs: WAV, MP3, OGG, FLAC, AIFF
+> (M4A/AAC is no longer accepted).
+
 # Battlezone Audio Tool
 
 **Battlezone Audio Tool** (formerly **BZRadio**) is a specialized utility designed for the **Battlezone 98 Redux** modding community. It streamlines the process of mastering audio for the legacy engine, handling the strict formatting requirements for both unit voiceovers (VO) and mission soundtracks.

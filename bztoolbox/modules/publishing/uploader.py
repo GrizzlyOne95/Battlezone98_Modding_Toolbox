@@ -9,6 +9,7 @@ import ctypes
 import re
 import requests
 from datetime import datetime, timezone
+from battlezone.validation import validate_project
 from battlezone.validation.mod_scanner import ModScanner
 from bztoolbox.paths import module_data_dir, projects_dir
 from bztoolbox.modules.publishing.steam_service import SteamService
@@ -19,6 +20,8 @@ from bztoolbox.modules.publishing.app_file_manager import AppFileManager
 from bztoolbox.modules.publishing.project_store import ProjectStore
 from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
 from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
+from bztoolbox.app.fonts import bz_font
+from bztoolbox.system import open_in_file_manager
 
 try:
     from PIL import Image
@@ -411,15 +414,7 @@ class WorkshopUploader:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def load_custom_fonts(self):
-        self.current_font = "Consolas"
-        if IS_WINDOWS:
-            # Try to load BZONE.ttf if available (assuming it might be in resource dir like cmd.py)
-            font_path = os.path.join(self.resource_dir, "BZONE.ttf")
-            if os.path.exists(font_path):
-                try:
-                    if ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0) > 0:
-                        self.current_font = "BZONE"
-                except Exception: pass
+        self.current_font = bz_font("Consolas")
 
     def load_config(self):
         candidate_paths = [self.config_path]
@@ -798,6 +793,19 @@ class WorkshopUploader:
                 "action": "",
             })
 
+        engine_types = {"bzn": "Mission", "odf": "ODF"}
+        for issue in findings.get("engine_issues", []):
+            location = issue.location()
+            rows.append({
+                "severity": "Blocking" if issue.severity == "error" else "Warning",
+                "type": engine_types.get(issue.check, issue.check.upper()),
+                "detail": f"{location} {issue.message}".strip(),
+                "raw_detail": issue.message,
+                "full_path": os.path.join(mod_dir, issue.path) if issue.path else "",
+                "line": issue.line or 0,
+                "action": "",
+            })
+
         for path in findings["trn_duplicate_headers"]:
             rows.append({
                 "severity": "Fixable",
@@ -915,6 +923,12 @@ class WorkshopUploader:
         mode = f"UPDATE ({item_id})" if item_id.isdigit() and item_id != "0" else "CREATE NEW"
         blockers = list(findings["validation_errors"])
         warnings = list(findings["validation_warnings"])
+        engine_issues = findings.get("engine_issues", [])
+        blockers.extend(f"{issue.location()} {issue.message}".strip()
+                        for issue in engine_issues if issue.severity == "error")
+        engine_warnings = sum(1 for issue in engine_issues if issue.severity == "warning")
+        if engine_warnings:
+            warnings.append(f"{engine_warnings} mission/ODF validation warnings.")
         warnings.extend(
             [f"{len(findings['issues'])} scanner issues found."] if findings["issues"] else []
         )
@@ -975,10 +989,7 @@ class WorkshopUploader:
         if not path or not os.path.exists(path):
             return False
         try:
-            if IS_WINDOWS:
-                os.startfile(path)
-            else:
-                subprocess.call(["xdg-open", path])
+            open_in_file_manager(path)
             return True
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {e}")
@@ -1109,10 +1120,7 @@ class WorkshopUploader:
                 messagebox.showinfo("Changes", "The selected entry is not a local file you can open.", parent=win)
                 return
             try:
-                if IS_WINDOWS:
-                    os.startfile(path)
-                else:
-                    subprocess.call(["xdg-open", path])
+                open_in_file_manager(path)
             except Exception as e:
                 messagebox.showerror("Error", f"Could not open file: {e}", parent=win)
 
@@ -1184,10 +1192,11 @@ class WorkshopUploader:
             findings_tree.insert("", "end", values=("Blocking", blocker))
         for warning in plan["warnings"]:
             findings_tree.insert("", "end", values=("Warning", warning))
-        for severity, issue_type, detail in self._build_readiness_rows(findings):
-            if severity in ("Ready",):
+        for row in self._build_readiness_rows(findings):
+            # blockers/warnings above already list validation and engine findings
+            if row["severity"] == "Ready" or row["type"] in ("Validation", "Mission", "ODF"):
                 continue
-            findings_tree.insert("", "end", values=(severity, f"{issue_type}: {detail}"))
+            findings_tree.insert("", "end", values=(row["severity"], f"{row['type']}: {row['detail']}"))
 
         result = {"publish": False, "fixups": []}
 
@@ -2153,7 +2162,7 @@ class WorkshopUploader:
                 self.root.after(0, lambda: self.log(f"SteamCMD login check failed.\n{tail}"))
         except Exception as e:
             self.root.after(0, lambda: self._set_auth_state("failed"))
-            self.root.after(0, lambda: self.log(f"SteamCMD login check failed: {e}"))
+            self.root.after(0, lambda e=e: self.log(f"SteamCMD login check failed: {e}"))
         finally:
             self._set_busy("SteamCMD Login Test", False)
 
@@ -2241,7 +2250,7 @@ class WorkshopUploader:
         self.log_box.config(state="disabled")
 
     def browse_steamcmd(self):
-        f = filedialog.askopenfilename(filetypes=[("Executable", "*.exe")])
+        f = filedialog.askopenfilename(filetypes=[("SteamCMD", "steamcmd.exe steamcmd.sh steamcmd"), ("All files", "*")])
         if f:
             self.steamcmd_path.set(f)
             self._sync_steam_identity_from_local_state()
@@ -2265,7 +2274,7 @@ class WorkshopUploader:
                 self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD downloaded and path set automatically."))
             except Exception as e:
                 self.log(f"Download Error: {e}")
-                self.root.after(0, lambda: messagebox.showerror("Download Error", f"Failed to download SteamCMD: {e}"))
+                self.root.after(0, lambda e=e: messagebox.showerror("Download Error", f"Failed to download SteamCMD: {e}"))
                 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -2572,8 +2581,23 @@ class WorkshopUploader:
     def _fingerprint_inventory(self, inventory):
         return self._get_mod_scanner().fingerprint_inventory(inventory)
 
+    # Checks from the toolbox validation engine that the scanner above does
+    # not already cover: mission (BZN) dependencies and the Redux ODF rules.
+    ENGINE_CHECKS = ("bzn", "odf")
+
     def _collect_mod_findings(self, mod_dir, inventory=None):
-        return self._get_mod_scanner().collect_findings(mod_dir, inventory=inventory)
+        findings = self._get_mod_scanner().collect_findings(mod_dir, inventory=inventory)
+        findings["engine_issues"] = self._collect_engine_issues(mod_dir)
+        return findings
+
+    def _collect_engine_issues(self, mod_dir):
+        """Error/warning issues from battlezone.validation (read-only)."""
+        try:
+            report = validate_project(mod_dir, self.ENGINE_CHECKS)
+        except Exception as exc:
+            self.log(f"Validation engine could not scan {mod_dir}: {exc}")
+            return []
+        return [issue for issue in report.issues if issue.severity in ("error", "warning")]
 
     def analyze_memory_usage(self):
         mod_dir = self.mod_path.get()
@@ -2635,7 +2659,7 @@ class WorkshopUploader:
             if sel:
                 full_path = issue_map.get(sel[0])
                 if full_path and os.path.exists(full_path):
-                    try: os.startfile(full_path) if IS_WINDOWS else subprocess.call(['xdg-open', full_path])
+                    try: open_in_file_manager(full_path)
                     except Exception as e: messagebox.showerror("Error", f"Could not open file: {e}", parent=win)
 
         def on_continue():
@@ -2997,7 +3021,7 @@ class WorkshopUploader:
         except Exception as e:
             self.root.after(0, lambda: self.library_status_var.set("Workshop library load failed."))
             self.root.after(0, lambda: self.api_key_status_var.set("API key: failed or unauthorized"))
-            self.root.after(0, lambda: self.log(f"API Error: {self._friendly_api_error(e)}"))
+            self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
             self._set_busy("Refresh", False)
 
@@ -3101,7 +3125,7 @@ class WorkshopUploader:
             
             self.root.after(0, do_populate)
         except Exception as e:
-            self.root.after(0, lambda: self.log(f"API Error: {self._friendly_api_error(e)}"))
+            self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
             self._set_busy("Prepare Update", False)
 
