@@ -222,6 +222,50 @@ def _cmd_selftest(args) -> int:
     return 1 if failures else 0
 
 
+def _cmd_zfs(args) -> int:
+    from pathlib import Path
+
+    from battlezone.archives.zfs import ZFSArchive, ZFSError, files_in_folder, write_zfs
+
+    try:
+        if args.zfs_command == "pack":
+            sources = []
+            for item in args.inputs:
+                path = Path(item)
+                sources += files_in_folder(path, args.recursive) if path.is_dir() else [path]
+            entries = write_zfs(args.archive, sources, key=args.key or 0, compress=not args.store)
+            packed = sum(e.packed_size for e in entries)
+            print(f"wrote {args.archive}: {len(entries)} files, {packed} bytes of data")
+            return 0
+        archive = ZFSArchive(args.archive, key=args.key, decrypt_directory=args.decrypt_directory)
+        if args.zfs_command == "list":
+            if args.json:
+                print(json.dumps([{"name": e.name, "size": e.size, "packed": e.packed_size,
+                                   "method": e.method, "offset": e.offset, "time": e.time}
+                                  for e in archive.entries], indent=2))
+            else:
+                h = archive.header
+                print(f"{archive.path.name}: {h.format}, {len(archive)} files, key {h.key:#010x}")
+                for e in archive.entries:
+                    print(f"{e.size:>10} {e.packed_size:>10} {e.method:6} {e.name}")
+        elif args.zfs_command == "extract":
+            names = args.names or None
+            written = archive.extract(names, args.output)
+            print(f"extracted {len(written)} file(s) to {args.output}")
+        elif args.zfs_command == "verify":
+            problems = archive.verify()
+            for problem in problems:
+                print(f"problem: {problem}")
+            print(f"{len(archive)} files, {len(problems)} problem(s)")
+            return 1 if problems else 0
+        for warning in archive.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+    except (OSError, ZFSError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_projects(args) -> int:
     from battlezone.project import ProjectStore
     from bztoolbox import paths
@@ -269,6 +313,23 @@ def build_parser() -> argparse.ArgumentParser:
     deps.add_argument("--odf-dir", help="folder to look for custom ODFs (default: beside the BZN)")
     deps.add_argument("--json", action="store_true")
     deps.set_defaults(func=_cmd_bzn_deps)
+
+    zfs = sub.add_parser("zfs", help="list, extract, verify or pack ZFS archives")
+    zfs_sub = zfs.add_subparsers(dest="zfs_command", required=True)
+    for name, text in (("list", "list members"), ("extract", "extract members"),
+                       ("verify", "decode every member and report problems"), ("pack", "build an archive")):
+        cmd = zfs_sub.add_parser(name, help=text)
+        cmd.add_argument("archive")
+        cmd.add_argument("--key", help="number, 0x hex or password (default: the archive's own key)")
+        if name != "pack":
+            cmd.add_argument("--decrypt-directory", action="store_true", help="force directory decryption")
+        cmd.set_defaults(func=_cmd_zfs)
+    zfs_sub.choices["list"].add_argument("--json", action="store_true")
+    zfs_sub.choices["extract"].add_argument("names", nargs="*", help="members to extract (default: all)")
+    zfs_sub.choices["extract"].add_argument("-o", "--output", default=".", help="output folder")
+    zfs_sub.choices["pack"].add_argument("inputs", nargs="+", help="files and/or folders to pack")
+    zfs_sub.choices["pack"].add_argument("-r", "--recursive", action="store_true", help="include subfolders")
+    zfs_sub.choices["pack"].add_argument("--store", action="store_true", help="do not compress")
     return parser
 
 

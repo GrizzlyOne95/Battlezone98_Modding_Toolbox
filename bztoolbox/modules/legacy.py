@@ -108,11 +108,3 @@ def audio(container):
 
     app = BZRadio(container)
     return app, app
-
-
-# --- Archives ------------------------------------------------------------------
-
-def zfs(container):
-    from bztoolbox.modules.zfs.unzfs import ZFSManager
-
-    return _hosted(container, ZFSManager)

@@ -58,45 +58,12 @@ class ToolStatus:
 
 TOOLS: dict[str, ExternalTool] = {t.id: t for t in (
     ExternalTool(
-        "ffmpeg", "FFmpeg", "Audio transcoding and radio VO mastering.",
-        ("Assets > Audio",), "optional", ("ffmpeg",),
-        bundled=("resources/bin/ffmpeg", "modules/audio/bin/ffmpeg"),
-        url="https://ffmpeg.org/download.html",
-    ),
-    ExternalTool(
         "steamcmd", "SteamCMD", "Uploading and updating Steam Workshop items.",
         ("Project > Publish",), "external", ("steamcmd",),
         well_known=(r"C:\steamcmd\steamcmd.exe", r"C:\Program Files*\steamcmd\steamcmd.exe",
                     "~/steamcmd/steamcmd.sh", "/usr/games/steamcmd"),
         version_args=None,
         url="https://developer.valvesoftware.com/wiki/SteamCMD",
-    ),
-    ExternalTool(
-        "blender", "Blender", "Ogre mesh to glTF conversion (animated/rigged meshes).",
-        ("Assets > Meshes",), "external", ("blender",),
-        well_known=(r"C:\Program Files\Blender Foundation\Blender*\blender.exe",
-                    "/Applications/Blender.app/Contents/MacOS/Blender", "/usr/bin/blender",
-                    "/snap/bin/blender"),
-        version_args=("--version",),
-        url="https://www.blender.org/download/",
-    ),
-    ExternalTool(
-        "ogrexmlconverter", "OgreXMLConverter", "Ogre .mesh <-> XML conversion.",
-        ("Assets > Meshes",), "bundled", ("OgreXMLConverter",),
-        bundled=("modules/meshes/bin/OgreXMLConverter",),
-        version_args=None, windows_only=True,
-    ),
-    ExternalTool(
-        "ogremeshupgrader", "OgreMeshUpgrader", "Ogre mesh version upgrades and LOD generation.",
-        ("Assets > Meshes",), "bundled", ("OgreMeshUpgrader",),
-        bundled=("modules/meshes/bin/OgreMeshUpgrader",),
-        version_args=None, windows_only=True,
-    ),
-    ExternalTool(
-        "lzo_bridge", "LZO bridge", "Compressed ZFS archive support (GPL-2.0 component).",
-        ("Archives > ZFS",), "bundled", ("lzo_bridge.dll",),
-        bundled=("modules/zfs/native/lzo_bridge.dll",),
-        version_args=None, windows_only=True,
     ),
 )}
 

@@ -113,16 +113,16 @@ PAGES: Sequence[PageSpec] = (
              "Holo text sprites, materials, ODFs and Lua.",
              f"{_L}:holotext", kind="legacy", package="bztoolbox.modules.holotext", origin="HoloTextGen"),
     PageSpec("assets.meshes", "assets", "Models & Meshes",
-             "Ogre mesh fixes and OBJ/glTF export with live preview.",
-             f"{_L}:meshes", kind="legacy", package="bztoolbox.modules.meshes", origin="OgreMeshTools", requires=("blender", "ogrexmlconverter")),
+             "Ogre mesh normal fixes and OBJ export with live preview.",
+             f"{_L}:meshes", kind="legacy", package="bztoolbox.modules.meshes", origin="OgreMeshTools"),
     PageSpec("assets.audio", "assets", "Audio",
              "Radio VO mastering, engine WAV conversion, music OGG and timing manifests.",
-             f"{_L}:audio", kind="legacy", package="bztoolbox.modules.audio", origin="AudioTool", requires=("ffmpeg",)),
+             f"{_L}:audio", kind="legacy", package="bztoolbox.modules.audio", origin="AudioTool"),
 
     # --- Archives ---------------------------------------------------------
     PageSpec("archives.zfs", "archives", "ZFS Archives",
-             "Browse, extract and pack ZFS archives.",
-             f"{_L}:zfs", kind="legacy", package="bztoolbox.modules.zfs", origin="ZFS Specialist", requires=("lzo_bridge",)),
+             "Browse, extract, verify and pack ZFS archives (LZO1X/LZO1Y, encrypted).",
+             "bztoolbox.modules.archives.zfs_page:ZFSPage", origin="ZFS Specialist", keywords=("zfs", "lzo", "pak")),
 
     # --- Tools ------------------------------------------------------------
     PageSpec("tools.tasks", "tools", "Background Tasks", "Everything running in the background.",
@@ -131,7 +131,7 @@ PAGES: Sequence[PageSpec] = (
     # --- Settings ---------------------------------------------------------
     PageSpec("settings.general", "settings", "General", "Game install and data folders.",
              f"{_P}.settings:SettingsPage"),
-    PageSpec("settings.external", "settings", "External Tools", "FFmpeg, SteamCMD, Blender and bundled helpers.",
+    PageSpec("settings.external", "settings", "External Tools", "SteamCMD for Workshop uploads.",
              f"{_P}.settings:ExternalToolsPage"),
 )
 

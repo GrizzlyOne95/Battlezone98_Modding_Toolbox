@@ -14,6 +14,5 @@ if _base:
         _base,
         os.path.join(_base, "Ogre"),
         os.path.join(_base, "bztoolbox", "modules", "meshes", "bin"),
-        os.path.join(_base, "bztoolbox", "modules", "zfs", "native"),
     ]
     os.environ["PATH"] = os.pathsep.join([p for p in extra if os.path.isdir(p)] + [os.environ.get("PATH", "")])
