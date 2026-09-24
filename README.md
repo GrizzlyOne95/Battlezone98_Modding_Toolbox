@@ -151,6 +151,24 @@ python -m PyInstaller packaging/bztoolbox.spec --noconfirm   # on each platform
 dist/BZModdingToolbox/bztoolbox selftest
 ```
 
+### Releases
+
+Every pull request merged into `main` is released automatically
+(`.github/workflows/ci.yml`). The workflow tests the merge commit, builds
+Windows, macOS and Linux and publishes a GitHub release with the three
+downloads and notes listing the merged pull requests.
+
+* **Version:** the patch number goes up by default. A label on the pull
+  request changes that: `release: minor`, `release: major`, or
+  `release: skip` for no release. Each PR's CI summary shows the version its
+  merge will release. To jump to a specific version, set it in `VERSION`.
+* **Notes:** grouped by label (`.github/release.yml`).
+* **Manual release:** *Actions > CI > Run workflow* on `main`.
+
+Merging into `main` requires a pull request whose **CI passed** check is green.
+The rule is in `.github/rulesets/main.json`; import it under *Settings >
+Rules > Rulesets > New ruleset > Import a ruleset*.
+
 ## License
 
 MIT. See [LICENSING.md](LICENSING.md) and
