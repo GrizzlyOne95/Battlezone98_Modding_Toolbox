@@ -1,12 +1,89 @@
 name: CI
 
+# Pull requests: tests on Windows, macOS and Linux, plus a build of each
+# platform that must pass its self-test. "CI passed" sums these up and is the
+# check the main branch requires (.github/rulesets/main.json).
+#
+# Merges to main run the same jobs on the merge commit and then publish a
+# GitHub release: the version comes from scripts/release/next_version.py
+# (release: major/minor/patch/skip labels on the merged PR, patch by
+# default), the notes from the merged PRs (.github/release.yml), and the three
+# builds are attached. "Run workflow" on main releases by hand.
+
 on:
+  pull_request:
   push:
     branches: [main]
-    tags: ['v*']
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump for a manual release from main
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded PR runs are cancelled; runs on main queue so none is lost mid-release.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      release: ${{ steps.plan.outputs.release }}
+      bump: ${{ steps.plan.outputs.bump }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # every tag, to find the last release
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Labels of the pull request
+        id: labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        shell: bash
+        run: |
+          if [[ "$EVENT" == "pull_request" ]]; then
+            labels="$PR_LABELS"
+          elif [[ "$EVENT" == "push" ]]; then
+            # the PR this merge commit came from (empty for a direct push)
+            labels="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+                      --jq '[.[] | select(.merged_at != null)][0].labels[]?.name' || true)"
+          fi
+          { echo "labels<<EOF"; echo "$labels"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+      - name: Plan the version
+        id: plan
+        env:
+          LABELS: ${{ steps.labels.outputs.labels }}
+          BUMP: ${{ inputs.bump }}
+        shell: bash
+        run: |
+          args=(--labels "$LABELS" --tags "$(git tag -l 'v*')" --head-tags "$(git tag --points-at HEAD)")
+          if [[ -n "$BUMP" ]]; then args+=(--bump "$BUMP"); fi
+          python scripts/release/next_version.py "${args[@]}" | tee -a "$GITHUB_OUTPUT"
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Version ${{ steps.plan.outputs.version }}"
+            if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+              echo "Merging this PR releases **v${{ steps.plan.outputs.version }}** (bump: ${{ steps.plan.outputs.bump }}, release: ${{ steps.plan.outputs.release }})."
+              echo "Add a \`release: minor\`, \`release: major\` or \`release: skip\` label to change that."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   test:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
@@ -41,7 +118,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.platform }})
-    needs: test
+    needs: [version, test]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -51,6 +128,8 @@ jobs:
           - { os: macos-latest, platform: macos }
           # the oldest supported Ubuntu, so the build runs on older glibc too
           - { os: ubuntu-22.04, platform: linux }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -63,15 +142,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
-      - name: Resolve version
-        id: version
+      - name: Stamp the version
         shell: bash
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then version="${GITHUB_REF_NAME#v}"; else version="$(tr -d '[:space:]' < VERSION)"; fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: printf '%s\n' "$VERSION" > VERSION
       - name: Windows version resource
         if: runner.os == 'Windows'
-        run: python packaging/generate_version_info.py --version "${{ steps.version.outputs.version }}" --output build/version_info.txt
+        run: python packaging/generate_version_info.py --version "${{ env.VERSION }}" --output build/version_info.txt
       - name: Build with PyInstaller
         shell: bash
         env:
@@ -81,41 +157,78 @@ jobs:
         shell: bash
         run: |
           run() { if [[ "$RUNNER_OS" == "Linux" ]]; then xvfb-run -a "$@"; else "$@"; fi; }
-          dist/BZModdingToolbox/bztoolbox --version
+          reported="$(dist/BZModdingToolbox/bztoolbox --version)"
+          echo "$reported"
+          [[ "$reported" == *" $VERSION" ]] || { echo "::error::build reports '$reported', expected $VERSION"; exit 1; }
           run dist/BZModdingToolbox/bztoolbox selftest
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Copy-Item README.md, LICENSE, LICENSING.md, THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
-          Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v${{ steps.version.outputs.version }}-windows.zip"
+          Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v$env:VERSION-windows.zip"
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
           cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/
-          ditto -c -k --keepParent dist/BZModdingToolbox.app "BZModdingToolbox-v${{ steps.version.outputs.version }}-macos.zip"
+          ditto -c -k --keepParent dist/BZModdingToolbox.app "BZModdingToolbox-v$VERSION-macos.zip"
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
-          tar -C dist -czf "BZModdingToolbox-v${{ steps.version.outputs.version }}-linux.tar.gz" BZModdingToolbox
+          tar -C dist -czf "BZModdingToolbox-v$VERSION-linux.tar.gz" BZModdingToolbox
       - uses: actions/upload-artifact@v4
         with:
           name: BZModdingToolbox-${{ matrix.platform }}
           path: BZModdingToolbox-v*
+          if-no-files-found: error
+
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [version, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for result in $RESULTS; do [ "$result" = success ] || exit 1; done
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    name: Release
+    needs: [version, ci-passed]
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      && needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # create the tag and the release
+      issues: write     # create the release labels
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+      - name: Make sure the release labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "release: major" --color B60205 --description "Merging releases a new major version" --force
+          gh label create "release: minor" --color FBCA04 --description "Merging releases a new minor version" --force
+          gh label create "release: patch" --color 0E8A16 --description "Merging releases a patch version (the default)" --force
+          gh label create "release: skip" --color CCCCCC --description "Merging does not release" --force
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/BZModdingToolbox-v*
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Battlezone Modding Toolbox ${{ needs.version.outputs.tag }}
           generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: artifacts/BZModdingToolbox-v*
