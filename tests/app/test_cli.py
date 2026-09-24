@@ -72,6 +72,32 @@ class CliTests(unittest.TestCase):
             self.assertTrue(rows["avtank.odf"]["stock"])
             self.assertEqual(rows["mine.odf"]["status"], "MISSING")
 
+    def test_clean_user_data_removes_the_data_folder(self):
+        from bztoolbox import paths
+
+        home = paths.user_data_dir()
+        (paths.module_data_dir("world") / "world_builder_config.json").write_text("{}")
+        code, out, _ = run("clean-user-data", "--yes", "--keep-credentials")
+        self.assertEqual(code, 0)
+        self.assertFalse(home.exists())
+        self.assertIn(str(home), out)
+
+    def test_clean_user_data_never_deletes_the_home_folder(self):
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"BZTOOLBOX_HOME": str(Path.home())}):
+            code, _, err = run("clean-user-data", "--yes", "--keep-credentials")
+        self.assertEqual(code, 1)
+        self.assertIn("refusing", err)
+        self.assertTrue(Path.home().is_dir())
+
+    def test_uploader_credentials_are_the_ones_cleaned(self):
+        from bztoolbox import paths
+        from bztoolbox.modules.publishing import uploader
+
+        self.assertIn((uploader.KEYRING_SERVICE, uploader.KEYRING_API_KEY_ACCOUNT), paths.CREDENTIALS)
+
 
 if __name__ == "__main__":
     unittest.main()

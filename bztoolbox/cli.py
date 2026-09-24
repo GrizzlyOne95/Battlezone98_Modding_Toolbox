@@ -323,6 +323,28 @@ def _cmd_projects(args) -> int:
     return 0
 
 
+def _cmd_clean_user_data(args) -> int:
+    from bztoolbox import paths
+
+    target = paths.user_data_dir()
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("error: pass --yes to delete without a prompt", file=sys.stderr)
+            return 2
+        what = "settings, project profiles and caches" + ("" if args.keep_credentials else " and the saved Steam API key")
+        answer = input(f"Delete {what} in {target}? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            return 1
+    try:
+        removed = paths.remove_user_data(credentials=not args.keep_credentials)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    for item in removed:
+        print(f"removed {item}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bztoolbox", description=f"{APP_NAME} {__version__}",
@@ -354,6 +376,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     projects = sub.add_parser("projects", help="list known projects")
     projects.set_defaults(func=_cmd_projects)
+
+    clean = sub.add_parser("clean-user-data",
+                           help="delete this user's settings, project profiles, caches and saved credentials")
+    clean.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    clean.add_argument("--keep-credentials", action="store_true", help="leave the saved Steam API key")
+    clean.set_defaults(func=_cmd_clean_user_data)
 
     deps = sub.add_parser("bzn-deps", help="list ODFs a mission references and whether they are present")
     deps.add_argument("bzn")

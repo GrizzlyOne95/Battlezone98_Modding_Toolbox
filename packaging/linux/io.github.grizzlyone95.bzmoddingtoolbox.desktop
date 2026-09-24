@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Battlezone Modding Toolbox
+GenericName=Game Modding Toolbox
+Comment=Battlezone 98 Redux modding: missions, worlds, assets, validation and Workshop publishing
+Exec="@EXEC@" gui
+Icon=io.github.grizzlyone95.bzmoddingtoolbox
+Terminal=false
+Categories=Development;Game;
+Keywords=Battlezone;Redux;mod;modding;terrain;workshop;
