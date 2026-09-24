@@ -1,0 +1,121 @@
+// BZBase.material - Viewer fallback for BZOgreMeshTools
+// Replaces the game-internal BZBase parent material with a simple
+// RTShader-compatible technique showing the DiffuseMap texture.
+// Variables ($diffuse etc) set by child materials are ignored — we just
+// show the diffuse texture with standard PBR-approximating settings.
+
+material BZBase
+{
+	technique
+	{
+		pass
+		{
+			ambient 1 1 1 1
+			diffuse 1 1 1 1
+			specular 0.5 0.5 0.5 1 64
+
+			texture_unit DiffuseMap
+			{
+				texture_alias DiffuseMap
+			}
+		}
+	}
+}
+
+material BZBaseCockpit : BZBase
+{
+}
+
+material BZBaseNoCull : BZBase
+{
+	technique
+	{
+		pass
+		{
+			cull_hardware none
+			cull_software none
+
+			texture_unit DiffuseMap
+			{
+				texture_alias DiffuseMap
+			}
+		}
+	}
+}
+
+material BZBaseAlpha : BZBase
+{
+	technique
+	{
+		pass
+		{
+			scene_blend alpha_blend
+			depth_write off
+
+			texture_unit DiffuseMap
+			{
+				texture_alias DiffuseMap
+			}
+		}
+	}
+}
+
+material BZBaseAdditive : BZBase
+{
+	technique
+	{
+		pass
+		{
+			scene_blend add
+			depth_write off
+
+			texture_unit DiffuseMap
+			{
+				texture_alias DiffuseMap
+			}
+		}
+	}
+}
+
+// Sprite base materials referenced by BZ2Render.material
+material BZSprite/AlphaBlend
+{
+	technique
+	{
+		pass
+		{
+			lighting off
+			scene_blend alpha_blend
+			depth_write off
+
+			texture_unit DiffuseMap
+			{
+				texture_alias DiffuseMap
+			}
+		}
+	}
+}
+
+material BZSprite/Additive
+{
+	technique
+	{
+		pass
+		{
+			lighting off
+			scene_blend add
+			depth_write off
+
+			texture_unit DiffuseMap
+			{
+				texture_alias DiffuseMap
+			}
+		}
+	}
+}
+
+material BZSprite/AlphaWrap : BZSprite/AlphaBlend {}
+material BZSprite/AdditiveWrap : BZSprite/Additive {}
+material BZSprite/AlphaTrail : BZSprite/AlphaBlend {}
+material BZSprite/AdditiveTrail : BZSprite/Additive {}
+material BZSprite/AdditiveBolt : BZSprite/Additive {}

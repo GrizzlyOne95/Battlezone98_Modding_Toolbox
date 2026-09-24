@@ -1,0 +1,174 @@
+# MakeMAP Compatibility
+
+`src/makemap_compat.py` is a clean-room compatibility implementation of the Battlezone **MakeMAP utility dated Mar 27 2017**.
+
+The reference executable used for this compatibility pass had SHA-256:
+
+```text
+9eca282b3ab309093e2b5e4333f30ee906459dfa8be64d30ed2024edeb91d87a
+```
+
+The original executable is **not redistributed** by this repository. The implementation below was derived from its observable help text and static behavior.
+
+## Feature parity matrix
+
+| MakeMAP feature | Compatibility implementation |
+| --- | --- |
+| Default `.MAP` output | Yes |
+| `-bmp` output | Yes |
+| `-tga` output | Yes |
+| `-pal <palette>` indexed output | Yes |
+| MAP type 0: 8-bit indexed | Yes |
+| `-4444`: MAP type 1 A4R4G4B4 | Yes |
+| `-565`: MAP type 2 R5G6B5 | Yes |
+| `-8888`: MAP type 3 A8R8G8B8 | Yes |
+| `-888`: MAP type 4 X8R8G8B8 | Yes |
+| Read MAP types 0-4 | Yes |
+| `-recoveralpha` | Yes |
+| `-chromakey R G B` | Yes |
+| `-transindex <index>` | Yes |
+| `-undopma` | Yes |
+| `-remap <image>` | Yes |
+| `-colorize` | Yes |
+| `-desat <percentage>` | Yes |
+| `-powr/-powg/-powb/-powa` | Yes |
+| `-mulr/-mulg/-mulb/-mula` | Yes |
+| `-addr/-addg/-addb/-adda` | Yes |
+| `-flipx` | Yes |
+| `-flipy` | Yes |
+| `-diff <percentage>` | Yes |
+| Multiple input files | Yes |
+| Wildcard input patterns | Yes |
+| Recursive directory input | Yes |
+| DOS-style `/option` spelling | Yes for original MakeMAP options |
+
+## Reverse-engineered behavior reproduced
+
+### MAP header
+
+The eight-byte MAP header is treated as:
+
+```text
+uint16 rowBytes
+uint16 pixelFormat
+uint32 height
+```
+
+Width is derived from `rowBytes / bytesPerPixel`.
+
+### Pixel formats
+
+- **Type 0** stores one palette index per pixel. The nearest palette entry is selected by squared Euclidean distance in RGB space.
+- **Type 1** stores little-endian A4R4G4B4 words.
+- **Type 2** stores little-endian R5G6B5 words and is opaque when decoded.
+- **Type 3** stores B, G, R, A bytes for A8R8G8B8.
+- **Type 4** stores B, G, R, X bytes for X8R8G8B8 and is opaque when decoded.
+
+This corrects a limitation in the original Texture Manager MAP tab, which previously treated every non-indexed MAP as four-byte BGRA and therefore did not correctly decode types 1, 2, or 4.
+
+### Processing order
+
+MakeMAP applies its transforms in this order, which the compatibility implementation preserves:
+
+1. Recover alpha
+2. Chroma key
+3. Desaturation
+4. Remap table
+5. Colorization curves
+6. Undo premultiplied alpha
+7. Output flips
+8. Target-format quantization and optional error diffusion
+
+### Alpha recovery
+
+`-recoveralpha` sets alpha to `max(R, G, B)` for each pixel.
+
+### Chroma key
+
+An exact RGB match is replaced with transparent black `(0, 0, 0, 0)`.
+
+### Desaturation
+
+The reference uses an integer luma approximation:
+
+```text
+Y = (77*R + 150*G + 29*B) >> 8
+```
+
+The percentage is represented internally as 8.8 fixed point.
+
+### Remap table
+
+The first scanline of the remap image is used as a lookup curve. R, G, B, and A are mapped independently through the corresponding channel.
+
+### Colorization
+
+When `-colorize` is enabled, each channel uses the corresponding power, multiplier, and addition controls:
+
+```text
+out = clamp(round(pow(channel / 255, power) * multiplier + addition), 0, 255)
+```
+
+Defaults are power `1`, multiplier `255`, addition `0`.
+
+### Undo premultiplied alpha
+
+For pixels with nonzero alpha:
+
+```text
+RGB = clamp(RGB * 255 / alpha)
+```
+
+Alpha is preserved.
+
+### Error diffusion
+
+MakeMAP does not use standard Floyd-Steinberg weights. It scales RGB quantization error by `-diff`, then distributes:
+
+```text
+1/2  -> pixel to the right
+1/4  -> pixel below-left
+1/4  -> pixel directly below
+```
+
+Alpha is not diffused. The implementation preserves this distribution and the reference's truncation-toward-zero division for the neighbor weights.
+
+## CLI examples
+
+32-bit alpha MAP:
+
+```powershell
+BZMakeMAPCompat.exe -8888 texture.png
+```
+
+16-bit 4444 effects texture with premultiplied alpha undone:
+
+```powershell
+BZMakeMAPCompat.exe -4444 -undopma effect.png
+```
+
+Indexed MAP using a Battlezone ACT palette, transparent palette index 0, and reference-style diffusion:
+
+```powershell
+BZMakeMAPCompat.exe -pal moon.act -transindex 0 -diff 100 texture.png
+```
+
+Chroma-keyed 565 conversion:
+
+```powershell
+BZMakeMAPCompat.exe -565 -chromakey 255 0 255 texture.tga
+```
+
+Process an entire directory recursively:
+
+```powershell
+BZMakeMAPCompat.exe -8888 .\textures
+```
+
+The original slash spelling is also accepted on Windows-style invocations, for example `/8888 /flipy`.
+
+## Validation
+
+`tests/test_makemap_compat.py` covers header layout, all five MAP formats, indexed transparency, alpha recovery, chroma key, desaturation, remapping, colorization, and premultiplied-alpha recovery. GitHub Actions runs the regression suite on all three supported build platforms before packaging either utility.
+
+A future byte-for-byte differential fixture set generated by the original MakeMAP executable would be useful for additional golden-master validation, especially around floating-point colorization edge cases. The current implementation is based on static behavior from the specified reference executable rather than guessed format documentation.

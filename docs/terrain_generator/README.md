@@ -1,0 +1,234 @@
+# Battlezone98Redux Heightmap Generator
+
+Experimental Battlezone 98 Redux terrain generator built around the terrain grammar visible in good stock and hand-authored custom HG2 maps.
+
+The goal is **not** to generate generic Perlin-noise terrain. Battlezone maps frequently depend on large exact-height shelves, readable corridors, ravines, crater rims, staging basins, escarpments, synthetic pads, and deliberately controlled transition bands. This tool treats those as first-class terrain primitives and then applies naturalization/detail selectively.
+
+## Terrain examples
+
+These are real generated outputs checked into the repository, not concept art. They show the range from mission-oriented canyon and basin layouts to strong authored landforms and dense urban substrate terrain. The underlying HG2 samples can be regenerated from fixed seeds where listed in `samples/manifest.json`.
+
+<table>
+  <tr>
+    <td align="center"><strong>Campaign Canyon Network</strong><br><img src="samples/previews/campaign_canyon_preview.png" width="420" alt="Campaign Canyon Network generated terrain"></td>
+    <td align="center"><strong>Cratered Divide</strong><br><img src="samples/previews/cratered_divide_preview.png" width="420" alt="Cratered Divide generated terrain"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Mountain Basin</strong><br><img src="samples/previews/mountain_basin_preview.png" width="420" alt="Mountain Basin generated terrain"></td>
+    <td align="center"><strong>Escarpment Stronghold</strong><br><img src="samples/previews/escarpment_stronghold_preview.png" width="420" alt="Escarpment Stronghold generated terrain"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Cyberpunk Megacity — terrain</strong><br><img src="samples/previews/cyberpunk_megacity_8x8_preview.png" width="420" alt="Cyberpunk Megacity generated terrain"></td>
+    <td align="center"><strong>Cyberpunk Megacity — painted preview</strong><br><img src="samples/previews/cyberpunk_megacity_8x8_painted.png" width="420" alt="Cyberpunk Megacity painted terrain preview"></td>
+  </tr>
+</table>
+
+The generator is intended to create **playable terrain structure**, not just visually noisy heightfields: canyon routes, staging shelves, crater basins, ramps, objective pads, escarpments, plazas, streets, and other large forms remain explicit parts of generation and can then be naturalized around their gameplay geometry.
+
+## Current terrain styles
+
+Core Battlezone-derived styles:
+
+- Terraced Labyrinth
+- Cratered Divide
+- Ravine Network
+- Mountain Basin
+- Radial Badlands
+- Ridged Wastes
+- Serpentine Canyon
+- Natural Badlands
+- Campaign Canyon Network
+- Compartmented Plateau
+- Sparse Mission Field
+- Walled Crater Basin
+- Escarpment Stronghold
+
+Planetary-inspired Battlezone archetypes:
+
+- Pluto Basin
+- Venus Shield
+- Lunar Catena
+- Mars Rift
+- Callisto Craterlands
+- Titan Basin Network
+- Europa Fracture Plains
+
+Urban Substrate styles:
+
+- Dense City Grid
+- Hillside Mega-District
+- Industrial Terrace
+- Sunken Expressway
+- Arcology Edge
+- Cyberpunk Mixed District
+- Cyberpunk Megacity
+
+The planetary styles borrow **large-scale surface grammar rather than attempting literal DEM reconstruction**. Real-world cues such as smooth basin/highland province contrast, shield-volcano aprons, crater chains, branching rifts, crater saturation, soft basin/channel provinces, and fracture bands are filtered through Battlezone constraints: useful route widths, moderate traversal grades, connected major regions, staging surfaces, and readable satellite-view composition.
+
+Urban Substrate styles generate the terrain beneath a dense city rather than baking buildings into the heightmap: streets, crossways, long grade changes, plazas, industrial yards, block/building pads, terraced districts, sunken transport corridors, and synthetic retaining-landform transitions. Building meshes and decoration are intended to be placed later on top of these terrain foundations.
+
+Generation uses a **fresh random seed by default** so repeated runs/clicks quickly produce new terrain. Every resolved seed is shown and can be supplied again for exact reproducibility. Global controls adjust relief, naturalization, fine detail, plateau bias, feature density, optional symmetry, and synthetic objective pads.
+
+## Generated sample corpus
+
+The repository includes a checked-in `samples/` review corpus containing 26 generated terrains across the original style set and a range of dimensions, seeds, symmetry modes, relief/detail settings, and synthetic pad counts.
+
+Each sample includes:
+
+- a directly testable `.hg2` under `samples/hg2/`
+- a hillshade review image under `samples/previews/`
+- a lossless 16-bit height PNG under `samples/height_png/`
+- exact generation parameters in `samples/manifest.json` and `samples/manifest.csv`
+
+### Sample contact sheet
+
+[![Generated terrain sample contact sheet](samples/preview_contact_sheet.png)](samples/preview_contact_sheet.png)
+
+The contact sheet provides a single visual overview of the checked-in baseline set. The corpus can be reproduced with:
+
+```bash
+python scripts/generate_samples.py
+```
+
+Planetary archetypes have a separate fresh-seed review generator so they can be iterated without churning the checked-in baseline corpus:
+
+```bash
+python scripts/generate_planetary_samples.py --output planetary_samples --variants 3 --zones 3x3
+```
+
+That writes HG2s, 16-bit height PNGs, hillshade previews, a contact sheet, and CSV/JSON manifests containing the resolved numeric seeds and traversal metrics.
+
+## HG2 handling
+
+HG2 I/O follows the same layout/indexing used by `BZMapIO.py` and the Redux WorldBuilder tooling:
+
+- 12-byte header: structure version, zone bits, map width/depth in zones, map version
+- zone-major height payload
+- normal Redux maps use `zone_bits = 8`, or 256x256 samples per 1280-unit zone
+- the codec preserves the full 13-bit storage mask (`0x1FFF`, or `0..8191`) for compatibility
+- newly generated terrain defaults to the stock authoring-safe `0..4095` height range (`0..409.5` world units)
+
+The generator can also export a lossless 16-bit PNG representation using the shared WorldBuilder convention `PNG16 = HG2 height × 8`, which preserves the complete `0..8191` HG2 storage range.
+
+Reference implementation for HG2/world tooling: [Battlezone98Redux_WorldBuilder](https://github.com/GrizzlyOne95/Battlezone98Redux_WorldBuilder)
+
+## Install
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Python 3.10+ is recommended.
+
+## GUI
+
+```bash
+python heightmap_generator.py --gui
+```
+
+The GUI provides live terrain tuning with a responsive preview area (tabbed **HG2 Height / LGT Lighting / Shaded**). Basic controls are prominent — Terrain Style, Zones X/Z, Seed, Randomize, Fresh-seed toggle, Terrain Contrast / Vertical Relief, and Generate — while less-commonly used recipe controls (relief, naturalization, detail, plateau bias, feature density, symmetry, pads) live under **Advanced**. Changing style, seed, relief, contrast, naturalization, detail, plateau bias, feature density, symmetry, or pad count triggers a debounced (~200 ms) live preview update; resizing the window re-thumbnails cached previews without regenerating terrain, and changing only vertical contrast reuses the cached raw heights (re-applies `apply_vertical_scale` around the median) for a snappy slider. One background worker handles the newest request, stale results are rejected, and all Tk widgets/`PhotoImage` objects stay on the main thread. Closing the window is safe while work is active. The exact resolved seed is visible at all times. Core, planetary, and urban styles share the same canonical recipe list and therefore appear together in the GUI.
+
+Previews:
+
+- **HG2 Height** — raw BZ height field with a fixed `0..4095 → 0..255` mapping (no percentile renormalization). Changing terrain contrast visibly changes this view because it changes actual heights, not display brightness. Exact-authored flats remain exact. Lossless 16-bit PNG export preserves HG2 storage values with `height ×8`.
+- **LGT Lighting** — live BZ LGT-style lighting derived from the current terrain (slope normals + NW sun 315°/45° + 25% ambient floor, per `format_lgt.html`). It approximates what the game emphasizes (ridges, basins, slope facing). Arrays use the HG2/LGT south-first file convention; this is equivalent to Z64Tools flipping a conventional north-at-top PNG before zoning. A preview is not automatically an engine-valid `.LGT` export; the experimental `.LGT` exporter is provided but not claimed as game-tested.
+- **Shaded** — legacy combined elevation + hillshade view retained for quick readability.
+
+Exports: HG2, lossless 16-bit height PNG, HG2 Height PNG (8-bit reference), LGT preview PNG, Shaded preview PNG, and experimental bordered LGT. The GUI exports 256 samples per zone because that is the dominant Redux layout; the library and CLI also support legacy 128-per-zone output.
+
+**Fresh random seed each Generate** is enabled by default; disable it when you want to lock a seed while tuning parameters.
+
+## CLI examples
+
+Generate a 3x3 campaign-style canyon with a reproducible seed:
+
+```bash
+python heightmap_generator.py \
+  --style "Campaign Canyon Network" \
+  --zones 3x3 \
+  --seed 42 \
+  --output canyon.hg2 \
+  --png canyon.png \
+  --hg2-preview canyon_height.png \
+  --lgt-preview canyon_lighting.png \
+  --preview canyon_shaded.png
+```
+
+Omit `--seed` (or pass `--seed random`) for a fresh seed. The resolved numeric seed is printed so a useful random result can always be reproduced later.
+
+Generate a planetary-inspired rift map:
+
+```bash
+python heightmap_generator.py \
+  --style "Mars Rift" \
+  --zones 4x3 \
+  --seed random \
+  --output mars_rift.hg2 \
+  --preview mars_rift.png
+```
+
+Generate a dense city terrain underlay:
+
+```bash
+python heightmap_generator.py \
+  --style "Dense City Grid" \
+  --zones 4x4 \
+  --seed random \
+  --output city_substrate.hg2 \
+  --preview city_substrate.png
+```
+
+Generate a more synthetic symmetric arena:
+
+```bash
+python heightmap_generator.py \
+  --style "Walled Crater Basin" \
+  --zones 2x2 \
+  --symmetry "4-way" \
+  --pads 4 \
+  --output arena.hg2
+```
+
+Inspect an existing HG2:
+
+```bash
+python heightmap_generator.py --analyze-hg2 map.hg2
+```
+
+The analysis reports dimensions, elevation range, physical slope statistics, exact-flat percentage, dominant authored elevation percentage, the most common exact elevation levels, shelf/plateau grammar (dominant shelves >2%, shelf area, gap between major shelves, large contiguous flat regions, 80%-coverage level count, lowland/highland balance), slope histogram (gentle/moderate/steep/cliff percentages), abrupt-step frequency, low/high-frequency energy balance, roughness, passable-space clearance/open-field proxies, isolated basins, and a slope-mask connectivity diagnostic. Clearance and connectivity are generator-quality heuristics, not claims about Battlezone's exact vehicle/AI limits or literal authored corridor widths.
+
+Run the expanded local HG2 corpus analysis (discovers every accessible `.hg2` case-insensitively, handles duplicates, probes companion `.TRN`/`.BZN`/`.LGT`/`.MAT`, emits JSON/CSV + sanitized summary):
+
+```bash
+python scripts/analyze_local_corpus.py --discover
+python scripts/analyze_local_corpus.py --roots "C:\path\to\maps" --out output\hg2_corpus_report.json
+```
+
+The full corpus comparison against generated terrain is documented in `docs/HG2_CORPUS_ANALYSIS_20260828.md` (aggregate statistics only; no proprietary HG2 committed).
+
+## Design principles
+
+The generator intentionally separates three scales of terrain construction:
+
+1. **Macro composition** — broad basins, highlands, lowlands, bounded arenas, radial or directional layouts.
+2. **Authored gameplay forms** — exact-height shelves, flat-core canyons, variable-width approaches, loops/compartments, mesas, craters, ramps and objective pads.
+3. **Naturalization** — domain variation, irregular banks, ridged/fBm detail, edge breakup and smoothing where it does not destroy authored gameplay geometry.
+
+Protected gameplay flats are not modified by later detail/smoothing passes. Synthetic symmetry copies authored halves/quadrants rather than averaging them, so exact shelf and corridor heights remain exact.
+
+Planetary inspiration is subordinate to gameplay. A geologically believable cliff, crater chain, fracture belt, or volcanic apron is allowed to be simplified, broadened, lowered, interrupted, or given a saddle when that is necessary to keep major Battlezone regions connected and driveable. Planetary connectivity repairs use curved/graded paths instead of assuming that every barrier should receive a short perpendicular ramp.
+
+Urban terrain follows the same rule: city structure is subordinate to Battlezone traversal. Street grids and megablocks are broadened into vehicle-usable corridors and pads; hillside districts use long engineered grades; sunken routes receive ramps; and natural relief can interrupt or shape synthetic districts without making the map an alley maze.
+
+## Validation
+
+The HG2 reader/writer has been round-trip checked against stock and custom maps and remains deterministic for a fixed seed. Codec operations preserve the full `0..8191` 13-bit HG2 storage range, while newly generated terrain remains clamped to the stock-safe `0..4095` authoring range. The controlled scan found **509 paths: 507 valid + 2 invalid = 275 unique contents + 232 duplicate copies**. The disjoint unique classification is **249 authored + 26 HeightmapGen samples + 0 synthetic-only = 275**. Separately, 23 synthetic/test paths collapse to one flat hash that is already represented by two authored map paths. See `docs/HG2_CORPUS_ANALYSIS_20260828.md`; the old “55 references” claim has been superseded.
+
+- **HG2 stores the actual terrain heights.** Lowering **Terrain Contrast / Vertical Relief** scales heights around the median (e.g., 0.75 keeps 75% of differences) and makes slopes less severe without spatially blurring authored terrain; exact flats stay exact.
+- **LGT preview represents terrain lighting, not height.** An LGT preview is not automatically equivalent to an engine-valid `.LGT` export unless verified; the preview approximates slope normals + sun + 25% ambient, and the optional `.LGT` writer uses the bordered Redux layout validated against on-disk sizes.
+
+Run the unit tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```

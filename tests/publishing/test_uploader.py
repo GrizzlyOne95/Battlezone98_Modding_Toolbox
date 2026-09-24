@@ -1,0 +1,1105 @@
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
+import os
+import tempfile
+import shutil
+import io
+import zipfile
+import json
+
+# Mock out GUI and network libraries that might fail in a headless test
+# environment. The stubs are only installed while the uploader modules are
+# imported so they cannot leak into the other suites of the unified toolbox
+# (a mocked ``ctypes`` breaks SciPy, for example).
+_HEADLESS_STUBS = {name: MagicMock() for name in (
+    'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
+    'PIL', 'requests', 'ctypes', 'keyring',
+)}
+with patch.dict(sys.modules, _HEADLESS_STUBS):
+    for _name in [m for m in sys.modules if m.startswith('bztoolbox.modules.publishing')]:
+        del sys.modules[_name]
+    from bztoolbox.modules.publishing import uploader
+    from bztoolbox.modules.publishing.app_file_manager import AppFileManager
+    from bztoolbox.modules.publishing.content_fixes import ContentFixer
+    from bztoolbox.modules.publishing.memory_analyzer import MemoryAnalyzer
+    from bztoolbox.modules.publishing.project_store import ProjectStore
+    from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
+    from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
+
+class DummyVar:
+    def __init__(self, value=""):
+        self._value = value
+    def get(self):
+        return self._value
+    def set(self, value):
+        self._value = value
+
+class TestWorkshopUploader(unittest.TestCase):
+    def setUp(self):
+        # Create a temporary directory for file operations
+        self.test_dir = tempfile.mkdtemp()
+
+        # Instantiate the uploader with a mocked root
+        mock_root = MagicMock()
+        self.uploader = uploader.WorkshopUploader(mock_root)
+
+        # Redirect log to not pollute stdout during tests
+        self.uploader.log = MagicMock()
+        uploader.messagebox.showerror.reset_mock()
+        uploader.messagebox.askyesno.return_value = True
+
+    def tearDown(self):
+        # Clean up the temporary directory
+        shutil.rmtree(self.test_dir)
+
+    def test_legacy_files(self):
+        """Test scan_legacy_files and delete_legacy_files detect and remove .map files."""
+        # Create dummy legacy files
+        map_file1 = os.path.join(self.test_dir, "test1.map")
+        map_file2 = os.path.join(self.test_dir, "test2.map")
+        with open(map_file1, "w") as f: f.write("dummy map content")
+        with open(map_file2, "w") as f: f.write("dummy map content")
+
+        # Also create a non-legacy file
+        good_file = os.path.join(self.test_dir, "test1.trn")
+        with open(good_file, "w") as f: f.write("good file content")
+
+        # Scan for legacy files
+        legacy_files = self.uploader.scan_legacy_files(self.test_dir)
+        self.assertEqual(len(legacy_files), 2)
+        self.assertIn(map_file1, legacy_files)
+        self.assertIn(map_file2, legacy_files)
+
+        # Delete legacy files
+        deleted_count = self.uploader.delete_legacy_files(legacy_files)
+        self.assertEqual(deleted_count, 2)
+
+        # Verify files are deleted
+        self.assertFalse(os.path.exists(map_file1))
+        self.assertFalse(os.path.exists(map_file2))
+        self.assertTrue(os.path.exists(good_file))
+
+    def test_trn_safety(self):
+        """Test scan_trn_safety detects bad line endings and duplicate [Size] headers."""
+        bad_le_file = os.path.join(self.test_dir, "bad_le.trn")
+        with open(bad_le_file, "wb") as f:
+            f.write(b"[Size]\nTileSize=8\n") # missing CR
+
+        dup_size_file = os.path.join(self.test_dir, "dup_size.trn")
+        with open(dup_size_file, "wb") as f: # Use wb to explicitly control line endings
+            f.write(b"[Size]\r\nTileSize=8\r\n[Size]\r\nTileSize=16\r\n")
+
+        good_trn_file = os.path.join(self.test_dir, "good.trn")
+        with open(good_trn_file, "wb") as f:
+            f.write(b"[Size]\r\nTileSize=8\r\n")
+
+        le_issues, dup_issues = self.uploader.scan_trn_safety(self.test_dir)
+
+        self.assertEqual(len(le_issues), 1)
+        self.assertEqual(le_issues[0], bad_le_file)
+
+        self.assertEqual(len(dup_issues), 1)
+        self.assertEqual(dup_issues[0], dup_size_file)
+
+    def test_fix_trn_files(self):
+        """Test fix_trn_files corrects line endings."""
+        bad_le_file = os.path.join(self.test_dir, "bad_le.trn")
+        with open(bad_le_file, "wb") as f:
+            f.write(b"[Size]\nTileSize=8\n")
+
+        fixed_count = self.uploader.fix_trn_files([bad_le_file])
+        self.assertEqual(fixed_count, 1)
+
+        with open(bad_le_file, "rb") as f:
+            content = f.read()
+            self.assertEqual(content, b"[Size]\r\nTileSize=8\r\n")
+
+    def test_fix_trn_duplicates(self):
+        """Test fix_trn_duplicates removes duplicate headers."""
+        dup_size_file = os.path.join(self.test_dir, "dup_size.trn")
+        with open(dup_size_file, "w", encoding="utf-8") as f:
+            f.write("[Size]\nTileSize=8\n[Size]\nTileSize=16\n[Other]\nTest=1\n")
+
+        fixed_count = self.uploader.fix_trn_duplicates([dup_size_file])
+        self.assertEqual(fixed_count, 1)
+
+        with open(dup_size_file, "r", encoding="utf-8") as f:
+            content = f.read()
+            # Should keep the first [Size] and remove the second one
+            # Including its content until the next header
+            self.assertEqual(content, "[Size]\nTileSize=8\n[Other]\nTest=1\n")
+
+    def test_validate_content_structure_missing_ini(self):
+        """Test validate_content_structure identifies missing INI files."""
+        errors, warnings = self.uploader.validate_content_structure(self.test_dir)
+        self.assertTrue(any("Missing configuration (.ini) file" in err for err in errors))
+
+    def test_validate_content_structure_desktop_ini(self):
+        """Test validate_content_structure removes desktop.ini before checking."""
+        desktop_ini_path = os.path.join(self.test_dir, "desktop.ini")
+        with open(desktop_ini_path, "w") as f: f.write("dummy")
+
+        # Still missing the real INI
+        errors, warnings = self.uploader.validate_content_structure(self.test_dir)
+        self.assertTrue(any("Missing configuration (.ini) file" in err for err in errors))
+        self.assertFalse(os.path.exists(desktop_ini_path)) # Verify it was deleted
+
+    def test_validate_content_structure_multiplayer(self):
+        """Test validate_content_structure with valid multiplayer structure."""
+        ini_content = "[DESCRIPTION]\nmissionName=\"test\"\n[WORKSHOP]\nmapType=\"multiplayer\"\n[MULTIPLAYER]\nminPlayers=2\nmaxPlayers=4\ngameType=S\n"
+        with open(os.path.join(self.test_dir, "test.ini"), "w") as f: f.write(ini_content)
+
+        # Create required files
+        for ext in [".hg2", ".trn", ".mat", ".bzn", ".lgt", ".bmp", ".des", ".vxt"]:
+            with open(os.path.join(self.test_dir, f"test{ext}"), "w") as f: f.write("")
+
+        errors, warnings = self.uploader.validate_content_structure(self.test_dir)
+        self.assertEqual(len(errors), 0)
+        self.assertEqual(len(warnings), 0)
+
+    def test_scan_asset_references(self):
+        """Test scan_asset_references finds missing ODF/material assets."""
+        # Create an ODF file with a missing geometry reference
+        odf_file = os.path.join(self.test_dir, "test.odf")
+        with open(odf_file, "w") as f:
+            f.write('geometryName = "missing_model.xsi"\n')
+
+        # Create a material file with a missing texture reference
+        mat_file = os.path.join(self.test_dir, "test.material")
+        with open(mat_file, "w") as f:
+            f.write('texture missing_tex.tga\n')
+
+        issues = self.uploader.scan_asset_references(self.test_dir)
+
+        self.assertEqual(len(issues), 2)
+
+        # Issues are tuples: (path, issue_type, detail, line)
+        odf_issue = next(i for i in issues if i[0] == odf_file)
+        self.assertEqual(odf_issue[1], "Missing Asset")
+        self.assertTrue("missing_model.xsi" in odf_issue[2])
+
+        mat_issue = next(i for i in issues if i[0] == mat_file)
+        self.assertEqual(mat_issue[1], "Missing Asset")
+        self.assertTrue("missing_tex.tga" in mat_issue[2])
+
+    def test_memory_analyzer_detects_orphans_and_textures(self):
+        analyzer = MemoryAnalyzer()
+
+        with open(os.path.join(self.test_dir, "map.ini"), "w", encoding="utf-8") as f:
+            f.write("[WORKSHOP]\nmapType=\"mod\"\n")
+        with open(os.path.join(self.test_dir, "script.odf"), "w", encoding="utf-8") as f:
+            f.write('geometryName = "used_model.xsi"\n')
+        with open(os.path.join(self.test_dir, "used_model.xsi"), "w", encoding="utf-8") as f:
+            f.write("mesh")
+        with open(os.path.join(self.test_dir, "orphan.png"), "wb") as f:
+            f.write(b"pngdata")
+
+        analysis = analyzer.analyze(self.test_dir)
+
+        self.assertEqual(analysis["counts"]["Texture"], 1)
+        self.assertIn("orphan.png", analysis["non_dds_textures"])
+        self.assertIn("orphan.png", analysis["orphans"])
+        self.assertNotIn("used_model.xsi", analysis["orphans"])
+
+    def test_memory_analyzer_report_mentions_orphans(self):
+        analyzer = MemoryAnalyzer()
+        report = analyzer.build_report({
+            "disk_mb": 1.25,
+            "vram_mb": 12.5,
+            "counts": {"Texture": 1, "Model": 2, "Audio": 0, "Script": 3, "Other": 4},
+            "non_dds_textures": ["orphan.png"],
+            "orphans": ["orphan.png", "unused.wav"],
+        })
+        self.assertIn("MEMORY ANALYSIS REPORT", report)
+        self.assertIn("non-DDS textures", report)
+        self.assertIn("ORPHANS", report)
+        self.assertIn("orphan.png", report)
+
+    def test_build_upload_vdf_content_escapes_special_chars(self):
+        content = self.uploader._build_upload_vdf_content(
+            appid="301650",
+            publishedfileid="123",
+            contentfolder=r"C:\mods\test",
+            previewfile=r"C:\mods\preview \"new\".jpg",
+            visibility="0",
+            title='A "Quoted" Title',
+            description="Line1\nLine2",
+            changenote="Backslash \\ test"
+        )
+        self.assertIn('\\"Quoted\\"', content)
+        self.assertIn("Line1\\nLine2", content)
+        self.assertIn("\\\\", content)
+
+    def test_workshop_backend_builds_manual_steamcmd_command(self):
+        cmd = self.uploader.workshop_backend.build_steamcmd_command(
+            exe="steamcmd.exe",
+            user="tester",
+            pwd="secret",
+            vdf="upload.vdf",
+            use_cached=False,
+            guard_code="abc123",
+        )
+        self.assertEqual(cmd, [
+            "steamcmd.exe", "+login", "tester", "secret", "abc123",
+            "+workshop_build_item", "upload.vdf", "+quit"
+        ])
+
+    def test_workshop_backend_requires_username_without_cached_creds(self):
+        with self.assertRaises(ValueError):
+            self.uploader.workshop_backend.build_steamcmd_command(
+                exe="steamcmd.exe",
+                user="",
+                pwd="secret",
+                vdf="upload.vdf",
+                use_cached=False,
+                guard_code="",
+            )
+
+    def test_workshop_backend_queries_all_workshop_pages(self):
+        def detail(index):
+            return {
+                "title": f"Item {index}",
+                "publishedfileid": str(1000 + index),
+                "visibility": 0 if index % 2 else 2,
+                "time_updated": 1700000000 + index,
+            }
+
+        first = MagicMock()
+        first.json.return_value = {
+            "response": {
+                "total": 38,
+                "publishedfiledetails": [detail(i) for i in range(1, 11)],
+            }
+        }
+        second = MagicMock()
+        second.json.return_value = {
+            "response": {
+                "total": 38,
+                "publishedfiledetails": [detail(i) for i in range(11, 39)],
+            }
+        }
+        self.uploader.workshop_backend.steam_service.request_with_retry = MagicMock(
+            side_effect=[first, second]
+        )
+
+        steam_id, items, meta = self.uploader.workshop_backend.query_workshop_items(
+            api_key="key", identity_input="76561198000000001", appid="301650",
+            resolve_steam_id=lambda identity, _key: identity,
+        )
+
+        self.assertEqual(steam_id, "76561198000000001")
+        self.assertEqual(len(items), 38)
+        self.assertEqual(items[0]["publishedfileid"], "1001")
+        self.assertEqual(items[-1]["publishedfileid"], "1038")
+        self.assertEqual(meta["pages"], 2)
+        self.assertEqual(meta["total"], 38)
+        calls = self.uploader.workshop_backend.steam_service.request_with_retry.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertIn("IPublishedFileService/GetUserFiles", calls[0].args[1])
+        self.assertEqual(calls[0].kwargs["params"]["page"], 1)
+        self.assertEqual(calls[1].kwargs["params"]["page"], 2)
+        self.assertEqual(calls[0].kwargs["params"]["steamid"], "76561198000000001")
+        self.assertEqual(calls[0].kwargs["params"]["appid"], "301650")
+        self.assertEqual(calls[0].kwargs["params"]["numperpage"], 100)
+
+
+    def test_workshop_backend_fetches_details_from_remote_storage_endpoint(self):
+        response = MagicMock()
+        response.json.return_value = {"response": {"publishedfiledetails": [{"publishedfileid": "123"}]}}
+        self.uploader.workshop_backend.steam_service.request_with_retry = MagicMock(return_value=response)
+
+        details = self.uploader.workshop_backend.fetch_workshop_item_details("key", "123")
+
+        self.assertEqual(details["publishedfileid"], "123")
+        args = self.uploader.workshop_backend.steam_service.request_with_retry.call_args.args
+        self.assertIn("ISteamRemoteStorage/GetPublishedFileDetails", args[1])
+
+    def test_workshop_backend_builds_login_test_command(self):
+        cmd = self.uploader.workshop_backend.build_steamcmd_login_test_command(
+            exe="steamcmd.exe",
+            user="tester",
+            pwd="secret",
+            use_cached=False,
+            guard_code="abc123",
+        )
+
+        self.assertEqual(cmd, ["steamcmd.exe", "+login", "tester", "secret", "abc123", "+quit"])
+
+    def test_workshop_backend_classifies_steam_guard_code_prompt(self):
+        state = self.uploader.workshop_backend.classify_steamcmd_login_output(
+            "Steam Guard code is required for this account."
+        )
+        self.assertEqual(state, "guard_required")
+
+    def test_workshop_backend_classifies_mobile_approval(self):
+        state = self.uploader.workshop_backend.classify_steamcmd_login_output(
+            "Use the Steam Mobile App to confirm your sign in."
+        )
+        self.assertEqual(state, "mobile_approval")
+
+    def test_workshop_backend_mobile_approval_timeout_is_timeout(self):
+        state = self.uploader.workshop_backend.classify_steamcmd_login_output(
+            "Use the Steam Mobile App to confirm your sign in.",
+            timed_out=True,
+        )
+        self.assertEqual(state, "timeout")
+
+    def test_workshop_backend_classifies_bad_credentials(self):
+        state = self.uploader.workshop_backend.classify_steamcmd_login_output(
+            "FAILED (Invalid Password)"
+        )
+        self.assertEqual(state, "bad_credentials")
+
+    def test_workshop_backend_classifies_successful_login(self):
+        state = self.uploader.workshop_backend.classify_steamcmd_login_output(
+            "Logging in user 'tester' to Steam Public...Logged in OK"
+        )
+        self.assertEqual(state, "verified")
+
+    def test_workshop_backend_prefers_native_steamworks_tag_update(self):
+        updater = MagicMock()
+        updater.try_update_tags.return_value = {"method": "steamworks", "publishedfileid": "123"}
+
+        result = self.uploader.workshop_backend.update_workshop_tags(
+            api_key="",
+            item_id="123",
+            appid="301650",
+            tags=["Map", "Vehicle"],
+            change_note="note",
+            steamworks_updater=updater,
+            base_dir=self.test_dir,
+            create_appid_file=True,
+        )
+
+        self.assertEqual(result["method"], "steamworks")
+        updater.try_update_tags.assert_called_once()
+        self.assertTrue(updater.try_update_tags.call_args.kwargs["create_appid_file"])
+
+    def test_workshop_backend_falls_back_to_web_api_after_native_failure(self):
+        updater = MagicMock()
+        updater.try_update_tags.side_effect = RuntimeError("native failed")
+        self.uploader.workshop_backend.steam_service.request_with_retry = MagicMock()
+
+        result = self.uploader.workshop_backend.update_workshop_tags(
+            api_key="test-key",
+            item_id="123",
+            appid="301650",
+            tags=["Map"],
+            change_note="note",
+            steamworks_updater=updater,
+            base_dir=self.test_dir,
+            create_appid_file=False,
+        )
+
+        self.assertEqual(result["method"], "web_api")
+        self.assertIn("native failed", result["native_error"])
+        self.uploader.workshop_backend.steam_service.request_with_retry.assert_called_once()
+
+    def test_content_fixer_builds_upload_plan_prompt(self):
+        fixer = ContentFixer()
+        prompt = fixer.build_upload_plan_prompt(
+            item_id="123",
+            game_name="BZ98R",
+            appid="301650",
+            visibility="0 (Public)",
+            title="Test Mod",
+            content=r"C:\mods\content",
+            preview=r"C:\mods\preview.jpg",
+            auth_mode="Cached credentials",
+            manage_owner="76561198000000001",
+            change_note="Initial Release",
+        )
+        self.assertIn("Upload Plan", prompt)
+        self.assertIn("UPDATE (123)", prompt)
+        self.assertIn("Cached credentials", prompt)
+        self.assertIn("Proceed with upload?", prompt)
+
+    def test_save_config_writes_to_config_path_not_cwd(self):
+        self.uploader.config_path = os.path.join(self.test_dir, "uploader_config.json")
+        other_cwd = os.path.join(self.test_dir, "othercwd")
+        os.makedirs(other_cwd, exist_ok=True)
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(other_cwd)
+            self.uploader.steamcmd_path.set("C:\\steamcmd\\steamcmd.exe")
+            self.uploader.game_var.set("BZ98R")
+            self.uploader.username_var.set("tester")
+            self.uploader.manage_identity_var.set("76561198000000001")
+            self.uploader.use_cached_creds_var.set(True)
+            self.uploader.save_config()
+        finally:
+            os.chdir(original_cwd)
+
+        self.assertTrue(os.path.exists(self.uploader.config_path))
+        self.assertFalse(os.path.exists(os.path.join(other_cwd, "uploader_config.json")))
+
+    def test_load_config_uses_legacy_cwd_fallback(self):
+        missing_config_path = os.path.join(self.test_dir, "missing", "uploader_config.json")
+        legacy_cwd = os.path.join(self.test_dir, "legacycwd")
+        os.makedirs(legacy_cwd, exist_ok=True)
+        legacy_config = os.path.join(legacy_cwd, "uploader_config.json")
+        with open(legacy_config, "w", encoding="utf-8") as f:
+            f.write('{"steamcmd_path": "C:\\\\legacy\\\\steamcmd.exe"}')
+
+        self.uploader.config_path = missing_config_path
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(legacy_cwd)
+            config = self.uploader.load_config()
+        finally:
+            os.chdir(original_cwd)
+
+        self.assertEqual(config["steamcmd_path"], "C:\\legacy\\steamcmd.exe")
+
+    def test_app_file_manager_profile_round_trip(self):
+        manager = AppFileManager()
+        profile_path = os.path.join(self.test_dir, "profiles", "sample.json")
+        payload = {
+            "mod_path": "C:\\mods\\sample",
+            "title": "Sample",
+            "item_id": "123",
+        }
+
+        manager.save_profile(profile_path, payload)
+        loaded = manager.load_profile(profile_path)
+
+        self.assertEqual(loaded, payload)
+
+    def test_activate_content_folder_creates_local_upload_profile(self):
+        profiles_dir = os.path.join(self.test_dir, "profiles")
+        self.uploader.project_store = ProjectStore(profiles_dir, AppFileManager())
+        content_dir = os.path.join(self.test_dir, "CampaignReimagined")
+        os.makedirs(content_dir, exist_ok=True)
+
+        self.uploader.mod_path = DummyVar("")
+        self.uploader.preview_path = DummyVar("old-preview.jpg")
+        self.uploader.title_var = DummyVar("Old Title")
+        self.uploader.visibility_var = DummyVar("2 (Private)")
+        self.uploader.item_id_var = DummyVar("999")
+        self.uploader.note_var = DummyVar("old note")
+        self.uploader.tags_var = DummyVar("OldTag")
+        self.uploader.manage_identity_var = DummyVar("76561198000000001")
+        self.uploader.project_name_var = DummyVar("")
+        self.uploader.project_hint_var = DummyVar("")
+        self.uploader.desc_text = MagicMock()
+        self.uploader.desc_text.get.return_value = ""
+        self.uploader.refresh_current_project_readiness = MagicMock()
+        self.uploader.refresh_recent_projects = MagicMock()
+        self.uploader.current_project_profile_path = ""
+        self.uploader.current_project_data = {}
+
+        result = self.uploader._activate_content_folder(content_dir, quiet=True)
+
+        self.assertEqual(result, "created")
+        self.assertEqual(self.uploader.mod_path.get(), os.path.abspath(content_dir))
+        self.assertEqual(self.uploader.title_var.get(), "CampaignReimagined")
+        self.assertEqual(self.uploader.item_id_var.get(), "0")
+        self.assertEqual(self.uploader.preview_path.get(), "")
+        saved = self.uploader.project_store.find_by_mod_path(content_dir)
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["item_id"], "0")
+        self.assertEqual(saved["title"], "CampaignReimagined")
+
+    def test_activate_content_folder_opens_existing_upload_profile(self):
+        profiles_dir = os.path.join(self.test_dir, "profiles")
+        self.uploader.project_store = ProjectStore(profiles_dir, AppFileManager())
+        content_dir = os.path.join(self.test_dir, "ExistingMod")
+        os.makedirs(content_dir, exist_ok=True)
+        self.uploader.project_store.save_project({
+            "project_name": "ExistingMod",
+            "mod_path": content_dir,
+            "preview_path": "preview.jpg",
+            "title": "Existing Workshop Title",
+            "description": "Existing description",
+            "visibility": "1 (Friends)",
+            "item_id": "123456",
+            "change_note": "Update",
+            "tags": "Map",
+        })
+
+        self.uploader.mod_path = DummyVar("")
+        self.uploader.preview_path = DummyVar("")
+        self.uploader.title_var = DummyVar("")
+        self.uploader.visibility_var = DummyVar("0 (Public)")
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader.note_var = DummyVar("")
+        self.uploader.tags_var = DummyVar("")
+        self.uploader.manage_identity_var = DummyVar("")
+        self.uploader.project_name_var = DummyVar("")
+        self.uploader.project_hint_var = DummyVar("")
+        self.uploader.publish_target_var = DummyVar("")
+        self.uploader.last_upload_var = DummyVar("")
+        self.uploader.changed_since_upload_var = DummyVar("")
+        self.uploader.desc_text = MagicMock()
+        self.uploader.refresh_current_project_readiness = MagicMock()
+        self.uploader.refresh_recent_projects = MagicMock()
+        self.uploader.current_project_profile_path = ""
+        self.uploader.current_project_data = {}
+
+        result = self.uploader._activate_content_folder(content_dir, quiet=True)
+
+        self.assertEqual(result, "opened")
+        self.assertEqual(self.uploader.title_var.get(), "Existing Workshop Title")
+        self.assertEqual(self.uploader.item_id_var.get(), "123456")
+        self.assertEqual(self.uploader.visibility_var.get(), "1 (Friends)")
+
+    def test_use_workshop_item_requires_content_folder_first(self):
+        self.uploader.mod_path = DummyVar("")
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader.tree = MagicMock()
+        self.uploader.tree.selection.return_value = ["item1"]
+        self.uploader.tree.item.return_value = {"values": ["My Item", "123"]}
+
+        ok = self.uploader.use_selected_item_id_for_upload(quiet=False)
+
+        self.assertFalse(ok)
+        self.assertEqual(self.uploader.item_id_var.get(), "0")
+        uploader.messagebox.showinfo.assert_called()
+
+    def test_item_indicator_infers_new_or_existing_from_workshop_id(self):
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader.publish_target_var = DummyVar("")
+        self.uploader.upload_mode_label = MagicMock()
+
+        self.uploader._update_upload_mode_indicator()
+        self.assertEqual(self.uploader.publish_target_var.get(), "WORKSHOP ITEM: NEW")
+        self.assertEqual(self.uploader.upload_mode_label.config.call_args.kwargs["text"], "NEW WORKSHOP ITEM")
+
+        self.uploader.item_id_var.set("987654")
+        self.uploader._update_upload_mode_indicator()
+        self.assertEqual(self.uploader.publish_target_var.get(), "WORKSHOP ITEM: #987654")
+        self.assertEqual(self.uploader.upload_mode_label.config.call_args.kwargs["text"], "WORKSHOP ITEM #987654")
+
+    def test_project_store_round_trip_by_mod_path(self):
+        manager = AppFileManager()
+        store = ProjectStore(os.path.join(self.test_dir, "profiles"), manager)
+        mod_path = os.path.join(self.test_dir, "mods", "sample_mod")
+        os.makedirs(mod_path, exist_ok=True)
+
+        saved_path = store.save_project({
+            "project_name": "sample_mod",
+            "mod_path": mod_path,
+            "title": "Sample Mod",
+            "item_id": "123",
+        })
+        loaded = store.find_by_mod_path(mod_path)
+
+        self.assertTrue(os.path.exists(saved_path))
+        self.assertEqual(loaded["title"], "Sample Mod")
+        self.assertEqual(loaded["item_id"], "123")
+
+    def test_changed_file_count_uses_last_publish_snapshot(self):
+        tracked = os.path.join(self.test_dir, "tracked.txt")
+        added = os.path.join(self.test_dir, "added.txt")
+        with open(tracked, "w", encoding="utf-8") as f:
+            f.write("one")
+
+        first_inventory = self.uploader._build_mod_inventory(self.test_dir)
+        snapshot = self.uploader._build_inventory_snapshot(first_inventory)
+
+        with open(tracked, "w", encoding="utf-8") as f:
+            f.write("two changed")
+        with open(added, "w", encoding="utf-8") as f:
+            f.write("new")
+
+        second_inventory = self.uploader._build_mod_inventory(self.test_dir)
+        changed = self.uploader._count_changed_files(second_inventory, snapshot)
+
+        self.assertEqual(changed, 2)
+
+    def test_build_inventory_diff_reports_added_modified_removed(self):
+        baseline = {
+            "keep.txt": {"size": 10, "mtime_ns": 1},
+            "edit.txt": {"size": 5, "mtime_ns": 1},
+            "gone.txt": {"size": 3, "mtime_ns": 1},
+        }
+        inventory = [
+            {"rel_path": "keep.txt", "size": 10, "mtime_ns": 1},
+            {"rel_path": "edit.txt", "size": 6, "mtime_ns": 2},
+            {"rel_path": "new.txt", "size": 4, "mtime_ns": 1},
+        ]
+
+        diff = self.uploader._build_inventory_diff(inventory, baseline)
+
+        self.assertEqual(diff["added"], ["new.txt"])
+        self.assertEqual(diff["modified"], ["edit.txt"])
+        self.assertEqual(diff["removed"], ["gone.txt"])
+
+    def test_access_advanced_panel_collapses_and_expands(self):
+        self.uploader.access_advanced_frame = MagicMock()
+        self.uploader.access_toggle_btn = MagicMock()
+
+        self.uploader._set_access_advanced(False)
+        self.assertFalse(self.uploader.access_advanced_expanded)
+        self.uploader.access_advanced_frame.grid_remove.assert_called()
+        self.assertEqual(
+            self.uploader.access_toggle_btn.config.call_args.kwargs["text"],
+            "SETUP / ADVANCED",
+        )
+
+        self.uploader.access_advanced_frame.reset_mock()
+        self.uploader.access_toggle_btn.reset_mock()
+        self.uploader._set_access_advanced(True)
+        self.assertTrue(self.uploader.access_advanced_expanded)
+        self.uploader.access_advanced_frame.grid.assert_called()
+        self.assertEqual(
+            self.uploader.access_toggle_btn.config.call_args.kwargs["text"],
+            "HIDE ADVANCED",
+        )
+
+    def test_steamcmd_unavailable_surfaces_advanced_setup(self):
+        self.uploader.access_advanced_frame = MagicMock()
+        self.uploader.access_toggle_btn = MagicMock()
+        self.uploader.steam_login_status_var = DummyVar("")
+        self.uploader.auth_detail_var = DummyVar("")
+
+        self.uploader._set_auth_state("steamcmd_unavailable")
+
+        self.assertTrue(self.uploader.access_advanced_expanded)
+        self.uploader.access_advanced_frame.grid.assert_called()
+
+    def test_readiness_auto_collapses_when_ready_and_expands_for_attention(self):
+        self.uploader.mod_path = DummyVar(self.test_dir)
+        self.uploader.readiness_tree = MagicMock()
+        self.uploader.readiness_details_frame = MagicMock()
+        self.uploader.readiness_toggle_btn = MagicMock()
+        self.uploader.readiness_summary_var = DummyVar("")
+        self.uploader.readiness_detail_var = DummyVar("")
+        self.uploader.publish_target_var = DummyVar("")
+        self.uploader.last_upload_var = DummyVar("")
+        self.uploader.changed_since_upload_var = DummyVar("")
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader.current_project_data = {}
+        self.uploader._build_mod_inventory = MagicMock(return_value=[])
+        self.uploader._fingerprint_inventory = MagicMock(return_value="sig")
+        self.uploader._update_project_status = MagicMock()
+
+        clean = {
+            "issues": [],
+            "validation_errors": [],
+            "validation_warnings": [],
+            "trn_line_endings": [],
+            "trn_duplicate_headers": [],
+            "legacy_files": [],
+        }
+        warning = dict(clean)
+        warning["validation_warnings"] = ["Preview image is large."]
+
+        self.uploader._collect_mod_findings = MagicMock(return_value=clean)
+        self.uploader.refresh_current_project_readiness()
+        self.assertFalse(self.uploader.readiness_expanded)
+        self.uploader.readiness_details_frame.pack_forget.assert_called()
+
+        self.uploader.readiness_details_frame.reset_mock()
+        self.uploader._collect_mod_findings = MagicMock(return_value=warning)
+        self.uploader.refresh_current_project_readiness()
+        self.assertTrue(self.uploader.readiness_expanded)
+        self.uploader.readiness_details_frame.pack.assert_called()
+
+    def test_activity_summary_updates_without_opening_raw_log(self):
+        self.uploader.activity_summary_var = DummyVar("Ready.")
+        self.uploader.activity_log_expanded = False
+        self.uploader.log_box = MagicMock()
+
+        self.uploader._log_impl("Workshop library ready:\n38 items loaded.")
+
+        self.assertEqual(
+            self.uploader.activity_summary_var.get(),
+            "Workshop library ready: 38 items loaded.",
+        )
+        self.assertFalse(self.uploader.activity_log_expanded)
+        self.uploader.log_box.insert.assert_called_once()
+
+    def test_build_readiness_rows_marks_fixable_actions(self):
+        bad_trn = os.path.join(self.test_dir, "bad.trn")
+        legacy_map = os.path.join(self.test_dir, "old.map")
+        with open(bad_trn, "w", encoding="utf-8") as f:
+            f.write("[Size]\n")
+        with open(legacy_map, "w", encoding="utf-8") as f:
+            f.write("legacy")
+
+        self.uploader.mod_path.set(self.test_dir)
+        rows = self.uploader._build_readiness_rows({
+            "issues": [(bad_trn, "Missing Fields", "[CraftClass] missing: weaponName", 2)],
+            "validation_errors": [],
+            "validation_warnings": [],
+            "trn_line_endings": [bad_trn],
+            "trn_duplicate_headers": [],
+            "legacy_files": [legacy_map],
+        })
+
+        actions = {(row["type"], row["action"]) for row in rows}
+        self.assertIn(("Missing Fields", "quick_fix"), actions)
+        self.assertIn(("TRN Line Endings", "fix_trn_endings"), actions)
+        self.assertIn(("Legacy File", "delete_legacy"), actions)
+
+    def test_build_publish_plan_includes_changed_file_preview(self):
+        self.uploader.username_var.set("tester")
+        self.uploader.title_var.set("Sample")
+        self.uploader.note_var.set("note")
+        self.uploader.visibility_var.set("0 (Public)")
+        self.uploader.item_id_var.set("123")
+        self.uploader.current_project_data = {
+            "last_upload_inventory": {
+                "same.txt": {"size": 1, "mtime_ns": 1},
+                "edited.txt": {"size": 1, "mtime_ns": 1},
+            }
+        }
+        inventory = [
+            {"rel_path": "same.txt", "size": 1, "mtime_ns": 1},
+            {"rel_path": "edited.txt", "size": 2, "mtime_ns": 2},
+            {"rel_path": "new.txt", "size": 1, "mtime_ns": 1},
+        ]
+        findings = {
+            "issues": [],
+            "validation_errors": [],
+            "validation_warnings": [],
+            "trn_line_endings": [],
+            "trn_duplicate_headers": [],
+            "legacy_files": [],
+        }
+
+        plan = self.uploader._build_publish_plan("C:\\mods\\content", "C:\\mods\\preview.jpg", False, findings, inventory)
+
+        self.assertEqual(plan["changed_files"], 2)
+        self.assertTrue(any("Modified: edited.txt" == line for line in plan["changed_preview"]))
+        self.assertTrue(any("Added: new.txt" == line for line in plan["changed_preview"]))
+
+    def test_app_file_manager_downloads_and_extracts_steamcmd(self):
+        manager = AppFileManager()
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("steamcmd.exe", "stub")
+
+        response = MagicMock()
+        response.content = buffer.getvalue()
+
+        request_with_retry = MagicMock(return_value=response)
+        exe_path = manager.download_steamcmd(self.test_dir, request_with_retry)
+
+        self.assertTrue(os.path.exists(exe_path))
+        request_with_retry.assert_called_once()
+
+    def test_upload_preflight_validate_inputs_rejects_missing_username_without_cached_creds(self):
+        preflight = UploadPreflight()
+        steamcmd_path = os.path.join(self.test_dir, "steamcmd.exe")
+        with open(steamcmd_path, "w", encoding="utf-8") as f:
+            f.write("exe")
+
+        result = preflight.validate_inputs(
+            title="Test Mod",
+            description="desc",
+            steamcmd_path=steamcmd_path,
+            content_path="C:\\mods\\content",
+            preview_path="C:\\mods\\preview.jpg",
+            username="",
+            use_cached_creds=False,
+            title_limit=128,
+            description_limit=8000,
+        )
+
+        self.assertEqual(result, ("Error", "Steam Username is required unless 'USE CACHED CREDENTIALS' is enabled."))
+
+    def test_upload_preflight_builds_relative_safety_rows(self):
+        preflight = UploadPreflight()
+        mod_dir = os.path.join(self.test_dir, "mod")
+        os.makedirs(mod_dir, exist_ok=True)
+        odf_path = os.path.join(mod_dir, "test.odf")
+        with open(odf_path, "w", encoding="utf-8") as f:
+            f.write("[CraftClass]\n")
+
+        rows = preflight.build_safety_rows(
+            [(odf_path, "Missing Fields", "Missing: weaponName", 2)],
+            mod_dir,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["display_path"], "test.odf")
+        self.assertEqual(rows[0]["full_path"], odf_path)
+
+    def test_upload_preflight_writes_upload_vdf(self):
+        preflight = UploadPreflight()
+
+        def build_upload_vdf_content(**kwargs):
+            return f"vdf:{kwargs['appid']}:{kwargs['publishedfileid']}"
+
+        vdf_path = preflight.write_upload_vdf(
+            base_dir=self.test_dir,
+            appid="301650",
+            publishedfileid="123",
+            contentfolder=r"C:\mods\content",
+            previewfile=r"C:\mods\preview.jpg",
+            visibility="0",
+            title="Test Mod",
+            description="desc",
+            changenote="note",
+            build_upload_vdf_content=build_upload_vdf_content,
+        )
+
+        self.assertTrue(os.path.exists(vdf_path))
+        with open(vdf_path, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "vdf:301650:123")
+
+    def test_update_item_id_from_vdf_returns_parsed_id(self):
+        vdf_path = os.path.join(self.test_dir, "upload.vdf")
+        with open(vdf_path, "w", encoding="utf-8") as f:
+            f.write('"workshopitem"\n{\n    "publishedfileid"    "7654321"\n}\n')
+
+        self.uploader.root.after = lambda delay, fn: fn()
+        parsed = self.uploader.update_item_id_from_vdf(vdf_path)
+
+        self.assertEqual(parsed, "7654321")
+
+    def test_steamworks_tag_updater_creates_and_removes_temp_appid_file(self):
+        updater = SteamworksTagUpdater()
+        appid_path = os.path.join(self.test_dir, "steam_appid.txt")
+
+        created = updater._ensure_appid_file(self.test_dir, "301650")
+        self.assertEqual(created, appid_path)
+        self.assertTrue(os.path.exists(appid_path))
+        with open(appid_path, "r", encoding="ascii") as f:
+            self.assertEqual(f.read(), "301650\n")
+
+        created_again = updater._ensure_appid_file(self.test_dir, "301650")
+        self.assertIsNone(created_again)
+
+    def test_scan_mod_safety_does_not_require_every_allowed_param(self):
+        self.uploader.resource_dir = self.test_dir
+
+        with open(os.path.join(self.test_dir, "odfHeaderList.txt"), "w", encoding="utf-8") as f:
+            f.write("CraftClass\n")
+        with open(os.path.join(self.test_dir, "bzrODFparams.txt"), "w", encoding="utf-8") as f:
+            f.write("[CraftClass]\nweaponName\nreloadDelay?\n")
+        with open(os.path.join(self.test_dir, "test.odf"), "w", encoding="utf-8") as f:
+            f.write("[CraftClass]\nweaponName = \"gun\"\n")
+
+        issues = self.uploader.scan_mod_safety(self.test_dir)
+        self.assertFalse(any(issue[1] == "Missing Fields" for issue in issues))
+
+    def test_scan_mod_safety_honors_explicit_required_param_marker(self):
+        self.uploader.resource_dir = self.test_dir
+
+        with open(os.path.join(self.test_dir, "odfHeaderList.txt"), "w", encoding="utf-8") as f:
+            f.write("CraftClass\n")
+        with open(os.path.join(self.test_dir, "bzrODFparams.txt"), "w", encoding="utf-8") as f:
+            f.write("[CraftClass]\n!weaponName\nreloadDelay?\n")
+        with open(os.path.join(self.test_dir, "test.odf"), "w", encoding="utf-8") as f:
+            f.write("[CraftClass]\nreloadDelay = 1\n")
+
+        issues = self.uploader.scan_mod_safety(self.test_dir)
+        missing = [issue for issue in issues if issue[1] == "Missing Fields"]
+        self.assertEqual(len(missing), 1)
+        self.assertIn("weaponname", missing[0][2].lower())
+
+    def test_fingerprint_inventory_changes_when_file_changes(self):
+        target = os.path.join(self.test_dir, "test.txt")
+        with open(target, "w", encoding="utf-8") as f:
+            f.write("alpha")
+
+        first = self.uploader._fingerprint_inventory(self.uploader._build_mod_inventory(self.test_dir))
+
+        with open(target, "w", encoding="utf-8") as f:
+            f.write("beta content")
+
+        second = self.uploader._fingerprint_inventory(self.uploader._build_mod_inventory(self.test_dir))
+        self.assertNotEqual(first, second)
+
+    def test_auth_state_guard_required_reveals_guard_field(self):
+        self.uploader.use_cached_creds_var = DummyVar(False)
+        self.uploader.steam_login_status_var = DummyVar("")
+        self.uploader.auth_detail_var = DummyVar("")
+        self.uploader.guard_label.reset_mock()
+        self.uploader.guard_entry.reset_mock()
+
+        self.uploader._set_auth_state("guard_required")
+
+        self.uploader.guard_label.grid.assert_called()
+        self.uploader.guard_entry.grid.assert_called()
+        self.assertIn("Guard", self.uploader.steam_login_status_var.get())
+
+    def test_auth_state_cached_ready_hides_manual_credentials(self):
+        self.uploader.use_cached_creds_var = DummyVar(True)
+        self.uploader.steam_login_status_var = DummyVar("")
+        self.uploader.auth_detail_var = DummyVar("")
+        self.uploader.user_entry.reset_mock()
+        self.uploader.pwd_entry.reset_mock()
+        self.uploader.guard_entry.reset_mock()
+        self.uploader.auth_row.reset_mock()
+
+        self.uploader._set_auth_state("cached_ready")
+
+        self.uploader.user_entry.grid_remove.assert_called()
+        self.uploader.pwd_entry.grid_remove.assert_called()
+        self.uploader.guard_entry.grid_remove.assert_called()
+        self.uploader.auth_row.grid_remove.assert_called()
+
+    def test_steam_service_detects_configured_steamcmd_first(self):
+        steamcmd_dir = os.path.join(self.test_dir, "steamcmd")
+        os.makedirs(steamcmd_dir, exist_ok=True)
+        steamcmd_path = os.path.join(steamcmd_dir, "steamcmd.exe")
+        with open(steamcmd_path, "w", encoding="utf-8") as f:
+            f.write("stub")
+
+        detected = self.uploader.steam_service.detect_steamcmd(
+            configured_path=steamcmd_path,
+            base_dir=self.test_dir,
+        )
+
+        self.assertEqual(detected, os.path.abspath(steamcmd_path))
+
+    def test_steam_service_detects_cached_steamcmd_identity(self):
+        steamcmd_dir = os.path.join(self.test_dir, "steamcmd")
+        config_dir = os.path.join(steamcmd_dir, "config")
+        os.makedirs(config_dir, exist_ok=True)
+        steamcmd_path = os.path.join(steamcmd_dir, "steamcmd.exe")
+        with open(steamcmd_path, "w", encoding="utf-8") as f:
+            f.write("stub")
+        loginusers = os.path.join(config_dir, "loginusers.vdf")
+        with open(loginusers, "w", encoding="utf-8") as f:
+            f.write('"users"\n{\n"76561198000000001"\n{\n"AccountName" "alpha"\n"PersonaName" "Alpha User"\n"MostRecent" "1"\n}\n}\n')
+
+        account = self.uploader.steam_service.detect_cached_steamcmd_identity(steamcmd_path)
+
+        self.assertIsNotNone(account)
+        self.assertEqual(account["steamid"], "76561198000000001")
+        self.assertEqual(account["account_name"], "alpha")
+
+    def test_resolving_owner_schedules_library_refresh(self):
+        self.uploader.api_key_var = DummyVar("key")
+        self.uploader.manage_identity_var = DummyVar("grizzly")
+        self.uploader.owner_status_var = DummyVar("")
+        self.uploader.resolve_steam_id = MagicMock(return_value="76561198000000001")
+        self.uploader.refresh_workshop_items = MagicMock()
+        self.uploader.root.after = lambda _delay, fn: fn()
+
+        steam_id = self.uploader.resolve_owner_identity(quiet=False)
+
+        self.assertEqual(steam_id, "76561198000000001")
+        self.uploader.refresh_workshop_items.assert_called_once_with(quiet=True)
+
+    def test_extract_loginusers_accounts_vdf_parser(self):
+        vdf_content = """
+"users"
+{
+    "76561198000000001"
+    {
+        "AccountName" "alpha"
+        "PersonaName" "Alpha User"
+        "MostRecent" "1"
+    }
+    "76561198000000002"
+    {
+        "AccountName" "beta"
+        "PersonaName" "Beta User"
+        "MostRecent" "0"
+    }
+}
+"""
+        vdf_path = os.path.join(self.test_dir, "loginusers.vdf")
+        with open(vdf_path, "w", encoding="utf-8") as f:
+            f.write(vdf_content)
+
+        accounts = self.uploader._extract_loginusers_accounts(vdf_path)
+        self.assertEqual(len(accounts), 2)
+        self.assertEqual(accounts[0]["steamid"], "76561198000000001")
+        self.assertEqual(accounts[0]["account_name"], "alpha")
+        self.assertEqual(accounts[0]["persona_name"], "Alpha User")
+
+    def test_resolve_steam_id_profile_url(self):
+        steam_id = self.uploader.resolve_steam_id("https://steamcommunity.com/profiles/76561198000000001", "dummy")
+        self.assertEqual(steam_id, "76561198000000001")
+
+    def test_resolve_steam_id_vanity(self):
+        with patch.object(self.uploader.steam_service, "resolve_vanity_to_steamid", return_value="76561198000000009") as resolve_mock:
+            steam_id = self.uploader.resolve_steam_id("https://steamcommunity.com/id/grizzly", "dummy")
+            self.assertEqual(steam_id, "76561198000000009")
+            resolve_mock.assert_called_once()
+
+    def test_qr_poll_uses_request_id_from_session(self):
+        self.uploader.qr_session_id = "client-123"
+        self.uploader.qr_request_id = "request-456"
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"response": {}}
+        self.uploader.steam_service.poll_qr_auth_session = MagicMock(return_value=response)
+        self.uploader.root.after = MagicMock()
+
+        self.uploader.poll_qr_status()
+
+        self.uploader.steam_service.poll_qr_auth_session.assert_called_once_with(
+            client_id="client-123",
+            request_id="request-456",
+            timeout=5,
+        )
+
+    def test_use_selected_item_id_for_upload_sets_update_target(self):
+        content_dir = os.path.join(self.test_dir, "content")
+        os.makedirs(content_dir, exist_ok=True)
+        self.uploader.mod_path = DummyVar(content_dir)
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader.tree = MagicMock()
+        self.uploader.tree.selection.return_value = ["item1"]
+        self.uploader.tree.item.return_value = {"values": ["My Mod", "999"]}
+        self.uploader.notebook = MagicMock()
+        self.uploader.upload_tab = MagicMock()
+        self.uploader.save_current_project_state = MagicMock()
+
+        ok = self.uploader.use_selected_item_id_for_upload()
+        self.assertTrue(ok)
+        self.assertEqual(self.uploader.item_id_var.get(), "999")
+        self.uploader.notebook.select.assert_called_once()
+        self.uploader.save_current_project_state.assert_called_once_with(quiet=True)
+
+    def test_start_upload_cached_credentials_does_not_require_username(self):
+        sc_path = os.path.join(self.test_dir, "steamcmd.exe")
+        with open(sc_path, "w", encoding="utf-8") as f:
+            f.write("exe")
+
+        content_dir = os.path.join(self.test_dir, "content")
+        os.makedirs(content_dir, exist_ok=True)
+        preview_path = os.path.join(self.test_dir, "preview.jpg")
+        with open(preview_path, "w", encoding="utf-8") as f:
+            f.write("img")
+
+        self.uploader.base_dir = self.test_dir
+        self.uploader.desc_text = MagicMock()
+        self.uploader.desc_text.get.return_value = "desc"
+
+        self.uploader.title_var = DummyVar("Test Mod")
+        self.uploader.steamcmd_path = DummyVar(sc_path)
+        self.uploader.mod_path = DummyVar(content_dir)
+        self.uploader.preview_path = DummyVar(preview_path)
+        self.uploader.username_var = DummyVar("")
+        self.uploader.password_var = DummyVar("")
+        self.uploader.use_cached_creds_var = DummyVar(True)
+        self.uploader.visibility_var = DummyVar("0 (Public)")
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader.note_var = DummyVar("note")
+        self.uploader.game_var = DummyVar("BZ98R")
+        self.uploader.manage_identity_var = DummyVar("")
+
+        self.uploader._build_mod_inventory = MagicMock(return_value=[])
+        self.uploader._collect_mod_findings = MagicMock(return_value={
+            "inventory": [],
+            "issues": [],
+            "validation_errors": [],
+            "validation_warnings": [],
+            "trn_line_endings": [],
+            "trn_duplicate_headers": [],
+            "legacy_files": [],
+        })
+        self.uploader.show_safety_warning = MagicMock(return_value=True)
+        self.uploader.save_config = MagicMock()
+        self.uploader._confirm_upload_plan = MagicMock(return_value=True)
+
+        with patch.object(uploader.threading, "Thread") as thread_mock:
+            thread_instance = MagicMock()
+            thread_mock.return_value = thread_instance
+            self.uploader.start_upload()
+            thread_mock.assert_called_once()
+
+        uploader.messagebox.showerror.assert_not_called()
+
+if __name__ == '__main__':
+    unittest.main()
