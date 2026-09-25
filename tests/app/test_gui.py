@@ -220,6 +220,35 @@ class ShellSmokeTests(unittest.TestCase):
                 pass
 
 
+class ColumnResizeTests(unittest.TestCase):
+    def test_dragged_stretch_column_keeps_its_width(self):
+        root = _make_root()
+        try:
+            from bztoolbox.app.widgets import install_treeview_resize_cursor
+
+            install_treeview_resize_cursor(root)
+            root.geometry("600x300")
+            tree = tk.ttk.Treeview(root, columns=("file", "kind", "size"), show="headings")
+            for key, width, stretch in (("file", 300, True), ("kind", 100, False), ("size", 100, False)):
+                tree.column(key, width=width, stretch=stretch)
+            tree.pack(fill="both", expand=True)
+            pump(root, 0.3)
+            start = tree.column("file", "width")
+            x = start   # the divider right of the stretch column
+            self.assertEqual(tree.identify_region(x, 10), "separator")
+            tree.event_generate("<ButtonPress-1>", x=x, y=10)
+            for step in range(10, 110, 10):
+                tree.event_generate("<B1-Motion>", x=x + step, y=10)
+                pump(root, 0.02)
+            tree.event_generate("<ButtonRelease-1>", x=x + 100, y=10)
+            pump(root, 0.3)
+            root.geometry("620x300")   # a relayout must not undo it either
+            pump(root, 0.3)
+            self.assertGreaterEqual(tree.column("file", "width"), start + 90)
+        finally:
+            root.destroy()
+
+
 class AutoRefreshTests(unittest.TestCase):
     def test_project_pages_rescan_when_shown_after_changes(self):
         root = _make_root()

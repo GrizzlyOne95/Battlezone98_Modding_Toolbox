@@ -11,7 +11,7 @@ from bztoolbox.app.widgets import Card, ScrollableFrame
 
 QUICK_ACTIONS = (
     ("Validate project", "project.validation"),
-    ("Inspect a mission (BZN)", "missions.inspector"),
+    ("Port a BZCC mission", "missions.port"),
     ("Build or port a world", "world.builder"),
     ("Generate terrain", "world.generate"),
     ("Convert textures", "assets.textures"),

@@ -11,7 +11,7 @@ from battlezone.assets import build_graph
 from battlezone.assets.graph import GraphCancelled
 from battlezone.project import folder_fingerprint
 from bztoolbox.app import theme
-from bztoolbox.app.widgets import StatBox, humanize_bytes, open_in_file_manager
+from bztoolbox.app.widgets import StatBox, add_scrollbars, humanize_bytes, open_in_file_manager
 
 
 def _table(parent, columns):
@@ -21,10 +21,7 @@ def _table(parent, columns):
     for key, heading, width in columns:
         tree.heading(key, text=heading)
         tree.column(key, width=width, anchor="w", stretch=key == columns[0][0])
-    scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview, style="Toolbox.Vertical.TScrollbar")
-    tree.configure(yscrollcommand=scroll.set)
-    tree.pack(side="left", fill="both", expand=True)
-    scroll.pack(side="right", fill="y")
+    add_scrollbars(frame, tree)
     tree.tag_configure("missing", foreground=theme.ERROR)
     tree.tag_configure("external", foreground=theme.MUTED)
     return frame, tree

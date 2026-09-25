@@ -45,18 +45,26 @@ for optional in ("tkinterdnd2",):
     if importlib.util.find_spec(optional):
         datas += collect_data_files(optional)
 
-# ogre-python (optional): Ogre libraries and Media for the live mesh preview.
+# ogre-python (installed with requirements.txt where it has wheels): Ogre
+# libraries, render-system plugins and Media for the live mesh preview.
 ogre_spec = importlib.util.find_spec("Ogre")
 if ogre_spec is not None:
     ogre_pkg = Path(ogre_spec.submodule_search_locations[0]) if ogre_spec.submodule_search_locations \
         else Path(ogre_spec.origin).parent
-    for f in ogre_pkg.iterdir():
-        if f.suffix.lower() in (".dll", ".pyd", ".so", ".dylib") or ".so." in f.name:
-            binaries.append((str(f), "Ogre"))
-    for candidate in (ogre_pkg / "Media", ogre_pkg.parent / "Media", ogre_pkg.parents[2] / "Media"):
-        if candidate.is_dir():
-            datas.append((str(candidate), "Ogre/Media"))
-            break
+    # Whole tree: the render systems and codecs are plugins in a subfolder
+    # (Ogre/OGRE), loaded at run time, which the import analysis cannot see.
+    for f in ogre_pkg.rglob("*"):
+        if f.is_file() and (f.suffix.lower() in (".dll", ".pyd", ".so", ".dylib") or ".so." in f.name):
+            binaries.append((str(f), str(Path("Ogre") / f.parent.relative_to(ogre_pkg))))
+    # Media (RTShader library): inside the package in older wheels, in
+    # <prefix>/share/OGRE-<version>/Media since 14.x.
+    media = [ogre_pkg / "Media", ogre_pkg.parent / "Media", ogre_pkg.parents[2] / "Media"]
+    media += sorted(Path(sys.prefix, "share").glob("OGRE-*/Media"), reverse=True)
+    found = next((candidate for candidate in media if candidate.is_dir()), None)
+    if found is None:
+        raise SystemExit("ogre-python is installed but its Media folder was not found; "
+                         "the mesh preview would crash in the build")
+    datas.append((str(found), "Ogre/Media"))
 
 # --- modules the registry imports lazily by name ------------------------------------
 hiddenimports = [

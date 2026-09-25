@@ -72,8 +72,51 @@ def install_treeview_resize_cursor(root: tk.Misc) -> None:
         except tk.TclError:
             pass
 
+    def press(event):
+        # Tk re-fits every stretch column to the table width when a drag ends,
+        # so a stretch column snapped back to its old width. The column being
+        # dragged stops stretching; the last column absorbs the difference.
+        tree = event.widget
+        try:
+            if tree.identify_region(event.x, event.y) != "separator":
+                return
+            index = int(tree.identify_column(event.x).lstrip("#"))
+            shown = _display_columns(tree)
+            if not 0 < index <= len(shown):
+                return
+            tree.column(shown[index - 1], stretch=False)
+            for other in shown[:-1]:
+                if other != shown[index - 1] and tree.column(other, "stretch"):
+                    tree.column(other, stretch=False)
+            tree.column(shown[-1], stretch=True)
+        except (tk.TclError, ValueError):
+            pass
+
     root.bind_class("Treeview", "<Motion>", motion, add="+")
     root.bind_class("Treeview", "<Leave>", lambda e: _reset_cursor(e.widget), add="+")
+    # Runs before Tk's own press handler, so the drag already sees the change.
+    root.bind_class("Treeview", "<ButtonPress-1>", press, add="+")
+
+
+def add_scrollbars(frame, tree) -> None:
+    """Grid ``tree`` in ``frame`` with both scrollbars (columns can be dragged wider than the view)."""
+    vertical = ttk.Scrollbar(frame, orient="vertical", command=tree.yview, style="Toolbox.Vertical.TScrollbar")
+    horizontal = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview, style="Toolbox.Horizontal.TScrollbar")
+    tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+    tree.grid(row=0, column=0, sticky="nsew")
+    vertical.grid(row=0, column=1, sticky="ns")
+    horizontal.grid(row=1, column=0, sticky="ew")
+    frame.rowconfigure(0, weight=1)
+    frame.columnconfigure(0, weight=1)
+
+
+def _display_columns(tree) -> list:
+    shown = tree["displaycolumns"]
+    if isinstance(shown, str):
+        shown = (shown,)
+    if not shown or tuple(shown) == ("#all",):
+        shown = tree["columns"]
+    return list(shown)
 
 
 def _reset_cursor(widget) -> None:
@@ -136,7 +179,8 @@ class PathPicker(ttk.Frame):
 
     def __init__(self, master, label: str, variable: tk.StringVar, kind: str = "dir",
                  filetypes: Sequence = (("All files", "*.*"),), style_prefix: str = "Toolbox",
-                 on_change: Optional[Callable[[str], None]] = None, surface: bool = False):
+                 on_change: Optional[Callable[[str], None]] = None, surface: bool = False,
+                 on_browse: Optional[Callable[[], None]] = None):
         frame_style = "Toolbox.Surface.TFrame" if surface else "Toolbox.TFrame"
         label_style = "Toolbox.Surface.TLabel" if surface else "Toolbox.TLabel"
         super().__init__(master, style=frame_style)
@@ -147,7 +191,7 @@ class PathPicker(ttk.Frame):
         ttk.Label(self, text=label, style=label_style, width=18).pack(side="left")
         self.entry = ttk.Entry(self, textvariable=variable, style="Toolbox.TEntry")
         self.entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(self, text="Browse…", style="Toolbox.TButton", command=self.browse).pack(side="left")
+        ttk.Button(self, text="Browse…", style="Toolbox.TButton", command=on_browse or self.browse).pack(side="left")
 
     def browse(self) -> None:
         current = self.variable.get()
@@ -180,10 +224,7 @@ class IssueTree(ttk.Frame):
             self.tree.column(key, width=width, stretch=key == "message", anchor="w")
         for severity, colour in theme.SEVERITY_COLORS.items():
             self.tree.tag_configure(severity, foreground=colour)
-        scroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview, style="Toolbox.Vertical.TScrollbar")
-        self.tree.configure(yscrollcommand=scroll.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        add_scrollbars(self, self.tree)
         self._items: dict = {}
         self._on_select = on_select
         self._on_activate = on_activate

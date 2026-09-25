@@ -147,3 +147,5 @@ def _configure(style: ttk.Style) -> None:
     style.map("Toolbox.TNotebook.Tab", background=[("selected", ACCENT_DIM)], foreground=[("selected", ACCENT)])
     style.configure("Toolbox.Vertical.TScrollbar", background=SURFACE_ALT, troughcolor=BG,
                     bordercolor=BG, arrowcolor=MUTED)
+    style.configure("Toolbox.Horizontal.TScrollbar", background=SURFACE_ALT, troughcolor=BG,
+                    bordercolor=BG, arrowcolor=MUTED)

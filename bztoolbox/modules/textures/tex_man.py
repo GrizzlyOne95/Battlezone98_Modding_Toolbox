@@ -184,6 +184,63 @@ class ToolTip:
             self.tip_window.destroy()
             self.tip_window = None
     
+class PaletteGrid(tk.Canvas):
+    """16x16 palette swatches that scale to the space available (square cells)."""
+
+    GAP = 2
+
+    def __init__(self, master, on_pick):
+        super().__init__(master, bg=BZ_BG, highlightthickness=0, width=16 * 26, height=16 * 26)
+        self._on_pick = on_pick
+        self._colors = ["#000000"] * 256
+        self._selected = None
+        self._cell = 26   # pixels per swatch; fit() changes it
+        self.bind("<Button-1>", self._click)
+
+    def fit(self, height):
+        """Size to ``height`` (square), leaving room for the other columns."""
+        size = max(16 * 12, min(height, 16 * 56))
+        if size != self._cell * 16:
+            self.configure(width=size, height=size)
+            self._cell = size // 16
+            self._redraw()
+
+    def set_palette(self, palette):
+        self._colors = [f"#{r:02x}{g:02x}{b:02x}" for r, g, b in (tuple(c)[:3] for c in palette[:256])]
+        self._redraw()
+
+    def set_color(self, index, hex_code):
+        self._colors[index] = hex_code
+        self.itemconfigure(f"cell{index}", fill=hex_code)
+
+    def select(self, index):
+        self._selected = index
+        self._draw_selection()
+
+    def _redraw(self):
+        self.delete("all")
+        cell, gap = self._cell, self.GAP
+        for index, colour in enumerate(self._colors):
+            x, y = (index % 16) * cell, (index // 16) * cell
+            self.create_rectangle(x, y, x + cell - gap, y + cell - gap, fill=colour, outline="",
+                                  tags=(f"cell{index}",))
+        self._draw_selection()
+
+    def _draw_selection(self):
+        self.delete("selection")
+        if self._selected is None:
+            return
+        cell = self._cell
+        x, y = (self._selected % 16) * cell, (self._selected // 16) * cell
+        self.create_rectangle(x - 1, y - 1, x + cell - 1, y + cell - 1, outline=BZ_GREEN, width=3,
+                              tags=("selection",))
+
+    def _click(self, event):
+        column, row = event.x // self._cell, event.y // self._cell
+        if 0 <= column < 16 and 0 <= row < 16:
+            self._on_pick(row * 16 + column)
+
+
 class BZReduxSuite:
     def __init__(self, root):
         self.root = root
@@ -206,7 +263,6 @@ class BZReduxSuite:
         self.config = self.load_config()
         # Load the Moon Palette as default
         self.palette = [list(c) for c in BUILTIN_MOON_PALETTE]
-        self.pal_buttons = []
         self.selected_index = None
         
         self.notebook = ttk.Notebook(self.root)
@@ -308,71 +364,87 @@ class BZReduxSuite:
         textbox.insert("end", f"> {message}\n")
         textbox.see("end")
 
+    def source_row(self, parent, label, variable, filetypes, folder=True):
+        """Source path picker. Choosing a file only fills the path; the tab's
+        Convert button does the work, so picking never converts by surprise."""
+        row = ttk.Frame(parent)
+        ttk.Label(row, text=label).pack(side="left", padx=(10, 5))
+        ttk.Entry(row, textvariable=variable, width=60).pack(side="left", fill="x", expand=True, padx=5)
+
+        def pick_file():
+            path = filedialog.askopenfilename(filetypes=filetypes)
+            if path:
+                variable.set(path)
+
+        def pick_folder():
+            path = filedialog.askdirectory(title="Select Source Folder")
+            if path:
+                variable.set(path)
+
+        ttk.Button(row, text="File...", command=pick_file).pack(side="left", padx=2)
+        if folder:
+            ttk.Button(row, text="Folder...", command=pick_folder).pack(side="left", padx=2)
+        return row
+
+    def require_source(self, variable, what):
+        path = variable.get().strip()
+        if not path or not os.path.exists(path):
+            messagebox.showinfo("Choose a source", f"Choose {what} first, then press Convert.")
+            return None
+        return path
+
 # --- ACT PALETTE EDITOR ---
     def setup_act_tab(self):
         ttk.Label(self.tab_act, text="Battlezone 98 Palette Editor (.ACT)", font=(self.custom_font_name, 16, "bold"), foreground=BZ_GREEN).pack(pady=10)
-        
+
+        # Three top-aligned columns: the palette scales with the window, the
+        # quick jumps and editor keep their width, spare width stays on the right.
         main_f = ttk.Frame(self.tab_act)
         main_f.pack(pady=10, padx=20, fill="both", expand=True)
-        
-        # 1. Left: The 16x16 Grid
-        grid_f = ttk.Frame(main_f)
-        grid_f.pack(side="left", padx=20, pady=20)
-        
-        self.pal_buttons = []
-        for i in range(256):
-            r, g, b = self.palette[i]
-            # Using standard tk.Button for background color support
-            btn = tk.Button(grid_f, text="", width=2, height=1, 
-                                bg=f"#{r:02x}{g:02x}{b:02x}",
-                                relief="flat",
-                                command=lambda x=i: self.select_palette_color(x))
-            btn.grid(row=i // 16, column=i % 16, padx=1, pady=1)
-            self.pal_buttons.append(btn)
-        
-        # 2. Middle: Quick Jump Shortcuts (Fixed width/height arguments)
-        jump_f = ttk.Frame(main_f, width=140)
-        jump_f.pack(side="left", padx=10, fill="y", pady=20)
-        ttk.Label(jump_f, text="Quick Jump", font=(self.custom_font_name, 12, "bold")).pack(pady=10)
-        
-        # Using tk.Button for specific colors
+        main_f.columnconfigure(3, weight=1)   # spare width goes right of the controls
+        main_f.rowconfigure(0, weight=1)
+
+        # 1. Left: the 16x16 palette
+        self.pal_grid = PaletteGrid(main_f, self.select_palette_color)
+        self.pal_grid.grid(row=0, column=0, sticky="nw", padx=(0, 20))
+        main_f.bind("<Configure>", lambda e: self.pal_grid.fit(e.height), add="+")
+        self.pal_grid.set_palette(self.palette)
+
+        # 2. Middle: quick jump shortcuts
+        jump_f = ttk.Frame(main_f)
+        jump_f.grid(row=0, column=1, sticky="n", padx=10)
+        ttk.Label(jump_f, text="Quick Jump", font=(self.custom_font_name, 12, "bold")).pack(pady=(0, 10))
         tk.Button(jump_f, text="Index 209\n(Fog)", bg="#5d6d7e", fg="white", width=12, height=3,
-                      command=lambda: self.jump_to_index(209)).pack(pady=5, padx=10)
-        
+                  command=lambda: self.jump_to_index(209)).pack(pady=5, padx=10)
         tk.Button(jump_f, text="Index 223\n(Sky/Scope)", bg="#d4ac0d", fg="black", width=12, height=3,
-                      command=lambda: self.jump_to_index(223)).pack(pady=5, padx=10)
-        
+                  command=lambda: self.jump_to_index(223)).pack(pady=5, padx=10)
         ttk.Label(jump_f, text="Ranges:", font=(self.custom_font_name, 10, "italic")).pack(pady=(20, 0))
-        
-        # Fixed these two buttons specifically:
-        ttk.Button(jump_f, text="Terrain (96)", width=15, 
-                      command=lambda: self.jump_to_index(96)).pack(pady=2)
-        ttk.Button(jump_f, text="Objects (0)", width=15, 
-                      command=lambda: self.jump_to_index(0)).pack(pady=2)
-        
-        # 3. Right: Edit Controls
-        ctrl_f = ttk.Frame(main_f)
-        ctrl_f.pack(side="right", padx=20, fill="y", expand=True)
-        
+        ttk.Button(jump_f, text="Terrain (96)", width=15, command=lambda: self.jump_to_index(96)).pack(pady=2)
+        ttk.Button(jump_f, text="Objects (0)", width=15, command=lambda: self.jump_to_index(0)).pack(pady=2)
+
+        # 3. Right: edit controls
+        ctrl_f = ttk.Frame(main_f, width=260)
+        ctrl_f.grid(row=0, column=2, sticky="n", padx=(10, 0))
+
         self.sel_idx_var = tk.StringVar(value="Select a Color")
         self.sel_label = ttk.Label(ctrl_f, textvariable=self.sel_idx_var, font=(self.custom_font_name, 14, "bold"))
-        self.sel_label.pack(pady=10)
-        
+        self.sel_label.pack(pady=(0, 10))
+
         self.bz_info_var = tk.StringVar(value="")
-        ttk.Label(ctrl_f, textvariable=self.bz_info_var, foreground="#e67e22", wraplength=200).pack()
-        
+        ttk.Label(ctrl_f, textvariable=self.bz_info_var, foreground="#e67e22", wraplength=240).pack()
+
         # RGB Sliders
         self.r_val = self.create_color_slider(ctrl_f, "Red", self.update_color_from_sliders)
         self.g_val = self.create_color_slider(ctrl_f, "Green", self.update_color_from_sliders)
         self.b_val = self.create_color_slider(ctrl_f, "Blue", self.update_color_from_sliders)
-        
+
         # Hex Input
         ttk.Label(ctrl_f, text="Hex Code:").pack(pady=(10,0))
         self.hex_var = tk.StringVar()
         self.hex_entry = ttk.Entry(ctrl_f, textvariable=self.hex_var)
-        self.hex_entry.pack(pady=5)
+        self.hex_entry.pack(pady=5, fill="x")
         ttk.Button(ctrl_f, text="Apply Hex", command=self.apply_hex).pack(pady=5)
-        
+
         # File Actions
         ttk.Button(ctrl_f, text="LOAD .ACT", style="Success.TButton", command=self.load_act).pack(fill="x", pady=10)
         ttk.Button(ctrl_f, text="SAVE .ACT", style="Action.TButton", command=self.save_act).pack(fill="x")
@@ -417,19 +489,14 @@ class BZReduxSuite:
         self.b_val.set(b)
         self.hex_var.set(f"#{r:02x}{g:02x}{b:02x}")
         
-        # Visual feedback: Reset all borders, then highlight the selected one
-        for i, btn in enumerate(self.pal_buttons):
-            if i == idx:
-                btn.configure(relief="solid", bd=4)
-            else:
-                btn.configure(relief="flat", bd=1)
+        self.pal_grid.select(idx)
 
     def update_color_from_sliders(self, _=None):
         if self.selected_index is None: return
         r, g, b = int(self.r_val.get()), int(self.g_val.get()), int(self.b_val.get())
         self.palette[self.selected_index] = [r, g, b]
         hex_code = f"#{r:02x}{g:02x}{b:02x}"
-        self.pal_buttons[self.selected_index].configure(bg=hex_code)
+        self.pal_grid.set_color(self.selected_index, hex_code)
         self.hex_var.set(hex_code)
         if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
 
@@ -449,9 +516,7 @@ class BZReduxSuite:
             with open(path, 'rb') as f:
                 raw = f.read(768)
                 self.palette = [list(struct.unpack('<3B', raw[i:i+3])) for i in range(0, 768, 3)]
-            for i, btn in enumerate(self.pal_buttons):
-                r, g, b = self.palette[i]
-                btn.configure(bg=f"#{r:02x}{g:02x}{b:02x}")
+            self.pal_grid.set_palette(self.palette)
             if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
         except Exception as e: print(f"Load Error: {e}")
 
@@ -483,9 +548,7 @@ class BZReduxSuite:
             while len(pal_data) < 256: pal_data.append([0,0,0])
             
             self.palette = pal_data[:256]
-            for i, btn in enumerate(self.pal_buttons):
-                r, g, b = self.palette[i]
-                btn.configure(bg=f"#{r:02x}{g:02x}{b:02x}")
+            self.pal_grid.set_palette(self.palette)
             if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
             messagebox.showinfo("Success", "Palette imported from image.")
         except Exception as e:
@@ -536,12 +599,15 @@ class BZReduxSuite:
         ttk.Button(pal_opt, text="Load .ACT", style="Success.TButton", command=self.ui_load_override_pal).pack(side="left", padx=5)
         ttk.Button(pal_opt, text="Reset", command=self.reset_map_palette).pack(side="left", padx=5)
         
-        # 4. Actions Frame
+        # 4. Source + Convert (a folder converts every .map/.png in it)
+        self.map_source = tk.StringVar()
+        self.source_row(self.tab_map, "Source (file or folder):", self.map_source,
+                        [("MAP or PNG", "*.map;*.png")]).pack(pady=(10, 0), padx=20, fill="x")
         f = ttk.Frame(self.tab_map)
         f.pack(pady=10, padx=20, fill="x")
-        
-        ttk.Button(f, text="+ Single File (MAP/PNG)", style="Action.TButton", command=self.ui_single_map).pack(side="left", padx=10, expand=True, fill="x")
-        ttk.Button(f, text="+ Batch Folder", style="Action.TButton", command=self.ui_batch_map).pack(side="left", padx=10, expand=True, fill="x")
+        ttk.Button(f, text="CONVERT", style="Action.TButton", command=self.convert_map_source).pack(side="left", padx=10)
+        ttk.Label(f, text=".map becomes .png and .png becomes .map; output goes beside the source "
+                          "unless a batch output folder is set.").pack(side="left", padx=10)
         
         self.map_log = tk.Text(self.tab_map, height=15, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
         self.map_log.pack(padx=20, pady=10, fill="both")
@@ -627,16 +693,25 @@ class BZReduxSuite:
                 f.write(bgra.tobytes())
             return f"Packed: {file_no_ext}.map"
 
-    def ui_single_map(self):
-        path = filedialog.askopenfilename(filetypes=[("MAP or PNG", "*.map;*.png")])
+    def convert_map_source(self):
+        path = self.require_source(self.map_source, "a .map/.png file or a folder")
+        if path is None:
+            return
+        if os.path.isdir(path):
+            self.ui_batch_map(path)
+        else:
+            self.ui_single_map(path)
+
+    def ui_single_map(self, path=None):
+        path = path or filedialog.askopenfilename(filetypes=[("MAP or PNG", "*.map;*.png")])
         if not path: return
         try:
             msg = self.process_map_file(path)
             self.log_msg(self.map_log, msg)
         except Exception as e: self.log_msg(self.map_log, f"ERROR: {e}")
 
-    def ui_batch_map(self):
-        src_folder = filedialog.askdirectory(title="Select Source Folder")
+    def ui_batch_map(self, src_folder=None):
+        src_folder = src_folder or filedialog.askdirectory(title="Select Source Folder")
         if not src_folder: return
         
         out_dir = self.batch_out_path.get()
@@ -665,10 +740,19 @@ class BZReduxSuite:
         ttk.Entry(ctrl, textvariable=self.lgt_width_var, width=10).grid(row=0, column=1, padx=5)
         ttk.Label(ctrl, text="(Leave 0 for square maps)").grid(row=0, column=2, padx=5)
 
+        self.lgt_source = tk.StringVar()
+        self.source_row(self.tab_lgt, "Source:", self.lgt_source, [("Lightmap or PNG", "*.lgt;*.png")],
+                        folder=False).pack(pady=(10, 0), padx=20, fill="x")
         btn_f = ttk.Frame(self.tab_lgt)
-        btn_f.pack(pady=10)
-        ttk.Button(btn_f, text="+ LGT to PNG (Extract)", style="Action.TButton", command=self.lgt_to_png).pack(side="left", padx=10)
-        ttk.Button(btn_f, text="+ PNG to LGT (Pack)", style="Action.TButton", command=self.png_to_lgt).pack(side="left", padx=10)
+        btn_f.pack(pady=10, padx=20, fill="x")
+        ttk.Button(btn_f, text="CONVERT", style="Action.TButton", command=self.convert_lgt_source).pack(side="left", padx=10)
+        self.lgt_direction = tk.StringVar(value="Choose a .lgt to extract a PNG, or a .png to pack an LGT.")
+        ttk.Label(btn_f, textvariable=self.lgt_direction).pack(side="left", padx=10)
+        self.lgt_source.trace_add("write", lambda *_: self.lgt_direction.set(
+            {".lgt": "Will extract: LGT -> PNG beside the source.",
+             ".png": "Will pack: PNG -> LGT beside the source."}.get(
+                os.path.splitext(self.lgt_source.get().strip())[1].lower(),
+                "Choose a .lgt to extract a PNG, or a .png to pack an LGT.")))
 
         self.lgt_log = tk.Text(self.tab_lgt, height=20, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
         self.lgt_log.pack(padx=20, pady=10, fill="both")
@@ -687,8 +771,20 @@ class BZReduxSuite:
         except Exception as e:
             self.log_msg(self.lgt_log, f"TRN Error: {e}")
 
-    def lgt_to_png(self):
-        path = filedialog.askopenfilename(filetypes=[("Lightmap", "*.lgt")])
+    def convert_lgt_source(self):
+        path = self.require_source(self.lgt_source, "a .lgt or .png file")
+        if path is None:
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".lgt":
+            self.lgt_to_png(path)
+        elif ext == ".png":
+            self.png_to_lgt(path)
+        else:
+            messagebox.showerror("LGT Converter", "The source must be a .lgt or a .png file.")
+
+    def lgt_to_png(self, path=None):
+        path = path or filedialog.askopenfilename(filetypes=[("Lightmap", "*.lgt")])
         if not path: return
         try:
             chunk_size = ZONE_RES * ZONE_RES
@@ -716,8 +812,8 @@ class BZReduxSuite:
             self.log_msg(self.lgt_log, f"Exported {gw}x{gh} zones from BZR LGT.")
         except Exception as e: self.log_msg(self.lgt_log, f"ERROR: {e}")
 
-    def png_to_lgt(self):
-        path = filedialog.askopenfilename(filetypes=[("PNG", "*.png")])
+    def png_to_lgt(self, path=None):
+        path = path or filedialog.askopenfilename(filetypes=[("PNG", "*.png")])
         if not path: return
         try:
             img = Image.open(path).convert('L')
@@ -835,13 +931,21 @@ class BZReduxSuite:
         
         btn_f = ttk.Frame(right_col)
         btn_f.pack(fill="x", pady=5)
-        ttk.Button(btn_f, text="Process Single", command=self.ui_single_tex).pack(side="left", fill="x", expand=True, padx=2)
-        ttk.Button(btn_f, text="Batch Folder", command=self.start_batch_thread, style="Action.TButton").pack(side="left", fill="x", expand=True, padx=2)
+        ttk.Button(btn_f, text="Process Single File", command=self.ui_single_tex).pack(side="left", fill="x", expand=True, padx=2)
+        ttk.Button(btn_f, text="Process Batch Folder", command=self.start_batch_thread, style="Action.TButton").pack(side="left", fill="x", expand=True, padx=2)
         
         # Batch Settings
         batch_f = ttk.LabelFrame(left_col, text=" Batch Settings ", padding=10)
         batch_f.pack(fill="x", padx=5, pady=5)
         
+        self.tex_batch_src = tk.StringVar()
+        src_row = ttk.Frame(batch_f)
+        src_row.pack(fill="x", pady=2)
+        ttk.Label(src_row, text="Source folder:").pack(side="left")
+        ttk.Entry(src_row, textvariable=self.tex_batch_src).pack(side="left", fill="x", expand=True, padx=5)
+        ttk.Button(src_row, text="Browse", width=8, command=lambda: self.tex_batch_src.set(
+            filedialog.askdirectory(title="Select Source Folder") or self.tex_batch_src.get())).pack(side="left")
+
         self.tex_from_ext = tk.StringVar(value="all supported")
         ttk.Combobox(batch_f, textvariable=self.tex_from_ext, values=["all supported", ".png", ".tga", ".dds", ".jpg"], state="readonly").pack(pady=2, fill="x")
         
@@ -904,8 +1008,11 @@ class BZReduxSuite:
             self.tex_batch_out.set(folder)
 
     def start_batch_thread(self):
-        src_folder = filedialog.askdirectory(title="Select Source Folder")
-        if not src_folder: return
+        src_folder = self.tex_batch_src.get().strip()
+        if not src_folder or not os.path.isdir(src_folder):
+            messagebox.showinfo("Batch Folder", "Set the batch source folder under Batch Settings first.")
+            return
+        self.log_msg(self.tex_log, f"Batch: processing {src_folder}...")
         self.tex_progress['value'] = 0
         thread = threading.Thread(target=self.ui_batch_tex, args=(src_folder,), daemon=True)
         thread.start()
@@ -929,6 +1036,12 @@ class BZReduxSuite:
                     "The backup folder is inside the folder being recompressed.\n"
                     "Choose somewhere outside it.")
                 return
+        if backup and not messagebox.askokcancel(
+                "Recompress in place",
+                f"Recompress the DDS textures in\n{folder}\n\nOriginals are copied to\n{backup}\n\n"
+                "Files in the mod folder are rewritten. Continue?"):
+            self.log_msg(self.tex_log, "Recompress cancelled.")
+            return
         self.tex_progress['value'] = 0
         threading.Thread(target=self.ui_recompress, args=(folder, backup),
                          daemon=True).start()
@@ -1156,9 +1269,8 @@ class BZReduxSuite:
     def ui_single_tex(self):
         path = self.tex_single_path.get()
         if not path or not os.path.exists(path):
-            path = filedialog.askopenfilename()
-            if not path: return
-            self.tex_single_path.set(path)
+            messagebox.showinfo("Process Single File", "Choose a source file first (Browse, or drop one on the field).")
+            return
         try:
             msg = self.process_texture(path)
             self.log_msg(self.tex_log, msg)
@@ -1192,11 +1304,13 @@ class BZReduxSuite:
         self.dxt_overwrite = tk.BooleanVar(value=False)
         ttk.Checkbutton(ctrl, text="Overwrite Existing", variable=self.dxt_overwrite).grid(row=2, column=1, padx=20, pady=5)
 
-        # --- Action Buttons ---
+        # --- Source + Convert (a folder converts every .dxtbz2 in it) ---
+        self.dxt_source = tk.StringVar()
+        self.source_row(self.tab_dxt, "Source (file or folder):", self.dxt_source,
+                        [("Legacy Texture", "*.dxtbz2")]).pack(pady=(10, 0), padx=20, fill="x")
         btn_f = ttk.Frame(self.tab_dxt)
-        btn_f.pack(pady=10)
-        ttk.Button(btn_f, text="+ Convert Single .dxtbz2", style="Action.TButton", command=self.ui_single_dxt).pack(side="left", padx=10)
-        ttk.Button(btn_f, text="+ Batch Folder", style="Action.TButton", command=self.ui_batch_dxt).pack(side="left", padx=10)
+        btn_f.pack(pady=10, padx=20, fill="x")
+        ttk.Button(btn_f, text="CONVERT", style="Action.TButton", command=self.convert_dxt_source).pack(side="left", padx=10)
 
         self.dxt_log = tk.Text(self.tab_dxt, height=20, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
         self.dxt_log.pack(padx=20, pady=10, fill="both")
@@ -1271,8 +1385,17 @@ class BZReduxSuite:
             f.write(struct.pack("<IIII I", 0x1000, 0, 0, 0, 0))
             f.write(data)
 
-    def ui_single_dxt(self):
-        path = filedialog.askopenfilename(filetypes=[("Legacy Texture", "*.dxtbz2")])
+    def convert_dxt_source(self):
+        path = self.require_source(self.dxt_source, "a .dxtbz2 file or a folder")
+        if path is None:
+            return
+        if os.path.isdir(path):
+            self.ui_batch_dxt(path)
+        else:
+            self.ui_single_dxt(path)
+
+    def ui_single_dxt(self, path=None):
+        path = path or filedialog.askopenfilename(filetypes=[("Legacy Texture", "*.dxtbz2")])
         if not path: return
         try:
             msg = self.process_dxtbz2(path)
@@ -1280,9 +1403,10 @@ class BZReduxSuite:
         except Exception as e:
             self.log_msg(self.dxt_log, f"ERROR: {e}")
 
-    def ui_batch_dxt(self):
-        folder = filedialog.askdirectory()
+    def ui_batch_dxt(self, folder=None):
+        folder = folder or filedialog.askdirectory()
         if not folder: return
+        self.log_msg(self.dxt_log, f"Converting every .dxtbz2 in {folder}...")
         
         def run_batch():
             files = [f for f in os.listdir(folder) if f.lower().endswith(".dxtbz2")]

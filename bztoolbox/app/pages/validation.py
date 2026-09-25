@@ -29,6 +29,7 @@ class ValidationPage(ttk.Frame):
         self.target_label.pack(side="left")
         self.run_button = ttk.Button(top, text="Run validation", style="Toolbox.Accent.TButton", command=self.run)
         self.run_button.pack(side="right")
+        ttk.Button(top, text="ZIP…", style="Toolbox.TButton", command=self.run_zip).pack(side="right", padx=(6, 0))
         ttk.Button(top, text="Other folder…", style="Toolbox.TButton", command=self.run_other).pack(side="right", padx=6)
         self.export_button = ttk.Button(top, text="Export report…", style="Toolbox.TButton",
                                         command=self.export, state="disabled")
@@ -116,13 +117,23 @@ class ValidationPage(ttk.Frame):
     def run_other(self) -> None:
         folder = filedialog.askdirectory(title="Validate folder", mustexist=True)
         if folder:
-            self._start(folder)
+            self.validate_folder(folder)
+
+    def validate_folder(self, folder: str) -> None:
+        """Validate any folder (not the open project), e.g. a ported mission's."""
+        self._start(folder)
+
+    def run_zip(self) -> None:
+        path = filedialog.askopenfilename(title="Validate ZIP", filetypes=[("ZIP archives", "*.zip"),
+                                                                           ("All files", "*.*")])
+        if path:
+            self._start(path, archive=True)
 
     def run(self) -> None:
         if self.shell.project:
             self._start(self.shell.project.mod_path)
 
-    def _start(self, folder: str, only_if_changed: bool = False) -> None:
+    def _start(self, folder: str, only_if_changed: bool = False, archive: bool = False) -> None:
         if self.job is not None and self.job.status in ("queued", "running"):
             self.job.cancel()
         checks = [cid for cid, var in self.check_vars.items() if var.get()]
@@ -135,11 +146,12 @@ class ValidationPage(ttk.Frame):
         previous = self._fingerprint
 
         def work(job):
-            fingerprint = (os.path.normcase(folder), tuple(checks), folder_fingerprint(folder))
+            target = _extract_zip(folder) if archive else folder
+            fingerprint = (os.path.normcase(folder), tuple(checks), None if archive else folder_fingerprint(folder))
             if only_if_changed and fingerprint == previous:
                 return None   # nothing changed since the results on screen
             try:
-                return fingerprint, validate_project(folder, checks, progress=job.report, cancel=job.cancel_event)
+                return fingerprint, validate_project(target, checks, progress=job.report, cancel=job.cancel_event)
             except ValidationCancelled:
                 job.check_cancelled()
                 raise
@@ -194,7 +206,11 @@ class ValidationPage(ttk.Frame):
             if issue.suggestion:
                 lines.append(f"Suggested fix: {issue.suggestion}")
             if issue.evidence_ids:
+                from battlezone.odf.evidence import resolve_evidence
+
                 lines.append("Evidence: " + ", ".join(issue.evidence_ids))
+                for item in resolve_evidence(issue.evidence_ids):
+                    lines.append(f"  {item.evidence_id}: {item.summary()}")
             self.detail.insert("1.0", "\n".join(lines))
         self.detail.configure(state="disabled")
         has_file = issue is not None and bool(issue.path)
@@ -238,3 +254,22 @@ class ValidationPage(ttk.Frame):
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(content)
         self.shell.status(f"Report written to {path}")
+
+
+_ZIP_DIRS: list = []
+
+
+def _extract_zip(path: str) -> str:
+    """Unpack a ZIP into a temporary folder (kept until exit, so findings can be opened)."""
+    import atexit
+    import shutil
+    import tempfile
+    import zipfile
+
+    folder = tempfile.mkdtemp(prefix="bztoolbox-zip-")
+    if not _ZIP_DIRS:
+        atexit.register(lambda: [shutil.rmtree(d, ignore_errors=True) for d in _ZIP_DIRS])
+    _ZIP_DIRS.append(folder)
+    with zipfile.ZipFile(path) as archive:
+        archive.extractall(folder)   # extractall drops absolute and ".." member paths
+    return folder
