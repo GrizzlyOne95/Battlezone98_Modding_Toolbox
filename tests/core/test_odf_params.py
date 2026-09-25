@@ -47,10 +47,16 @@ class BundledParamsTests(unittest.TestCase):
         self.assertEqual(key_readers("classlabel"), (True, True))
         self.assertEqual(key_readers("soundsteer"), (False, False))
         self.assertTrue(_bz2_crc("isAssault"))
-        issues = self.scan("[WeaponClass]\nisAssault = 1\nwpnTypo = 2\n[ExplosionClass]\nrenderBase = \"x\"\n")
+        issues = self.scan("[WeaponClass]\nisAssault = 1\nwpnTypo = 2\nwpnTypo3 = 2\n"
+                           "[QuakeBlastClass]\nquakeTime = 5\n[CraftClass]\nholdMsg = \"x.wav\"\n"
+                           "[ExplosionClass]\nrenderBase = \"x\"\n")
         self.assertIn(("BZ2 Field", "[WeaponClass] isAssault: BZ2/BZCC reads this key, Redux has no reader "
                                     "for it, so it is ignored"), issues)
-        self.assertIn(("Unknown Field", "[WeaponClass] wpnTypo (no reader in the Redux or BZ2 binaries)"), issues)
+        # a plain key neither binary reads is dead; an indexed one may be built at run time
+        self.assertIn(("Dead Field", "[WeaponClass] wpnTypo: no reader in the Redux or BZ2 binaries"), issues)
+        self.assertIn(("Dead Field", "[QuakeBlastClass] quakeTime: no reader in the Redux or BZ2 binaries"), issues)
+        self.assertIn(("Dead Field", "[CraftClass] holdMsg: no reader in the Redux or BZ2 binaries"), issues)
+        self.assertIn(("Unknown Field", "[WeaponClass] wpnTypo3 (no reader in the Redux or BZ2 binaries)"), issues)
         self.assertFalse([d for k, d in issues if "renderBase" in d])   # read by Redux, section not recovered
 
     def test_dead_sections_are_reported(self):
