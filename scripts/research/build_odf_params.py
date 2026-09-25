@@ -1,4 +1,8 @@
-"""Regenerate battlezone/validation/data/bzrODFparams.txt from the loader schema.
+"""Regenerate the ODF lint data from the loader schema.
+
+Writes battlezone/validation/data/bzrODFparams.txt (keys per section) and
+redux_odf_dead.json (sections Redux never reads, and keys that are dead or
+read only under another section, from the schema's dead_sections_and_keys).
 
 The schema is ``research/odf_loader_schema.json`` in the BZ1_Source repository
 (github.com/GrizzlyOne95/BZ1_Source): every ODF key the 1.5 and Redux class
@@ -9,6 +13,8 @@ other key in a listed section as an unknown field.
 Usage::
 
     python scripts/research/build_odf_params.py <BZ1_Source>/research/odf_loader_schema.json
+
+(BZ1_Source is now the BZ1 folder of github.com/GrizzlyOne95/Battlezone_Source.)
 """
 
 from __future__ import annotations
@@ -21,6 +27,18 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = REPO_ROOT / "battlezone" / "validation" / "data" / "bzrODFparams.txt"
+DEAD_OUTPUT = OUTPUT.with_name("redux_odf_dead.json")
+
+# Dead sections and the section the loader reads instead (from each entry's evidence).
+DEAD_SECTIONS = {
+    "FlareBuildingClass": "FlareMineClass",
+    "MagnetClass": "MagnetMineClass",
+    "ScavengerCraftClass": "ScavengerClass",
+    "SprayBuildngClass": "SprayBuildingClass",
+    "GameObject": "GameObjectClass",
+    "SprayBomb": "SprayBombClass",
+    "flameClass": "",
+}
 
 # XxxClass::Find reads classLabel from the family root section; it is not in
 # the per-class key lists. Redux reads the explosion label from
@@ -45,6 +63,46 @@ def _family(key: dict) -> str | None:
             or "per-level" in note:
         return match.group("base")
     return None if name[-1] != "1" else match.group("base")
+
+
+def dead_entries(schema: dict) -> dict:
+    """``{"sections": {...}, "keys": {section_lower|"*": {key_lower: {...}}}}`` from dead_sections_and_keys."""
+    readers: dict[str, list] = defaultdict(list)   # key_lower -> sections whose Redux loader reads it
+    for loader in schema["loaders"]:
+        for key in loader.get("keys", ()) if loader.get("section") else ():
+            if key.get("present_redux"):
+                family = _family(key)
+                name = (family + "#") if family else key["name"].rstrip("*")
+                if loader["section"] not in readers[name.lower()]:
+                    readers[name.lower()].append(loader["section"])
+    keys: dict[str, dict] = {}
+    for item in schema.get("dead_sections_and_keys", ()):
+        label, seen = item["name"], item.get("seen_in", "")
+        if label.split(" ")[0] in DEAD_SECTIONS:
+            continue
+        head = label.split(" under ")[0]
+        variants = re.search(r"\(\+([\w/]+)\)", head)   # "xplSoundGround/... (+Vehicle/Building)"
+        head = re.sub(r"\(.*?\)", "", head)
+        names = [n.strip() for n in head.split("/") if re.fullmatch(r"[A-Za-z]\w*", n.strip() or "-")]
+        if variants:
+            names += [re.sub(r"Ground$", suffix, n) for n in names for suffix in variants.group(1).split("/")
+                      if n.endswith("Ground")]
+        where = re.findall(r"\[(\w+)\]", label) or re.findall(r"\[(\w+)\]", seen)
+        for name in names:
+            # Where a key IS read comes from the loader key lists, not from the
+            # note: notes cover groups ("soundSteer/soundThrust ... read only
+            # under [HoverCraftClass]") that are only true for some members.
+            read_by = readers.get(name.lower(), [])
+            for section in where or ["*"]:
+                if section in read_by:
+                    continue   # the section's own loader reads it; the note is about a sibling key
+                keys.setdefault(section.lower(), {})[name.lower()] = {
+                    "name": name, "read_in": read_by, "evidence": seen}
+    return {
+        "source": f"odf_loader_schema.json schema_version {schema.get('schema_version')}",
+        "sections": {name.lower(): {"name": name, "read_instead": instead} for name, instead in DEAD_SECTIONS.items()},
+        "keys": dict(sorted(keys.items())),
+    }
 
 
 def build(schema: dict) -> str:
@@ -104,7 +162,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     schema = json.loads(args.schema.read_text(encoding="utf-8"))
     args.output.write_text(build(schema), encoding="utf-8", newline="\n")
-    print(f"wrote {args.output}")
+    dead_output = args.output.with_name(DEAD_OUTPUT.name)
+    dead_output.write_text(json.dumps(dead_entries(schema), indent=1) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {args.output} and {dead_output}")
     return 0
 
 

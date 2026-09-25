@@ -195,8 +195,6 @@ particleClass#    // simulate_reference-indexed, Redux only
 particleCount#    // int-indexed, Redux only
 particleVeloc#    // vec3-indexed, Redux only
 particleBias#     // vec3-indexed, Redux only
-particlePosVar#   // vec3-indexed, Redux only
-particleInherit#  // vec3-indexed, Redux only
 
 [FireballEffect]
 fireballRate     // float

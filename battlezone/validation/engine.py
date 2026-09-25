@@ -225,7 +225,7 @@ def _check_legacy(ctx: _Context) -> Iterator[Issue]:
 
 def _check_odf_lint(ctx: _Context) -> Iterator[Issue]:
     for path, kind, detail, line in ctx.scanner.scan_mod_safety(str(ctx.root), inventory=ctx.inventory):
-        severity = "warning" if kind in ("Missing Fields", "BZ2 Field") else "info"
+        severity = "warning" if kind in ("Missing Fields", "BZ2 Field", "Dead Field", "Dead Section") else "info"
         yield Issue(severity, "odf-lint", f"{kind}: {detail}", ctx.rel(path), line=line,
                     rule_id="odf-lint-" + kind.lower().replace(" ", "-"))
 

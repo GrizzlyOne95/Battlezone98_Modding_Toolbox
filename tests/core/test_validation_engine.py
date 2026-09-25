@@ -96,7 +96,8 @@ class ValidationEngineTests(unittest.TestCase):
         report = validate_project(self.root, ["odf-lint"])
         headers = {i.message for i in report.issues if i.rule_id == "odf-lint-invalid-header"}
         self.assertEqual(headers, {"Invalid Header: tga", "Invalid Header: NotAClass"})
-        self.assertFalse([i for i in report.issues if "particleInherit1" in i.message])
+        [inherit] = [i for i in report.issues if "particleInherit1" in i.message]
+        self.assertEqual(inherit.rule_id, "odf-lint-bz2-field")   # BZ2 particle key, not read by Redux
 
     def test_odf_lint_explains_bzcc_damage_fields(self):
         write(self.root / "odf" / "ported.odf",

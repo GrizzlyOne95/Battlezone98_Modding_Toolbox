@@ -27,9 +27,26 @@ class BundledParamsTests(unittest.TestCase):
     def test_dead_and_wrong_section_keys_are_reported(self):
         issues = self.scan("[PowerPlantClass]\npowerRange = 100\n"
                            "[HoverCraftClass]\nsoundSteer = \"x.wav\"\ncloakAllowed = 1\n"
-                           "[MinelayerClass]\nmineRad = 5\n")
-        unknown = {detail.split("] ")[1] for kind, detail in issues if kind == "Unknown Field"}
-        self.assertEqual(unknown, {"powerRange", "soundSteer", "cloakAllowed", "mineRad"})
+                           "[MinelayerClass]\nmineRad = 5\n"
+                           "[WeaponClass]\nbaseName = \"gspstab\"\n")
+        dead = {detail for kind, detail in issues if kind == "Dead Field"}
+        self.assertEqual(dead, {
+            "[PowerPlantClass] powerRange: no Redux loader reads it",
+            "[HoverCraftClass] soundSteer: no Redux loader reads it",   # dead in every section
+            "[MinelayerClass] mineRad: no Redux loader reads it",
+            "[WeaponClass] baseName: Redux reads it only under [GameObjectClass]",
+        })
+        unknown = {detail for kind, detail in issues if kind == "Unknown Field"}
+        self.assertEqual(unknown, {"[HoverCraftClass] cloakAllowed (Redux reads it under [CraftClass])"})
+
+    def test_dead_sections_are_reported(self):
+        issues = self.scan("[GameObjectClass]\nclassLabel = \"flare\"\n[FlareBuildingClass]\npayloadName = \"x\"\n")
+        self.assertIn(("Dead Section", "[FlareBuildingClass] is never read by Redux, so all its keys are "
+                                       "ignored; Redux reads [FlareMineClass]"), issues)
+
+    def test_a_section_loader_that_reads_a_key_overrides_a_group_dead_note(self):
+        # the turret note lists timeDeploy, but the TurretTankClass loader reads it
+        self.assertEqual(self.scan("[TurretTankClass]\ntimeDeploy = 1\n"), [])
 
     def test_flare_payload_is_required(self):
         issues = self.scan("[FlareMineClass]\ntriggerDelay = 1\n")

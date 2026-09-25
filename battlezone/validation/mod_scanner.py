@@ -42,7 +42,46 @@ REDUX_DAMAGE_KEYS = frozenset({"damageballistic", "damageconcussion", "damagefla
 BZ2_FIELDS = (
     (re.compile(r"^damagevalue\(\w+\)$", re.I),
      "BZ2/BZCC field, ignored by Redux. Use damageBallistic / damageConcussion / damageFlame / damageImpact"),
+    # Redux's explosion loader reads particleClass/Count/Veloc/Bias only.
+    (re.compile(r"^particle(inherit|posvar)\d+$", re.I),
+     "BZ2/BZCC particle field, ignored by Redux (it reads particleClass/Count/Veloc/Bias)"),
 )
+
+
+_DEAD = None
+
+
+def load_dead_rules():
+    """Sections Redux never reads and keys that are dead where they are written.
+
+    ``data/redux_odf_dead.json`` comes from the recovered loader schema (see
+    ``scripts/research/build_odf_params.py``), like the key lists in
+    ``bzrODFparams.txt``. A key no Redux loader reads anywhere is dead in
+    every section.
+    """
+    global _DEAD
+    if _DEAD is None:
+        import json
+
+        try:
+            with open(os.path.join(DATA_DIR, "redux_odf_dead.json"), encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            data = {"sections": {}, "keys": {}}
+        data["never_read"] = {key: entry for entries in data["keys"].values()
+                              for key, entry in entries.items() if not entry["read_in"]}
+        _DEAD = data
+    return _DEAD
+
+
+def dead_key(dead, section_key, key):
+    """The dead-key entry for ``key`` written under ``section_key``, if any."""
+    return dead["keys"].get(section_key, {}).get(key) or dead["never_read"].get(key)
+
+
+def sections_reading(allowed_params, key):
+    """Listed sections whose loader reads ``key`` (indexed families included)."""
+    return sorted(section for section, keys in allowed_params.items() if _param_allowed(key, keys))
 
 
 def bz2_field_hint(key):
@@ -96,6 +135,18 @@ class ModScanner:
     def log(self, msg):
         if self.logger:
             self.logger(msg)
+
+    def _section_names(self):
+        """Lower-case section -> its spelling in the key list (for messages)."""
+        names = {}
+        path = self._resource("bzrODFparams.txt")
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    match = re.match(r"^\[([A-Za-z0-9_]+)\]\s*$", line.strip())
+                    if match:
+                        names[match.group(1).lower()] = match.group(1)
+        return names
 
     def _load_odf_rules(self):
         allowed_headers = set()
@@ -188,6 +239,8 @@ class ModScanner:
         if not allowed_headers:
             return []
 
+        dead = load_dead_rules()
+        allowed_params_names = self._section_names()
         issues = []
         inventory = inventory if inventory is not None else self.build_inventory(mod_dir)
         for entry in inventory:
@@ -211,7 +264,14 @@ class ModScanner:
                             hint += (". This section sets none of them, so its damage is inherited "
                                      "from the class, not taken from these values")
                         issues.append((path, "BZ2 Field", f"[{header}] {key}: {hint}", line_no))
-                if header_key not in allowed_headers:
+                dead_section = dead["sections"].get(header_key)
+                if dead_section:
+                    instead = dead_section["read_instead"]
+                    issues.append((path, "Dead Section",
+                                   f"[{header}] is never read by Redux, so all its keys are ignored"
+                                   + (f"; Redux reads [{instead}]" if instead else ""), header_line))
+                    continue
+                if header_key not in allowed_headers and header_key not in allowed_params:
                     if _is_render_section(header_key, params, references):
                         continue  # particle / render definition; its fields are free-form
                     issues.append((path, "Invalid Header", header, header_line))
@@ -221,10 +281,17 @@ class ModScanner:
                         key_key = key.lower()
                         if bz2_field_hint(key):
                             continue   # reported above as a BZ2 field
-                        if not _param_allowed(key_key, allowed_params[header_key]):
-                            issues.append((path, "Unknown Field", f"[{header}] {key}", line_no))
-                        else:
+                        entry = dead_key(dead, header_key, key_key)
+                        if entry:
+                            where = (f"Redux reads it only under [{'], ['.join(entry['read_in'])}]"
+                                     if entry["read_in"] else "no Redux loader reads it")
+                            issues.append((path, "Dead Field", f"[{header}] {key}: {where}", line_no))
+                        elif _param_allowed(key_key, allowed_params[header_key]):
                             found_params.add(key_key)
+                        else:
+                            elsewhere = [allowed_params_names.get(n, n) for n in sections_reading(allowed_params, key_key)]
+                            hint = f" (Redux reads it under [{'], ['.join(elsewhere)}])" if elsewhere else ""
+                            issues.append((path, "Unknown Field", f"[{header}] {key}{hint}", line_no))
                     missing = required_params.get(header_key, set()) - found_params
                     if missing:
                         issues.append((path, "Missing Fields", f"[{header}] missing: {', '.join(sorted(missing))}", header_line))
