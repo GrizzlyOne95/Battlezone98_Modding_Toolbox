@@ -74,6 +74,85 @@ def load_dead_rules():
     return _DEAD
 
 
+def _fnv1a(name):
+    """Redux's ODF name hash: FNV-1a 32 over the lowercased bytes."""
+    value = 0x811C9DC5
+    for byte in name.lower().encode("latin-1", "ignore"):
+        value = ((value ^ byte) * 0x01000193) & 0xFFFFFFFF
+    return value
+
+
+def _crc_table():
+    table = []
+    for index in range(256):
+        value = index << 24
+        for _ in range(8):
+            value = ((value << 1) ^ 0x04C11DB7) & 0xFFFFFFFF if value & 0x80000000 else (value << 1) & 0xFFFFFFFF
+        table.append(value)
+    return table
+
+
+_CRC_TABLE = _crc_table()
+
+
+def _bz2_crc(name):
+    """BZ2's ODF name hash: CRC-32 (MSB first, init/xorout 0xFFFFFFFF) over the lowercased bytes."""
+    value = 0xFFFFFFFF
+    for byte in name.lower().encode("latin-1", "ignore"):
+        value = _CRC_TABLE[((value >> 24) ^ byte) & 0xFF] ^ ((value << 8) & 0xFFFFFFFF)
+    return value ^ 0xFFFFFFFF
+
+
+_READERS = None
+
+
+def key_readers(key):
+    """``(redux_reads, bz2_reads)`` for ``key``: is its hash in each game's decompile?
+
+    Both engines look ODF keys up by hash, so a key whose hash is absent from a
+    binary has no reader there (``data/odf_key_hashes.json``). ``(None, None)``
+    when the data is not available.
+    """
+    global _READERS
+    if _READERS is None:
+        import json
+
+        try:
+            with open(os.path.join(DATA_DIR, "odf_key_hashes.json"), encoding="utf-8") as handle:
+                data = json.load(handle)
+            _READERS = (frozenset(data["redux_fnv1a"]), frozenset(data["bz2_crc32"]))
+        except (OSError, ValueError, KeyError):
+            _READERS = ()
+    if not _READERS:
+        return None, None
+    return _fnv1a(key) in _READERS[0], _bz2_crc(key) in _READERS[1]
+
+
+# GetODFFloat(odf, "Section", "key", default); "key" .. i reads an indexed family.
+_LUA_ODF_READ = re.compile(
+    r"GetODF(?:Float|Int|Long|Bool|String)\s*\([^\n]*?,\s*([\"'])(\w+)\1\s*,\s*([\"'])(\w+)\3(\s*\.\.)?")
+
+
+def lua_odf_reads(inventory):
+    """``{section_lower: {key_lower | family#}}`` read by the mod's own Lua scripts.
+
+    Mods keep custom settings in ODFs (e.g. gunPos1, a [towerai] section) and
+    read them with GetODF*; neither engine knows those keys.
+    """
+    reads = {}
+    for entry in inventory:
+        if not entry["name_lower"].endswith(".lua"):
+            continue
+        try:
+            with open(entry["path"], "r", encoding="utf-8", errors="ignore") as f:
+                text = f.read()
+        except OSError:
+            continue
+        for _, section, _, key, indexed in _LUA_ODF_READ.findall(text):
+            reads.setdefault(section.lower(), set()).add(key.lower() + ("#" if indexed else ""))
+    return reads
+
+
 def dead_key(dead, section_key, key):
     """The dead-key entry for ``key`` written under ``section_key``, if any."""
     return dead["keys"].get(section_key, {}).get(key) or dead["never_read"].get(key)
@@ -243,6 +322,7 @@ class ModScanner:
         allowed_params_names = self._section_names()
         issues = []
         inventory = inventory if inventory is not None else self.build_inventory(mod_dir)
+        lua_reads = lua_odf_reads(inventory)
         for entry in inventory:
             if not entry["name_lower"].endswith(".odf"):
                 continue
@@ -257,8 +337,9 @@ class ModScanner:
             for header, header_line, params in sections:
                 header_key = header.lower()
                 inherits_damage = not any(key.lower() in REDUX_DAMAGE_KEYS for key, _ in params)
+                lua_keys = lua_reads.get(header_key, set())
                 for key, line_no in params:
-                    hint = bz2_field_hint(key)
+                    hint = None if _param_allowed(key.lower(), lua_keys) else bz2_field_hint(key)
                     if hint:
                         if inherits_damage and key.lower().startswith("damagevalue"):
                             hint += (". This section sets none of them, so its damage is inherited "
@@ -272,6 +353,8 @@ class ModScanner:
                                    + (f"; Redux reads [{instead}]" if instead else ""), header_line))
                     continue
                 if header_key not in allowed_headers and header_key not in allowed_params:
+                    if header_key in lua_reads:
+                        continue  # a custom section the mod's Lua reads
                     if _is_render_section(header_key, params, references):
                         continue  # particle / render definition; its fields are free-form
                     issues.append((path, "Invalid Header", header, header_line))
@@ -279,6 +362,9 @@ class ModScanner:
                     found_params = set()
                     for key, line_no in params:
                         key_key = key.lower()
+                        if _param_allowed(key_key, lua_keys):
+                            found_params.add(key_key)   # read by the mod's Lua, whatever the engine does
+                            continue
                         if bz2_field_hint(key):
                             continue   # reported above as a BZ2 field
                         entry = dead_key(dead, header_key, key_key)
@@ -290,8 +376,18 @@ class ModScanner:
                             found_params.add(key_key)
                         else:
                             elsewhere = [allowed_params_names.get(n, n) for n in sections_reading(allowed_params, key_key)]
-                            hint = f" (Redux reads it under [{'], ['.join(elsewhere)}])" if elsewhere else ""
-                            issues.append((path, "Unknown Field", f"[{header}] {key}{hint}", line_no))
+                            redux_reads, bz2_reads = key_readers(key_key)
+                            if elsewhere:
+                                issues.append((path, "Unknown Field", f"[{header}] {key} (Redux reads it under "
+                                               f"[{'], ['.join(elsewhere)}], not here)", line_no))
+                            elif redux_reads:
+                                found_params.add(key_key)   # read by Redux outside the recovered section lists
+                            elif bz2_reads:
+                                issues.append((path, "BZ2 Field", f"[{header}] {key}: BZ2/BZCC reads this key, "
+                                               "Redux has no reader for it, so it is ignored", line_no))
+                            else:
+                                note = " (no reader in the Redux or BZ2 binaries)" if redux_reads is False else ""
+                                issues.append((path, "Unknown Field", f"[{header}] {key}{note}", line_no))
                     missing = required_params.get(header_key, set()) - found_params
                     if missing:
                         issues.append((path, "Missing Fields", f"[{header}] missing: {', '.join(sorted(missing))}", header_line))

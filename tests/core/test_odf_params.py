@@ -37,7 +37,21 @@ class BundledParamsTests(unittest.TestCase):
             "[WeaponClass] baseName: Redux reads it only under [GameObjectClass]",
         })
         unknown = {detail for kind, detail in issues if kind == "Unknown Field"}
-        self.assertEqual(unknown, {"[HoverCraftClass] cloakAllowed (Redux reads it under [CraftClass])"})
+        self.assertEqual(unknown, {"[HoverCraftClass] cloakAllowed (Redux reads it under [CraftClass], not here)"})
+
+    def test_keys_are_checked_against_both_binaries(self):
+        from battlezone.validation.mod_scanner import _bz2_crc, _fnv1a, key_readers
+
+        # the hash functions each engine uses to look keys up
+        self.assertEqual((_fnv1a("GameObjectClass"), _fnv1a("classLabel")), (0xD3DD9CEC, 0x92D04727))
+        self.assertEqual(key_readers("classlabel"), (True, True))
+        self.assertEqual(key_readers("soundsteer"), (False, False))
+        self.assertTrue(_bz2_crc("isAssault"))
+        issues = self.scan("[WeaponClass]\nisAssault = 1\nwpnTypo = 2\n[ExplosionClass]\nrenderBase = \"x\"\n")
+        self.assertIn(("BZ2 Field", "[WeaponClass] isAssault: BZ2/BZCC reads this key, Redux has no reader "
+                                    "for it, so it is ignored"), issues)
+        self.assertIn(("Unknown Field", "[WeaponClass] wpnTypo (no reader in the Redux or BZ2 binaries)"), issues)
+        self.assertFalse([d for k, d in issues if "renderBase" in d])   # read by Redux, section not recovered
 
     def test_dead_sections_are_reported(self):
         issues = self.scan("[GameObjectClass]\nclassLabel = \"flare\"\n[FlareBuildingClass]\npayloadName = \"x\"\n")
@@ -51,6 +65,26 @@ class BundledParamsTests(unittest.TestCase):
     def test_flare_payload_is_required(self):
         issues = self.scan("[FlareMineClass]\ntriggerDelay = 1\n")
         self.assertIn("payloadname", " ".join(d.lower() for k, d in issues if k == "Missing Fields"))
+
+
+class LuaReadKeysTests(unittest.TestCase):
+    def test_keys_and_sections_the_mods_lua_reads_are_valid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "unit.odf"), "w", encoding="latin-1") as handle:
+                handle.write('[GameObjectClass]\nclassLabel = "wingman"\ngunPos1 = "hard0"\nsupplyAmount3 = 5\n'
+                             'hasPilot = 1\nisAssault = 1\ngunPoz1 = "typo"\n'
+                             '[towerai]\nshotCheckDelay = 2\n')
+            with open(os.path.join(tmp, "mission.lua"), "w", encoding="latin-1") as handle:
+                handle.write('local a = GetODFString(odf, "GameObjectClass", "gunPos1")\n'
+                             'local b = GetODFFloat(hData.odf, "GameObjectClass", "supplyAmount"..tostring(i), 0)\n'
+                             'local c = GetODFBool(OpenODF(GetOdf(h)), "GameObjectClass", "hasPilot", false)\n'
+                             "local d = GetODFFloat(odf, 'towerai', 'shotCheckDelay', 3.0)\n")
+            issues = [(kind, detail) for _, kind, detail, _ in ModScanner().scan_mod_safety(tmp)]
+        flagged = " ".join(detail for _, detail in issues)
+        for read_by_lua in ("gunPos1", "supplyAmount3", "hasPilot", "towerai", "shotCheckDelay"):
+            self.assertNotIn(read_by_lua, flagged)
+        self.assertIn("gunPoz1", flagged)                 # not read by anything
+        self.assertIn("isAssault", flagged)               # BZ2 key this mod's Lua does not read
 
 
 class ReduxLabelTests(unittest.TestCase):

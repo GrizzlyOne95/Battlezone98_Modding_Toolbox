@@ -4,6 +4,13 @@ Writes battlezone/validation/data/bzrODFparams.txt (keys per section) and
 redux_odf_dead.json (sections Redux never reads, and keys that are dead or
 read only under another section, from the schema's dead_sections_and_keys).
 
+With ``--source`` (a Battlezone_Source checkout) it also writes
+odf_key_hashes.json: the hash constants in the Redux and BZ2 decompiles. The
+engines look keys up by hash (Redux: FNV-1a, BZ2: CRC-32), so a key whose
+hash appears in neither binary has no reader there. The lint uses this to
+tell BZ2/BZCC keys Redux ignores from keys Redux reads outside the recovered
+section lists.
+
 The schema is ``research/odf_loader_schema.json`` in the BZ1_Source repository
 (github.com/GrizzlyOne95/BZ1_Source): every ODF key the 1.5 and Redux class
 loaders read, recovered from the decompiles and hash-verified. The params file
@@ -12,7 +19,8 @@ other key in a listed section as an unknown field.
 
 Usage::
 
-    python scripts/research/build_odf_params.py <BZ1_Source>/research/odf_loader_schema.json
+    python scripts/research/build_odf_params.py <BZ1_Source>/research/odf_loader_schema.json \
+        [--source <Battlezone_Source>]
 
 (BZ1_Source is now the BZ1 folder of github.com/GrizzlyOne95/Battlezone_Source.)
 """
@@ -155,16 +163,50 @@ def build(schema: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+HASH_OUTPUT = OUTPUT.with_name("odf_key_hashes.json")
+REDUX_DECOMP = ("BZ1/Redux/Raw .C",)
+BZ2_DECOMP = ("BZ2/_analysis/global_decompile/bzone_a130_best_effort",
+              "BZ2/_analysis/global_decompile/bzone_b131p_best_effort")
+# Ghidra prints a hash as hex, decimal or negative (signed) decimal/hex
+# depending on how the value is used, e.g. BZ2's quakeTime is -1245289528.
+_CONSTANT = re.compile(r"(?<![\w.])(-?)(?:0x([0-9a-fA-F]{5,8})|(\d{5,10}))(?![\w.])")
+
+
+def _constants(source: Path, folders) -> list[int]:
+    found: set[int] = set()
+    for folder in folders:
+        for path in (source / folder).rglob("*.c"):
+            for sign, hex_digits, decimal in _CONSTANT.findall(path.read_text(encoding="latin-1", errors="ignore")):
+                value = int(hex_digits, 16) if hex_digits else int(decimal)
+                if value >= 0x10000 and value < 1 << 32:   # small values are never hashes worth matching
+                    found.add((-value if sign else value) & 0xFFFFFFFF)
+    return sorted(found)
+
+
+def key_hashes(source: Path) -> dict:
+    redux, bz2 = _constants(source, REDUX_DECOMP), _constants(source, BZ2_DECOMP)
+    if not redux or not bz2:
+        raise SystemExit(f"no decompiled .c files under {source}; expected {REDUX_DECOMP + BZ2_DECOMP}")
+    return {"source": "Battlezone_Source decompiles: " + ", ".join(REDUX_DECOMP + BZ2_DECOMP),
+            "redux_fnv1a": redux, "bz2_crc32": bz2}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("schema", type=Path)
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--source", type=Path, help="Battlezone_Source checkout: also write odf_key_hashes.json")
     args = parser.parse_args(argv)
     schema = json.loads(args.schema.read_text(encoding="utf-8"))
     args.output.write_text(build(schema), encoding="utf-8", newline="\n")
     dead_output = args.output.with_name(DEAD_OUTPUT.name)
     dead_output.write_text(json.dumps(dead_entries(schema), indent=1) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {args.output} and {dead_output}")
+    if args.source:
+        hash_output = args.output.with_name(HASH_OUTPUT.name)
+        hash_output.write_text(json.dumps(key_hashes(args.source), separators=(",", ":")) + "\n",
+                               encoding="utf-8", newline="\n")
+        print(f"wrote {hash_output}")
     return 0
 
 
