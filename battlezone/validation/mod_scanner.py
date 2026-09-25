@@ -433,6 +433,11 @@ class ModScanner:
                             elif bz2_reads:
                                 issues.append((path, "BZ2 Field", f"[{header}] {key}: BZ2/BZCC reads this key, "
                                                "Redux has no reader for it, so it is ignored", line_no))
+                            elif redux_reads is False and not any(ch.isdigit() for ch in key):
+                                # neither binary hashes this name; an indexed key (effectName1) may be
+                                # built at run time, so only plain keys are called dead
+                                issues.append((path, "Dead Field", f"[{header}] {key}: no reader in the "
+                                               "Redux or BZ2 binaries", line_no))
                             else:
                                 note = " (no reader in the Redux or BZ2 binaries)" if redux_reads is False else ""
                                 issues.append((path, "Unknown Field", f"[{header}] {key}{note}", line_no))
