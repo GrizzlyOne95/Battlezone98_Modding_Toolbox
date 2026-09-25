@@ -40,7 +40,8 @@ class UploadPreflight:
 
     def build_safety_rows(self, issues, mod_dir):
         rows = []
-        for path, issue_type, detail, line in issues:
+        for issue in issues:
+            path, issue_type, detail, line = issue
             try:
                 display_path = os.path.relpath(path, mod_dir)
             except Exception:
@@ -51,6 +52,7 @@ class UploadPreflight:
                 "issue_type": issue_type,
                 "detail": detail,
                 "line": line,
+                "fix": getattr(issue, "fix", ()),
             })
         return rows
 

@@ -379,7 +379,7 @@ class WorkshopUploader:
         self.content_fixer = ContentFixer(logger=self.log)
         self.project_name_var = tk.StringVar(value="NO UPLOAD PROFILE")
         self.project_hint_var = tk.StringVar(value="Select a content folder to begin.")
-        self.publish_target_var = tk.StringVar(value="WORKSHOP ITEM: NEW")
+        self.publish_target_var = tk.StringVar(value="PUBLISH CREATES: A NEW ITEM")
         self.last_upload_var = tk.StringVar(value="LAST PUBLISH: NONE")
         self.changed_since_upload_var = tk.StringVar(value="CHANGED FILES: UNKNOWN")
         self.readiness_summary_var = tk.StringVar(value="Readiness: Select a content folder.")
@@ -579,6 +579,8 @@ class WorkshopUploader:
             payload["last_upload_at"] = self.current_project_data.get("last_upload_at")
         if self.current_project_data.get("last_uploaded_item_id"):
             payload["last_uploaded_item_id"] = self.current_project_data.get("last_uploaded_item_id")
+        if self.current_project_data.get("declined_links"):
+            payload["declined_links"] = self.current_project_data.get("declined_links")
         return payload
 
     def save_current_project_state(self, quiet=False):
@@ -717,6 +719,8 @@ class WorkshopUploader:
         self.refresh_current_project_readiness()
         if not quiet and profile_path:
             self.log(f"Created local upload profile for: {folder}")
+        if not quiet:
+            self.suggest_workshop_link(folder)
         return "created" if profile_path else None
 
     def _handle_new_project_created(self, project_path):
@@ -743,6 +747,11 @@ class WorkshopUploader:
             if current_key != next_key:
                 self.current_project_profile_path = ""
                 self.current_project_data = {}
+                # A folder without its own profile must never inherit the
+                # previous folder's Workshop item: Publish would overwrite it.
+                if not matched and hasattr(self, "item_id_var"):
+                    self.item_id_var.set("0")
+                    self._update_project_status(None)
 
         project_name = os.path.basename(mod_path.rstrip("\\/")) or "profile"
         self.project_name_var.set(project_name.upper())
@@ -760,7 +769,8 @@ class WorkshopUploader:
         mod_dir = self.mod_path.get() or ""
 
         for row in self._get_upload_preflight().build_safety_rows(findings["issues"], mod_dir):
-            severity = "Fixable" if row["issue_type"] == "Missing Fields" else "Warning"
+            # Only findings with a one-to-one repair are fixable (see battlezone.validation.fixes).
+            severity = "Fixable" if row.get("fix") else "Warning"
             rows.append({
                 "severity": severity,
                 "type": row["issue_type"],
@@ -768,6 +778,7 @@ class WorkshopUploader:
                 "raw_detail": row["detail"],
                 "full_path": row["full_path"],
                 "line": row["line"],
+                "fix": row.get("fix", ()),
                 "action": "quick_fix" if severity == "Fixable" else "",
             })
 
@@ -865,9 +876,9 @@ class WorkshopUploader:
         project = self.current_project_data or {}
         item_id = self.item_id_var.get().strip()
         if item_id.isdigit() and item_id != "0":
-            self.publish_target_var.set(f"WORKSHOP ITEM: #{item_id}")
+            self.publish_target_var.set(f"PUBLISH REPLACES: WORKSHOP ITEM #{item_id}")
         else:
-            self.publish_target_var.set("WORKSHOP ITEM: NEW")
+            self.publish_target_var.set("PUBLISH CREATES: A NEW ITEM")
 
         last_upload_at = project.get("last_upload_at")
         if last_upload_at:
@@ -934,13 +945,14 @@ class WorkshopUploader:
         )
         fixups = []
         if findings["issues"]:
-            fixups.append(("scanner", "Apply available scanner quick fixes"))
+            fixups.append(("scanner", "Apply the ODF key/section renames (originals are backed up)"))
         if findings["trn_duplicate_headers"]:
             fixups.append(("trn_duplicates", f"Remove duplicate [Size] headers in {len(findings['trn_duplicate_headers'])} TRN files"))
         if findings["trn_line_endings"]:
             fixups.append(("trn_endings", f"Normalize CRLF line endings in {len(findings['trn_line_endings'])} TRN files"))
         if findings["legacy_files"]:
-            fixups.append(("legacy_files", f"Delete {len(findings['legacy_files'])} legacy .map files"))
+            fixups.append(("legacy_files", f"Move {len(findings['legacy_files'])} legacy .map files out of the mod "
+                                           "(kept in a backup folder)"))
 
         changed = self._count_changed_files(inventory, self.current_project_data.get("last_upload_inventory"))
         diff = self._build_inventory_diff(inventory, self.current_project_data.get("last_upload_inventory"))
@@ -970,7 +982,7 @@ class WorkshopUploader:
 
     def _apply_publish_fixups(self, findings, selected_fixup_keys):
         if "scanner" in selected_fixup_keys and findings["issues"]:
-            self.apply_quick_fixes(findings["issues"])
+            self.apply_quick_fixes([(i[0], i[1], i[2], i[3], getattr(i, "fix", ())) for i in findings["issues"]])
         if "trn_duplicates" in selected_fixup_keys and findings["trn_duplicate_headers"]:
             self.fix_trn_duplicates(findings["trn_duplicate_headers"])
         if "trn_endings" in selected_fixup_keys and findings["trn_line_endings"]:
@@ -1033,8 +1045,8 @@ class WorkshopUploader:
                 line = row.get("line", 0)
                 issue_type = row.get("type", "")
                 detail = row.get("raw_detail", row.get("detail", ""))
-                if full_path:
-                    quick_fix_issues.append((full_path, issue_type, detail, line))
+                if full_path and row.get("fix"):
+                    quick_fix_issues.append((full_path, issue_type, detail, line, row["fix"]))
             elif action == "fix_trn_duplicates" and row.get("full_path"):
                 trn_duplicates.append(row["full_path"])
             elif action == "fix_trn_endings" and row.get("full_path"):
@@ -1132,10 +1144,7 @@ class WorkshopUploader:
     def _confirm_publish_review(self, plan, findings):
         wait_window = getattr(self.root, "wait_window", None)
         if wait_window is None or type(wait_window).__name__ == "MagicMock":
-            return True, [key for key, _label in plan["fixups"]]
-
-        if not plan["fixups"] and not plan["warnings"] and not plan["blockers"]:
-            return True, []
+            return True, [key for key, _label in plan["fixups"] if key != "legacy_files"]
 
         win = tk.Toplevel(self.root)
         apply_window_icon(win)
@@ -1146,7 +1155,17 @@ class WorkshopUploader:
 
         summary = tk.Text(win, height=10, bg="#050505", fg="#d4d4d4", insertbackground="#d4d4d4", font=("Consolas", 10))
         summary.pack(fill="x", padx=12, pady=(0, 10))
+        item_id = plan["item_id"]
+        if plan["mode"].startswith("UPDATE"):
+            known = self._library_title(item_id)
+            target = (f"TARGET: REPLACE the content of Workshop item #{item_id}"
+                      + (f' "{known}"' if known else " (not in the loaded library list)"))
+        else:
+            target = "TARGET: CREATE A NEW Workshop item"
         lines = [
+            target,
+            f"FROM:   {plan['content']}",
+            "",
             f"Mode: {plan['mode']}",
             f"Title: {plan['title']}",
             f"Visibility: {plan['visibility']}",
@@ -1173,7 +1192,8 @@ class WorkshopUploader:
         left.pack(side="left", fill="y", padx=(0, 10))
         selected_fixups = {}
         for key, label in plan["fixups"]:
-            var = tk.BooleanVar(value=True)
+            # moving files out of the mod is never pre-selected
+            var = tk.BooleanVar(value=key != "legacy_files")
             selected_fixups[key] = var
             ttk.Checkbutton(left, text=label, variable=var).pack(anchor="w")
         if not selected_fixups:
@@ -1648,7 +1668,7 @@ class WorkshopUploader:
         ctrl_row.pack(fill="x", pady=(0, 6))
         self.refresh_btn = ttk.Button(ctrl_row, text="REFRESH", command=self.refresh_workshop_items)
         self.refresh_btn.pack(side="left")
-        self.manage_set_target_btn = ttk.Button(ctrl_row, text="USE ITEM", command=self.use_selected_item_id_for_upload)
+        self.manage_set_target_btn = ttk.Button(ctrl_row, text="LINK TO THIS FOLDER", command=self.use_selected_item_id_for_upload)
         self.manage_set_target_btn.pack(side="left", padx=4)
         self.manage_update_btn = ttk.Button(ctrl_row, text="LOAD ITEM", command=self.prepare_update)
         self.manage_update_btn.pack(side="left")
@@ -2015,7 +2035,8 @@ class WorkshopUploader:
         if hasattr(self, "upload_mode_label"):
             self.upload_mode_label.config(text=text, foreground=color)
         if hasattr(self, "publish_target_var"):
-            self.publish_target_var.set(f"WORKSHOP ITEM: #{item_id}" if is_existing else "WORKSHOP ITEM: NEW")
+            self.publish_target_var.set(f"PUBLISH REPLACES: WORKSHOP ITEM #{item_id}" if is_existing
+                                        else "PUBLISH CREATES: A NEW ITEM")
 
     def set_create_mode(self):
         self.item_id_var.set("0")
@@ -2688,7 +2709,7 @@ class WorkshopUploader:
         return getattr(win, 'result', False)
 
     def apply_quick_fixes(self, issues):
-        return self._get_content_fixer().apply_quick_fixes(issues)
+        return self._get_content_fixer().apply_quick_fixes(issues, self.mod_path.get(), self._backup_dir("odf-fixes"))
 
     def scan_trn_safety(self, mod_dir, inventory=None):
         return self._get_mod_scanner().scan_trn_safety(mod_dir, inventory=inventory)
@@ -2697,7 +2718,104 @@ class WorkshopUploader:
         return self._get_mod_scanner().scan_legacy_files(mod_dir, inventory=inventory)
 
     def delete_legacy_files(self, files):
-        return self._get_content_fixer().delete_legacy_files(files)
+        backup = self._backup_dir("legacy-files")
+        count = self._get_content_fixer().delete_legacy_files(files, backup, self.mod_path.get())
+        if count:
+            self.log(f"Moved {count} legacy file(s) to {backup}")
+        return count
+
+    # ------------------------------------------------------------ publish safety
+    def _backup_dir(self, label):
+        """A fresh folder outside the mod (so it is never uploaded) for files a fix replaces or removes."""
+        from bztoolbox import paths
+
+        name = os.path.basename(self.mod_path.get().rstrip("\\/")) or "mod"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return str(paths.user_data_dir() / "publish-backups" / f"{name}-{stamp}-{label}")
+
+    def _workshop_dirs(self):
+        from bztoolbox.modules.publishing import publish_guard
+
+        try:
+            appid = self.games[self.game_var.get()]["appid"]
+        except Exception:
+            appid = "301650"
+        try:
+            return publish_guard.workshop_content_dirs(appid)
+        except Exception:
+            return []
+
+    def _library_title(self, item_id):
+        """Title of ``item_id`` in the loaded Workshop library, if it is there."""
+        tree = getattr(self, "tree", None)
+        try:
+            for row in tree.get_children():
+                values = tree.item(row).get("values", [])
+                if len(values) >= 2 and str(values[1]) == str(item_id):
+                    return str(values[0])
+        except Exception:
+            pass
+        return ""
+
+    def _confirm_link(self, item_id, title, mod_path):
+        """Ask before linking ``mod_path`` to Workshop item ``item_id`` (what Publish will overwrite)."""
+        from bztoolbox.modules.publishing import publish_guard
+
+        current = self.item_id_var.get().strip()
+        lines = [f"Link this folder to Workshop item #{item_id}" + (f" \"{title}\"" if title else "") + "?",
+                 "", f"Folder: {mod_path}", "",
+                 "Publish will then REPLACE that item's content with this folder."]
+        if publish_guard.is_item_id(current) and current != str(item_id):
+            lines.append(f"\nThis folder is currently linked to #{current}.")
+        others = publish_guard.other_folders_for_item(item_id, mod_path, self.project_store.list_projects())
+        if others:
+            lines.append("\nThis item is already linked to another folder:\n  " + "\n  ".join(others))
+        installed = publish_guard.installed_copy(item_id, self._workshop_dirs())
+        if installed:
+            local, remote = publish_guard.root_ini_names(mod_path), publish_guard.root_ini_names(installed)
+            if remote and local and not local & remote:
+                lines.append(f"\nWARNING: the installed copy of #{item_id} has different mission files "
+                             f"({', '.join(sorted(remote)[:4])}). It looks like a different mod.")
+        return bool(messagebox.askyesno("Link Workshop item", "\n".join(lines), icon="warning", default="no"))
+
+    def suggest_workshop_link(self, folder=None):
+        """Offer to link a folder with no Workshop item to the installed item with the same mission files."""
+        from bztoolbox.modules.publishing import publish_guard
+
+        folder = folder or self.mod_path.get().strip()
+        if not folder or not os.path.isdir(folder) or publish_guard.is_item_id(self.item_id_var.get()):
+            return None
+        declined = set((self.current_project_data or {}).get("declined_links", []))
+        matches = [m for m in publish_guard.installed_workshop_matches(folder, self._workshop_dirs())
+                   if m.item_id not in declined]
+        if not matches:
+            return None
+        match = matches[0]
+        title = self._library_title(match.item_id)
+        others = publish_guard.other_folders_for_item(match.item_id, folder, self.project_store.list_projects())
+        text = (f"This folder has the same mission files as installed Workshop item #{match.item_id}"
+                + (f" \"{title}\"" if title else "") + f":\n  {', '.join(match.shared_ini[:6])}\n\n"
+                "Link this folder to that item, so Publish updates it instead of creating a new Workshop item?")
+        if others:
+            text += "\n\nThat item is currently linked to:\n  " + "\n  ".join(others)
+        if messagebox.askyesno("Workshop item found", text):
+            self.item_id_var.set(match.item_id)
+            self.save_current_project_state(quiet=True)
+            self._update_project_status(self.current_inventory)
+            self.log(f"Linked {folder} to Workshop item #{match.item_id}")
+            return match.item_id
+        self.current_project_data = dict(self.current_project_data or {},
+                                         declined_links=sorted(declined | {match.item_id}))
+        self.save_current_project_state(quiet=True)
+        return None
+
+    def _check_publish(self, content, inventory):
+        from bztoolbox.modules.publishing import publish_guard
+
+        return publish_guard.check_publish(
+            content, self.item_id_var.get().strip(), inventory,
+            (self.current_project_data or {}).get("last_upload_inventory"),
+            self.project_store.list_projects(), self._workshop_dirs())
 
     def fix_trn_files(self, files):
         return self._get_content_fixer().fix_trn_files(files)
@@ -2761,6 +2879,11 @@ class WorkshopUploader:
             return
 
         inventory = self._build_mod_inventory(content)
+        guard = self._check_publish(content, inventory)
+        if guard.blocks:
+            messagebox.showerror("Publish blocked", "\n\n".join(guard.blocks))
+            self.log("Publish blocked: " + " | ".join(b.splitlines()[0] for b in guard.blocks))
+            return
         findings = self._collect_mod_findings(content, inventory=inventory)
         plan = self._build_publish_plan(content, preview, use_cached, findings, inventory)
 
@@ -2771,6 +2894,11 @@ class WorkshopUploader:
             selected_fixups = []
         if not publish_ok:
             return
+        for concern in guard.confirms:   # each risk is confirmed on its own; "No" is the default
+            if not messagebox.askyesno("Confirm publish", concern + "\n\nPublish anyway?", icon="warning",
+                                       default="no"):
+                self.log("Publish cancelled.")
+                return
 
         if selected_fixups:
             findings = self._apply_publish_fixups(findings, selected_fixups)
@@ -2879,7 +3007,10 @@ class WorkshopUploader:
             self._set_busy("Upload", False)
 
     def _on_manage_selection(self, _event=None):
-        self.use_selected_item_id_for_upload(switch_to_upload=False, quiet=True)
+        # Selecting an item only selects it. Linking it to the content folder
+        # (which decides what Publish overwrites) is the explicit button, with
+        # a confirmation; a stray click must never re-target an upload.
+        return None
 
     def use_selected_item_id_for_upload(self, switch_to_upload=True, quiet=False):
         mod_path = self.mod_path.get().strip()
@@ -2906,6 +3037,8 @@ class WorkshopUploader:
         if not item_id or not item_id.isdigit():
             if not quiet:
                 messagebox.showinfo("Info", "Select a Workshop item first.")
+            return False
+        if not self._confirm_link(item_id, title, mod_path):
             return False
         self.item_id_var.set(item_id)
 

@@ -563,12 +563,12 @@ class TestWorkshopUploader(unittest.TestCase):
         self.uploader.upload_mode_label = MagicMock()
 
         self.uploader._update_upload_mode_indicator()
-        self.assertEqual(self.uploader.publish_target_var.get(), "WORKSHOP ITEM: NEW")
+        self.assertEqual(self.uploader.publish_target_var.get(), "PUBLISH CREATES: A NEW ITEM")
         self.assertEqual(self.uploader.upload_mode_label.config.call_args.kwargs["text"], "NEW WORKSHOP ITEM")
 
         self.uploader.item_id_var.set("987654")
         self.uploader._update_upload_mode_indicator()
-        self.assertEqual(self.uploader.publish_target_var.get(), "WORKSHOP ITEM: #987654")
+        self.assertEqual(self.uploader.publish_target_var.get(), "PUBLISH REPLACES: WORKSHOP ITEM #987654")
         self.assertEqual(self.uploader.upload_mode_label.config.call_args.kwargs["text"], "WORKSHOP ITEM #987654")
 
     def test_project_store_round_trip_by_mod_path(self):
@@ -671,7 +671,8 @@ class TestWorkshopUploader(unittest.TestCase):
         self.uploader.changed_since_upload_var = DummyVar("")
         self.uploader.item_id_var = DummyVar("0")
         self.uploader.current_project_data = {}
-        self.uploader._build_mod_inventory = MagicMock(return_value=[])
+        self.uploader._build_mod_inventory = MagicMock(return_value=[
+            {"rel_path": "mymod.ini", "size": 1, "mtime_ns": 1}])
         self.uploader._fingerprint_inventory = MagicMock(return_value="sig")
         self.uploader._update_project_status = MagicMock()
 
@@ -719,9 +720,13 @@ class TestWorkshopUploader(unittest.TestCase):
         with open(legacy_map, "w", encoding="utf-8") as f:
             f.write("legacy")
 
+        from battlezone.validation.mod_scanner import LintFinding
+
         self.uploader.mod_path.set(self.test_dir)
         rows = self.uploader._build_readiness_rows({
-            "issues": [(bad_trn, "Missing Fields", "[CraftClass] missing: weaponName", 2)],
+            "issues": [(bad_trn, "Missing Fields", "[CraftClass] missing: weaponName", 2),
+                       LintFinding(bad_trn, "Wrong Key", "[GameObjectClass] faction", 3,
+                                   ("rename-key", "faction", "nation", "Rename faction to nation."))],
             "validation_errors": [],
             "validation_warnings": [],
             "trn_line_endings": [bad_trn],
@@ -730,7 +735,8 @@ class TestWorkshopUploader(unittest.TestCase):
         })
 
         actions = {(row["type"], row["action"]) for row in rows}
-        self.assertIn(("Missing Fields", "quick_fix"), actions)
+        self.assertIn(("Missing Fields", ""), actions)       # never auto-filled: no safe value exists
+        self.assertIn(("Wrong Key", "quick_fix"), actions)   # one-to-one rename
         self.assertIn(("TRN Line Endings", "fix_trn_endings"), actions)
         self.assertIn(("Legacy File", "delete_legacy"), actions)
 
@@ -1097,6 +1103,8 @@ class TestWorkshopUploader(unittest.TestCase):
 
         content_dir = os.path.join(self.test_dir, "content")
         os.makedirs(content_dir, exist_ok=True)
+        with open(os.path.join(content_dir, "mymod.ini"), "w", encoding="utf-8") as f:
+            f.write('[WORKSHOP]\nmapType = "mod"\n')
         preview_path = os.path.join(self.test_dir, "preview.jpg")
         with open(preview_path, "w", encoding="utf-8") as f:
             f.write("img")
@@ -1118,7 +1126,8 @@ class TestWorkshopUploader(unittest.TestCase):
         self.uploader.game_var = DummyVar("BZ98R")
         self.uploader.manage_identity_var = DummyVar("")
 
-        self.uploader._build_mod_inventory = MagicMock(return_value=[])
+        self.uploader._build_mod_inventory = MagicMock(return_value=[
+            {"rel_path": "mymod.ini", "size": 1, "mtime_ns": 1}])
         self.uploader._collect_mod_findings = MagicMock(return_value={
             "inventory": [],
             "issues": [],
@@ -1139,6 +1148,125 @@ class TestWorkshopUploader(unittest.TestCase):
             thread_mock.assert_called_once()
 
         uploader.messagebox.showerror.assert_not_called()
+
+    # --- publish safety ---------------------------------------------------------
+    def _publish_setup(self, files=("mymod.ini",)):
+        content = os.path.join(self.test_dir, "content")
+        os.makedirs(content, exist_ok=True)
+        for name in files:
+            with open(os.path.join(content, name), "w", encoding="utf-8") as f:
+                f.write("x")
+        sc = os.path.join(self.test_dir, "steamcmd.exe")
+        preview = os.path.join(self.test_dir, "preview.jpg")
+        for path in (sc, preview):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("x")
+        u = self.uploader
+        u.base_dir = self.test_dir
+        u.desc_text = MagicMock()
+        u.desc_text.get.return_value = "desc"
+        for name, value in (("title_var", "Mod"), ("steamcmd_path", sc), ("mod_path", content),
+                            ("preview_path", preview), ("username_var", ""), ("password_var", ""),
+                            ("use_cached_creds_var", True), ("visibility_var", "0 (Public)"),
+                            ("item_id_var", "0"), ("note_var", "n"), ("game_var", "BZ98R"),
+                            ("manage_identity_var", "")):
+            setattr(u, name, DummyVar(value))
+        u.save_config = MagicMock()
+        u._confirm_upload_plan = MagicMock(return_value=True)
+        u._workshop_dirs = MagicMock(return_value=[])
+        return content
+
+    def _upload_starts(self):
+        with patch.object(uploader.threading, "Thread") as thread_mock:
+            self.uploader.start_upload()
+            return thread_mock.called
+
+    def test_empty_or_non_mod_folder_is_never_published(self):
+        self._publish_setup(files=())
+        uploader.messagebox.showerror.reset_mock()
+        self.assertFalse(self._upload_starts())
+        self.assertIn("empty", uploader.messagebox.showerror.call_args[0][1])
+        self._publish_setup(files=("readme.txt",))
+        self.assertFalse(self._upload_starts())
+        self.assertIn("no .ini file", uploader.messagebox.showerror.call_args[0][1])
+
+    def test_update_that_wipes_most_files_needs_its_own_confirmation(self):
+        self._publish_setup()
+        self.uploader.item_id_var.set("123")
+        self.uploader.current_project_data = {"last_upload_inventory": {f"odf/u{i}.odf": {} for i in range(30)}}
+        uploader.messagebox.askyesno.return_value = False
+        self.assertFalse(self._upload_starts())
+        self.assertIn("removes 30 of the 30 files", uploader.messagebox.askyesno.call_args[0][1])
+        uploader.messagebox.askyesno.return_value = True
+        self.assertTrue(self._upload_starts())
+
+    def test_selecting_a_library_row_does_not_change_the_upload_target(self):
+        self._publish_setup()
+        self.uploader.tree = MagicMock()
+        self.uploader.tree.selection.return_value = ["row"]
+        self.uploader.tree.item.return_value = {"values": ["Someone else's mod", "999"]}
+        self.uploader._on_manage_selection()
+        self.assertEqual(self.uploader.item_id_var.get(), "0")
+        uploader.messagebox.askyesno.return_value = False   # the explicit link asks first
+        self.uploader.save_current_project_state = MagicMock()
+        self.assertFalse(self.uploader.use_selected_item_id_for_upload())
+        self.assertEqual(self.uploader.item_id_var.get(), "0")
+
+    def test_switching_to_a_folder_without_a_profile_drops_the_previous_item(self):
+        content = self._publish_setup()
+        other = os.path.join(self.test_dir, "other_mod")
+        os.makedirs(other)
+        self.uploader.project_store = ProjectStore(os.path.join(self.test_dir, "profiles"), AppFileManager())
+        self.uploader.current_project_data = {"mod_path": content, "item_id": "123"}
+        self.uploader.item_id_var.set("123")
+        self.uploader.project_name_var = DummyVar("")
+        self.uploader.project_hint_var = DummyVar("")
+        self.uploader.mod_path.set(other)
+        self.uploader._on_mod_path_changed()
+        self.assertEqual(self.uploader.item_id_var.get(), "0")
+
+    def test_installed_workshop_copy_is_offered_as_the_link(self):
+        content = self._publish_setup(files=("isdfmscc.ini",))
+        workshop = os.path.join(self.test_dir, "workshop", "301650")
+        os.makedirs(os.path.join(workshop, "3001"))
+        with open(os.path.join(workshop, "3001", "isdfmscc.ini"), "w", encoding="utf-8") as f:
+            f.write("x")
+        self.uploader._workshop_dirs = MagicMock(return_value=[workshop])
+        self.uploader.project_store = ProjectStore(os.path.join(self.test_dir, "profiles"), AppFileManager())
+        self.uploader.current_project_data = {}
+        self.uploader.save_current_project_state = MagicMock()
+        self.uploader._update_project_status = MagicMock()
+        uploader.messagebox.askyesno.return_value = False
+        self.assertIsNone(self.uploader.suggest_workshop_link(content))
+        self.assertEqual(self.uploader.current_project_data["declined_links"], ["3001"])
+        self.assertIsNone(self.uploader.suggest_workshop_link(content))      # a declined item is not offered again
+        self.uploader.current_project_data = {}
+        uploader.messagebox.askyesno.return_value = True
+        self.assertEqual(self.uploader.suggest_workshop_link(content), "3001")
+        self.assertEqual(self.uploader.item_id_var.get(), "3001")
+
+    def test_legacy_files_are_moved_to_a_backup_not_deleted(self):
+        mod = os.path.join(self.test_dir, "mod")
+        os.makedirs(os.path.join(mod, "textures"))
+        legacy = os.path.join(mod, "textures", "old.map")
+        with open(legacy, "wb") as f:
+            f.write(b"map")
+        backup = os.path.join(self.test_dir, "backup")
+        self.assertEqual(ContentFixer().delete_legacy_files([legacy], backup, mod), 1)
+        self.assertFalse(os.path.exists(legacy))
+        with open(os.path.join(backup, "textures", "old.map"), "rb") as f:
+            self.assertEqual(f.read(), b"map")
+
+    def test_trn_fixes_keep_non_ascii_bytes(self):
+        path = os.path.join(self.test_dir, "caf\u00e9.trn")
+        with open(path, "wb") as f:
+            f.write(b"[Size]\nName = caf\xe9\n[Size]\nWidth = 1\n")
+        fixer = ContentFixer()
+        fixer.fix_trn_duplicates([path])
+        fixer.fix_trn_files([path])
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), b"[Size]\r\nName = caf\xe9\r\n")
+
 
 if __name__ == '__main__':
     unittest.main()

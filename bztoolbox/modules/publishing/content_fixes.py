@@ -1,5 +1,4 @@
 import os
-import re
 
 
 class ContentFixer:
@@ -27,52 +26,56 @@ class ContentFixer:
         ]
         return "\n".join(summary_lines) + "\n\nProceed with upload?"
 
-    def apply_quick_fixes(self, issues):
-        fixed_count = 0
-        weapon_mask_re = re.compile(r'(weaponMask\s*=\s*)["\']?0+["\']?', re.IGNORECASE)
-        missing_fields_re = re.compile(r'missing:\s*(.+)')
+    def apply_quick_fixes(self, issues, mod_dir, backup_dir=None):
+        """Apply the one-to-one ODF fixes the lint attached to ``issues``.
 
-        for path, issue_type, detail, line_num in issues:
-            try:
-                if issue_type == "Crash Risk" and "weaponMask" in detail:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        lines = f.readlines()
-                    if line_num <= len(lines):
-                        lines[line_num - 1] = weapon_mask_re.sub(r'\1"00001"', lines[line_num - 1])
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.writelines(lines)
-                        fixed_count += 1
-                elif issue_type == "Missing Fields":
-                    match = missing_fields_re.search(detail)
-                    if match:
-                        keys = [key.strip() for key in match.group(1).split(",")]
-                        with open(path, "a", encoding="utf-8") as f:
-                            f.write("\n// Auto-fixed missing fields\n")
-                            for key in keys:
-                                f.write(f"{key} = 0\n")
-                        fixed_count += 1
-            except Exception as e:
-                self.log(f"Quick Fix failed for {os.path.basename(path)}: {e}")
-        return fixed_count
+        ``issues`` are ``(path, type, detail, line, fix)``; entries without a
+        fix are skipped. The same code as Project > Validation: every line is
+        checked before editing, originals go to ``backup_dir``.
+        """
+        from battlezone.validation.fixes import FixError, apply_fixes
 
-    def delete_legacy_files(self, files):
+        items = []
+        for path, _issue_type, _detail, line, fix in issues:
+            if fix:
+                items.append((os.path.relpath(path, mod_dir).replace("\\", "/"), line, fix))
+        if not items:
+            return 0
+        try:
+            apply_fixes(mod_dir, items, backup_dir)
+        except (FixError, OSError) as e:
+            self.log(f"Quick fixes not applied: {e}")
+            return 0
+        return len(items)
+
+    def delete_legacy_files(self, files, backup_dir=None, mod_dir=None):
+        """Move legacy files out of the mod into ``backup_dir`` (deleted only when no backup dir is given)."""
+        import shutil
+
         count = 0
         for path in files:
             try:
-                os.remove(path)
+                if backup_dir:
+                    rel = os.path.relpath(path, mod_dir) if mod_dir else os.path.basename(path)
+                    target = os.path.join(backup_dir, rel)
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    shutil.move(path, target)
+                else:
+                    os.remove(path)
                 count += 1
             except Exception as e:
-                self.log(f"Error deleting {path}: {e}")
+                self.log(f"Error removing {path}: {e}")
         return count
 
     def fix_trn_files(self, files):
         count = 0
         for path in files:
             try:
-                with open(path, "r", encoding="utf-8", errors="ignore", newline="") as f:
+                # latin-1 maps every byte, so non-ASCII text survives untouched
+                with open(path, "r", encoding="latin-1", newline="") as f:
                     content = f.read()
                 content = content.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
-                with open(path, "w", encoding="utf-8", newline="") as f:
+                with open(path, "w", encoding="latin-1", newline="") as f:
                     f.write(content)
                 count += 1
             except Exception as e:
@@ -83,7 +86,7 @@ class ContentFixer:
         count = 0
         for path in files:
             try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(path, "r", encoding="latin-1", newline="") as f:
                     lines = f.readlines()
 
                 new_lines = []
@@ -105,7 +108,7 @@ class ContentFixer:
                     elif not skip_mode:
                         new_lines.append(line)
 
-                with open(path, "w", encoding="utf-8") as f:
+                with open(path, "w", encoding="latin-1", newline="") as f:
                     f.writelines(new_lines)
                 count += 1
             except Exception as e:
