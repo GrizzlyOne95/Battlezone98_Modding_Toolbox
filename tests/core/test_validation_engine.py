@@ -81,9 +81,22 @@ class ValidationEngineTests(unittest.TestCase):
         self.assertEqual(len(flare), 1)
         self.assertEqual((flare[0].severity, flare[0].path), ("error", "odf/badflare.odf"))
 
-    def test_odf_lint_is_opt_in(self):
-        self.assertIn("odf-lint", CHECKS)
-        self.assertNotIn("odf-lint", DEFAULT_CHECKS)
+    def test_odf_lint_runs_by_default(self):
+        self.assertIn("odf-lint", DEFAULT_CHECKS)
+
+    def test_odf_lint_accepts_render_sections(self):
+        write(self.root / "odf" / "xboom.odf",
+              '[ExplosionClass]\nclassLabel = "explosion"\nparticleTypes = 2\n'
+              'particleClass1 = "xboom.Light"\nparticleCount1 = 1\nparticleInherit1 = "0.5 0.5 0.5"\n'
+              'particleClass2 = "other_c.Flash"\n'
+              '[Light]\nsimulateBase = "sim_smoke"\nrenderBase = "draw_light"\n'
+              '[Flash]\nlifeTime = 0.2\ntextureName = "flash.tga"\n'
+              '[tga]\nfoo = 1\n'
+              '[NotAClass]\nfoo = 1\n')
+        report = validate_project(self.root, ["odf-lint"])
+        headers = {i.message for i in report.issues if i.rule_id == "odf-lint-invalid-header"}
+        self.assertEqual(headers, {"Invalid Header: tga", "Invalid Header: NotAClass"})
+        self.assertFalse([i for i in report.issues if "particleInherit1" in i.message])
 
     def test_unknown_check_and_bad_root(self):
         with self.assertRaises(ValueError):

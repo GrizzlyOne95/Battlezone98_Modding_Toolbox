@@ -53,6 +53,36 @@ def _dispatch_wheel(event) -> None:
         widget = widget.master
 
 
+def install_treeview_resize_cursor(root: tk.Misc) -> None:
+    """Show a resize cursor over column dividers of every ``ttk.Treeview``.
+
+    Columns were always draggable, but with flat headings and an unchanged
+    cursor nothing hinted at it. A class binding covers the migrated tools too.
+    """
+    if getattr(root, "_toolbox_tree_cursor", False):
+        return
+    root._toolbox_tree_cursor = True
+
+    def motion(event):
+        tree = event.widget
+        try:
+            wanted = "sb_h_double_arrow" if tree.identify_region(event.x, event.y) == "separator" else ""
+            if str(tree.cget("cursor")) != wanted:
+                tree.configure(cursor=wanted)
+        except tk.TclError:
+            pass
+
+    root.bind_class("Treeview", "<Motion>", motion, add="+")
+    root.bind_class("Treeview", "<Leave>", lambda e: _reset_cursor(e.widget), add="+")
+
+
+def _reset_cursor(widget) -> None:
+    try:
+        widget.configure(cursor="")
+    except tk.TclError:
+        pass
+
+
 class ScrollableFrame(ttk.Frame):
     """Vertically scrolling container; put children in ``.body``."""
 
@@ -140,7 +170,8 @@ class IssueTree(ttk.Frame):
     COLUMNS = (("severity", "Severity", 80), ("check", "Check", 90), ("location", "Location", 260),
                ("message", "Message", 520))
 
-    def __init__(self, master, on_select: Optional[Callable[[object], None]] = None):
+    def __init__(self, master, on_select: Optional[Callable[[object], None]] = None,
+                 on_activate: Optional[Callable[[object], None]] = None):
         super().__init__(master, style="Toolbox.TFrame")
         self.tree = ttk.Treeview(self, columns=[c[0] for c in self.COLUMNS], show="headings",
                                  style="Toolbox.Treeview", selectmode="browse")
@@ -155,7 +186,10 @@ class IssueTree(ttk.Frame):
         scroll.pack(side="right", fill="y")
         self._items: dict = {}
         self._on_select = on_select
+        self._on_activate = on_activate
         self.tree.bind("<<TreeviewSelect>>", self._selected)
+        self.tree.bind("<Double-1>", self._activated)
+        self.tree.bind("<Return>", self._activated)
 
     def set_issues(self, issues: Iterable) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -165,6 +199,20 @@ class IssueTree(ttk.Frame):
                                                       issue.location(), issue.message),
                                    tags=(issue.severity,))
             self._items[iid] = issue
+
+    def _activated(self, event=None) -> None:
+        if self._on_activate is None:
+            return
+        if event is not None and getattr(event, "y", None) is not None and event.type == tk.EventType.ButtonPress:
+            if self.tree.identify_region(event.x, event.y) != "cell":
+                return   # headings and column dividers
+            row = self.tree.identify_row(event.y)
+        else:
+            selection = self.tree.selection()
+            row = selection[0] if selection else ""
+        issue = self._items.get(row)
+        if issue is not None:
+            self._on_activate(issue)
 
     def _selected(self, _event=None) -> None:
         if self._on_select:

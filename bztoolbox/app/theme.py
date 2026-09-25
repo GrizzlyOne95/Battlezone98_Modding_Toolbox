@@ -136,8 +136,10 @@ def _configure(style: ttk.Style) -> None:
                         rowheight=26 if "Nav" in tree else 22)
         style.map(tree, background=[("selected", ACCENT_DIM)], foreground=[("selected", ACCENT)])
     style.layout("Toolbox.Nav.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+    # raised + border: the column dividers stay visible, so users can see where to drag
     style.configure("Toolbox.Treeview.Heading", background=SURFACE_ALT, foreground=ACCENT_2,
-                    font=font("body", 9, "bold"), relief="flat")
+                    font=font("body", 9, "bold"), relief="raised", borderwidth=1,
+                    bordercolor=BORDER, lightcolor=BORDER, darkcolor="#000000")
     style.map("Toolbox.Treeview.Heading", background=[("active", SURFACE_ALT)])
 
     style.configure("Toolbox.TNotebook", background=BG, borderwidth=0)

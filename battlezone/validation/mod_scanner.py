@@ -23,6 +23,45 @@ def _param_allowed(key, allowed):
     return bool(match) and key[:match.start()] + "#" in allowed
 
 
+# Keys that make a section part of the particle/render system. Those sections
+# have user-chosen names ([Light], [ShockSphere], ...), so they are never in
+# the class header list.
+RENDER_KEYS = frozenset({"renderbase", "simulatebase"})
+_SECTION_REF = re.compile(r"\.([A-Za-z_][\w]*)\s*$")
+_FILE_EXTENSIONS = frozenset({
+    "odf", "tga", "dds", "png", "bmp", "jpg", "pic", "map", "wav", "ogg", "msh", "xsi", "geo", "vdf",
+    "sdf", "mesh", "skeleton", "material", "lua", "des", "bzn", "trn", "hg2", "mat", "lgt", "act", "cfg",
+})
+
+
+def _read_odf_sections(lines):
+    """``([(header, line, [(key, line), ...]), ...], referenced_section_names)``."""
+    sections = []
+    references = set()
+    current = None
+    for i, raw in enumerate(lines):
+        line = raw.split("//")[0].split("--")[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = (line[1:-1], i + 1, [])
+            sections.append(current)
+        elif "=" in line and current is not None:
+            key, value = line.split("=", 1)
+            current[2].append((key.strip(), i + 1))
+            match = _SECTION_REF.search(value.strip().strip('"').strip())
+            if match and match.group(1).lower() not in _FILE_EXTENSIONS:
+                references.add(match.group(1).lower())
+    return sections, references
+
+
+def _is_render_section(header_key, params, references):
+    """A render/particle definition: sets a render key, or is named as ``odf.Section``."""
+    if header_key in references:
+        return True
+    return any(key.lower() in RENDER_KEYS for key, _ in params)
+
+
 class ModScanner:
     def __init__(self, resource_dir=None, logger=None):
         self.resource_dir = resource_dir
@@ -139,50 +178,28 @@ class ModScanner:
             path = entry["path"]
             try:
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    current_header = None
-                    current_header_key = None
-                    current_header_line = 0
-                    found_params = set()
-
-                    for i, line in enumerate(f):
-                        line = line.split("//")[0].split("--")[0].strip()
-                        if not line:
-                            continue
-                        if line.startswith("//") or line.startswith("--"):
-                            continue
-
-                        if line.startswith("[") and line.endswith("]"):
-                            if current_header_key and current_header_key in required_params:
-                                missing = required_params[current_header_key] - found_params
-                                if missing:
-                                    issues.append((path, "Missing Fields", f"[{current_header}] missing: {', '.join(sorted(missing))}", current_header_line))
-
-                            header = line[1:-1]
-                            header_key = header.lower()
-                            current_header = header
-                            current_header_key = header_key
-                            current_header_line = i + 1
-                            found_params = set()
-
-                            if header_key not in allowed_headers:
-                                issues.append((path, "Invalid Header", header, i + 1))
-
-                        elif "=" in line and current_header:
-                            key = line.split("=", 1)[0].strip()
-                            key_key = key.lower()
-                            if current_header_key in allowed_params:
-                                if not _param_allowed(key_key, allowed_params[current_header_key]):
-                                    issues.append((path, "Unknown Field", f"[{current_header}] {key}", i + 1))
-                                else:
-                                    found_params.add(key_key)
-
-                    if current_header_key and current_header_key in required_params:
-                        missing = required_params[current_header_key] - found_params
-                        if missing:
-                            issues.append((path, "Missing Fields", f"[{current_header}] missing: {', '.join(sorted(missing))}", current_header_line))
-
+                    sections, references = _read_odf_sections(f)
             except Exception as e:
                 self.log(f"Warning: Could not scan {entry['name']}: {e}")
+                continue
+
+            for header, header_line, params in sections:
+                header_key = header.lower()
+                if header_key not in allowed_headers:
+                    if _is_render_section(header_key, params, references):
+                        continue  # particle / render definition; its fields are free-form
+                    issues.append((path, "Invalid Header", header, header_line))
+                if header_key in allowed_params:
+                    found_params = set()
+                    for key, line_no in params:
+                        key_key = key.lower()
+                        if not _param_allowed(key_key, allowed_params[header_key]):
+                            issues.append((path, "Unknown Field", f"[{header}] {key}", line_no))
+                        else:
+                            found_params.add(key_key)
+                    missing = required_params.get(header_key, set()) - found_params
+                    if missing:
+                        issues.append((path, "Missing Fields", f"[{header}] missing: {', '.join(sorted(missing))}", header_line))
         return issues
 
     def scan_asset_references(self, mod_dir, inventory=None):

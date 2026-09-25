@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from battlezone.project import GAMES, ProjectSummary
+from battlezone.project import GAMES, UNKNOWN_PLANET, ProjectSummary
 from bztoolbox.app.widgets import Card, ScrollableFrame, StatBox, humanize_bytes, open_in_file_manager
 
 FIELDS = (
@@ -71,7 +71,7 @@ class ProjectPage(ScrollableFrame):
         self.stat_files = StatBox(stats, "Files")
         self.stat_size = StatBox(stats, "Size")
         self.stat_missions = StatBox(stats, "Missions")
-        self.stat_worlds = StatBox(stats, "Worlds")
+        self.stat_worlds = StatBox(stats, "Planets")
         for index, box in enumerate((self.stat_files, self.stat_size, self.stat_missions, self.stat_worlds)):
             box.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 6), pady=(0, 6))
         stats.columnconfigure(0, weight=1)
@@ -133,7 +133,8 @@ class ProjectPage(ScrollableFrame):
         self.stat_files.set(summary.file_count)
         self.stat_size.set(humanize_bytes(summary.total_bytes))
         self.stat_missions.set(len(summary.missions))
-        self.stat_worlds.set(len(summary.worlds))
+        known = [name for name in summary.planets if name != UNKNOWN_PLANET]
+        self.stat_worlds.set(len(known))
         for child in self.kinds.winfo_children():
             child.destroy()
         for kind, count in summary.kinds.items():
@@ -141,6 +142,14 @@ class ProjectPage(ScrollableFrame):
             row.pack(fill="x")
             ttk.Label(row, text=kind, style="Toolbox.Surface.TLabel", width=14).pack(side="left")
             ttk.Label(row, text=str(count), style="Toolbox.SurfaceMuted.TLabel").pack(side="left")
+        if summary.planets:
+            per_planet = "  ·  ".join(f"{name} {count}" for name, count in summary.planets.items())
+            ttk.Label(self.kinds, text=f"Missions by planet: {per_planet}", style="Toolbox.Surface.TLabel",
+                      wraplength=480, justify="left").pack(anchor="w", pady=(8, 0))
+        if len(summary.worlds) != len(summary.missions):
+            ttk.Label(self.kinds, text=f"{len(summary.worlds)} terrain (.trn) file(s) for "
+                                       f"{len(summary.missions)} mission(s).",
+                      style="Toolbox.SurfaceMuted.TLabel").pack(anchor="w")
         if summary.missions:
             ttk.Label(self.kinds, text="Missions: " + ", ".join(summary.missions[:12])
                       + (" …" if len(summary.missions) > 12 else ""),

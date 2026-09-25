@@ -220,5 +220,49 @@ class ShellSmokeTests(unittest.TestCase):
                 pass
 
 
+class AutoRefreshTests(unittest.TestCase):
+    def test_project_pages_rescan_when_shown_after_changes(self):
+        root = _make_root()
+        try:
+            from bztoolbox.app.shell import Shell
+            from bztoolbox.settings import Settings
+
+            with tempfile.TemporaryDirectory() as tmp:
+                mod = Path(tmp) / "mod"
+                mod.mkdir()
+                (mod / "a.odf").write_text("[GameObjectClass]\n")
+                shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                shell.open_project(str(mod))
+                for page_id, attr in (("project.dependencies", "graph"), ("project.validation", "report")):
+                    shell.navigate(page_id)
+                    page = shell._pages[page_id].widget
+                    pump(root, 10, until=lambda: getattr(page, attr) is not None)
+                    first = getattr(page, attr)
+                    self.assertIsNotNone(first, page_id)
+
+                    shell.navigate("home")
+                    shell.navigate(page_id)          # nothing changed: the result is kept
+                    pump(root, 1, until=lambda: page.job.status == "done")
+                    self.assertIs(getattr(page, attr), first)
+
+                    (mod / f"{attr}.odf").write_text("[GameObjectClass]\n")
+                    shell.navigate("home")
+                    shell.navigate(page_id)          # a file was added: rescanned
+                    pump(root, 10, until=lambda: getattr(page, attr) is not first)
+                    self.assertIsNot(getattr(page, attr), first)
+
+                other = Path(tmp) / "other"
+                other.mkdir()
+                shell.open_project(str(other))       # old results are not shown for a new mod
+                deps = shell._pages["project.dependencies"].widget
+                self.assertTrue(deps.graph is None or deps.graph.root == str(other))
+                shell.close(confirm=False)
+        finally:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+
+
 if __name__ == "__main__":
     unittest.main()

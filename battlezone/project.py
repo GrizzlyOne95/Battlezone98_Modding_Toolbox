@@ -99,7 +99,35 @@ class ProjectSummary:
     kinds: Dict[str, int] = field(default_factory=dict)
     extensions: Dict[str, int] = field(default_factory=dict)
     missions: List[str] = field(default_factory=list)
-    worlds: List[str] = field(default_factory=list)
+    worlds: List[str] = field(default_factory=list)            # every .trn in the folder
+    planets: Dict[str, int] = field(default_factory=dict)      # missions per planet, largest first
+
+
+# The stock planet palettes. A mission's planet is read from its terrain.
+PLANETS = ("Achilles", "Elysium", "Europa", "Ganymede", "Io", "Mars", "Moon", "Titan", "Venus")
+UNKNOWN_PLANET = "Custom / unknown"
+
+
+def planet_of_trn(path: Path) -> str:
+    """Planet of a terrain: its ``[Color] Palette``, else a planet named in its atlas material."""
+    from battlezone.terrain.trn import read_trn
+
+    try:
+        trn = read_trn(path)
+    except (OSError, ValueError):
+        return UNKNOWN_PLANET
+    candidates = [os.path.splitext(trn.palette or "")[0], trn.material_name or ""]
+    for candidate in candidates:
+        lowered = candidate.lower()
+        for planet in PLANETS:
+            if lowered == planet.lower():
+                return planet
+    for candidate in candidates:   # e.g. "MarsAtlas", "venus2"
+        lowered = candidate.lower()
+        for planet in PLANETS:
+            if planet != "Io" and lowered.startswith(planet.lower()):
+                return planet
+    return UNKNOWN_PLANET
 
 
 def summarize_folder(root: Path) -> ProjectSummary:
@@ -129,7 +157,32 @@ def summarize_folder(root: Path) -> ProjectSummary:
     summary.kinds = {k: kinds[k] for k in list(FILE_KINDS) + ["Other"] if kinds.get(k)}
     summary.missions.sort(key=str.lower)
     summary.worlds.sort(key=str.lower)
+    terrains = {os.path.splitext(rel)[0].lower(): rel for rel in summary.worlds}
+    planets: Counter = Counter()
+    for mission in summary.missions:
+        trn = terrains.get(os.path.splitext(mission)[0].lower())
+        planets[planet_of_trn(root / trn) if trn else UNKNOWN_PLANET] += 1
+    summary.planets = dict(planets.most_common())
     return summary
+
+
+def folder_fingerprint(root: str | Path) -> str:
+    """Hash of every file's path, size and modification time under ``root``.
+
+    Cheap next to a full scan; pages use it to re-run only when the folder
+    changed since their last result.
+    """
+    digest = hashlib.sha1()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            digest.update(f"{path}|{stat.st_size}|{stat.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
+    return digest.hexdigest()
 
 
 class ProjectStore:

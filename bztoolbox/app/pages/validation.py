@@ -7,6 +7,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from battlezone.project import folder_fingerprint
 from battlezone.validation import CHECKS, DEFAULT_CHECKS, ValidationCancelled, validate_project
 from bztoolbox.app import theme
 from bztoolbox.app.widgets import IssueTree, StatBox, open_in_file_manager
@@ -18,6 +19,7 @@ class ValidationPage(ttk.Frame):
         self.shell = shell
         self.report = None
         self.job = None
+        self._fingerprint = None   # folder + checks the current report was built from
         self.check_vars = {cid: tk.BooleanVar(value=cid in DEFAULT_CHECKS) for cid in CHECKS}
         self.filter_var = tk.StringVar(value="all")
 
@@ -57,7 +59,7 @@ class ValidationPage(ttk.Frame):
 
         panes = ttk.PanedWindow(self, orient="vertical")
         panes.pack(fill="both", expand=True)
-        self.tree = IssueTree(panes, on_select=self._show_detail)
+        self.tree = IssueTree(panes, on_select=self._show_detail, on_activate=self._open_issue)
         panes.add(self.tree, weight=4)
         detail_frame = ttk.Frame(panes, style="Toolbox.TFrame")
         panes.add(detail_frame, weight=1)
@@ -67,9 +69,14 @@ class ValidationPage(ttk.Frame):
         self.detail.pack(fill="both", expand=True, pady=(6, 0))
         self.detail_actions = ttk.Frame(detail_frame, style="Toolbox.TFrame")
         self.detail_actions.pack(fill="x")
+        self.open_button = ttk.Button(self.detail_actions, text="Open file", style="Toolbox.TButton",
+                                      state="disabled", command=lambda: self._open_issue(self._selected))
+        self.open_button.pack(side="left", pady=4)
         self.reveal_button = ttk.Button(self.detail_actions, text="Show file in folder", style="Toolbox.TButton",
                                         state="disabled", command=self._reveal)
-        self.reveal_button.pack(side="left", pady=4)
+        self.reveal_button.pack(side="left", pady=4, padx=6)
+        ttk.Label(self.detail_actions, text="Double-click a finding to open its file.",
+                  style="Toolbox.Muted.TLabel").pack(side="left", padx=6)
         self._selected = None
         self.project_changed(shell.project)
 
@@ -81,6 +88,30 @@ class ValidationPage(ttk.Frame):
         else:
             self.target_label.configure(text=f"Target: {project.mod_path}")
             self.run_button.configure(state="normal")
+        if self.report is not None and (project is None or
+                                        os.path.normcase(self.report.root) != os.path.normcase(project.mod_path)):
+            self._clear()   # never show another mod's results
+        if self.shell.current_page == "project.validation":
+            self.on_show()
+
+    def on_show(self) -> None:
+        """Re-validate the open project when its files (or the chosen checks) changed."""
+        project = self.shell.project
+        if project is None or (self.job is not None and self.job.status in ("queued", "running")):
+            return
+        shown = self.report
+        if shown is not None and os.path.normcase(shown.root) != os.path.normcase(project.mod_path):
+            return   # the user is looking at an "Other folder…" result
+        self._start(project.mod_path, only_if_changed=True)
+
+    def _clear(self) -> None:
+        self.report = None
+        self._fingerprint = None
+        self.export_button.configure(state="disabled")
+        for box in (self.stat_errors, self.stat_warnings, self.stat_info, self.stat_files):
+            box.set("–")
+        self.tree.set_issues([])
+        self._show_detail(None)
 
     def run_other(self) -> None:
         folder = filedialog.askdirectory(title="Validate folder", mustexist=True)
@@ -91,19 +122,24 @@ class ValidationPage(ttk.Frame):
         if self.shell.project:
             self._start(self.shell.project.mod_path)
 
-    def _start(self, folder: str) -> None:
+    def _start(self, folder: str, only_if_changed: bool = False) -> None:
         if self.job is not None and self.job.status in ("queued", "running"):
             self.job.cancel()
         checks = [cid for cid, var in self.check_vars.items() if var.get()]
         if not checks:
-            messagebox.showinfo("Validation", "Select at least one check.")
+            if not only_if_changed:
+                messagebox.showinfo("Validation", "Select at least one check.")
             return
         self.target_label.configure(text=f"Target: {folder}")
         self.run_button.configure(state="disabled")
+        previous = self._fingerprint
 
         def work(job):
+            fingerprint = (os.path.normcase(folder), tuple(checks), folder_fingerprint(folder))
+            if only_if_changed and fingerprint == previous:
+                return None   # nothing changed since the results on screen
             try:
-                return validate_project(folder, checks, progress=job.report, cancel=job.cancel_event)
+                return fingerprint, validate_project(folder, checks, progress=job.report, cancel=job.cancel_event)
             except ValidationCancelled:
                 job.check_cancelled()
                 raise
@@ -111,7 +147,11 @@ class ValidationPage(ttk.Frame):
         self.job = self.shell.jobs.submit(f"Validate {os.path.basename(folder) or folder}", work,
                                           on_done=self._done, on_error=self._failed)
 
-    def _done(self, report) -> None:
+    def _done(self, result) -> None:
+        if result is None:
+            self.run_button.configure(state="normal" if self.shell.project else "disabled")
+            return
+        self._fingerprint, report = result
         self.report = report
         self.run_button.configure(state="normal" if self.shell.project else "disabled")
         self.export_button.configure(state="normal")
@@ -157,7 +197,23 @@ class ValidationPage(ttk.Frame):
                 lines.append("Evidence: " + ", ".join(issue.evidence_ids))
             self.detail.insert("1.0", "\n".join(lines))
         self.detail.configure(state="disabled")
-        self.reveal_button.configure(state="normal" if issue is not None and issue.path else "disabled")
+        has_file = issue is not None and bool(issue.path)
+        self.reveal_button.configure(state="normal" if has_file else "disabled")
+        self.open_button.configure(state="normal" if has_file else "disabled")
+
+    def _issue_file(self, issue):
+        if issue is None or self.report is None or not issue.path:
+            return None
+        path = os.path.join(self.report.root, issue.path)
+        return path if os.path.isfile(path) else None
+
+    def _open_issue(self, issue) -> None:
+        path = self._issue_file(issue)
+        if path is None:
+            self.shell.status("This finding has no file in the project to open.")
+            return
+        open_in_file_manager(path)   # a file opens in its default application
+        self.shell.status(f"Opened {issue.location()}")
 
     def _reveal(self) -> None:
         if self._selected is None or self.report is None:

@@ -30,6 +30,7 @@ from battlezone.project import Project, ProjectStore
 from bztoolbox import APP_ID, APP_NAME, __version__, external, paths
 from bztoolbox.app import theme
 from bztoolbox.app.jobs import FINISHED, Job, JobManager
+from bztoolbox.app.widgets import install_treeview_resize_cursor
 from bztoolbox.modules.registry import PAGES, PAGES_BY_ID, SECTIONS, PageSpec, pages_in
 from bztoolbox.settings import Settings, get_settings
 
@@ -51,6 +52,7 @@ class Shell:
         _apply_window_icon(root)
         theme.apply(root)
         _apply_generic_baseline(root)
+        install_treeview_resize_cursor(root)
 
         self.jobs = JobManager(root)
         self.jobs.add_listener(self._on_job)
@@ -161,6 +163,11 @@ class Shell:
             self.nav.see(page_id)
         page.shown()
         self.settings.set("last_page", page_id)
+
+    @property
+    def current_page(self) -> Optional[str]:
+        """Id of the page on screen (already set while a page is being built)."""
+        return self._current
 
     def toggle_sidebar(self) -> None:
         """Collapse the navigation to give wide tools (e.g. Publish) more room."""
