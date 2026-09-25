@@ -859,8 +859,10 @@ class BZNParser:
             return set()
 
     def _parse_ascii(self, content):
-        # Extract PrjID, buildClass, dropClass, curPilot, label
-        tags = [r"PrjID", r"buildClass", r"dropClass", r"curPilot", r"label"]
+        # Only fields whose values identify object/ODF classes belong in the
+        # dependency set. Human-readable labels (for example "builddonetime")
+        # are metadata and must not be reported as <label>.odf dependencies.
+        tags = [r"PrjID", r"buildClass", r"dropClass", r"curPilot"]
         for tag in tags:
             # Handle both quoted and unquoted values, and optional newlines after =
             pattern = fr"{tag}\s*\[\d+\]\s*=\s*(?:\"([^\"]+)\"|([\w\d_-]+))"
