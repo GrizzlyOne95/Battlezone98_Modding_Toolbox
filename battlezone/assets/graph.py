@@ -6,7 +6,7 @@ Nodes are the files in the project, plus referenced names that are not in it
 ======================  =====================================================
 ``ini-mission``         mission ``.ini`` ``missionName`` -> ``.bzn`` / ``.trn``
 ``bzn-odf``             objects a mission places (BZN, ASCII or binary)
-``bzn-trn``             a mission's same-named terrain
+``bzn-trn``             the terrain a mission loads (``TerrainName``)
 ``odf-odf``             weapons, ordnance, payloads, build items, ...
 ``odf-asset``           ``geometryName`` / ``cockpitName`` / ... files
 ``mesh-material``       Ogre submesh materials -> the ``.material`` defining them
@@ -332,7 +332,7 @@ class _Builder:
         self.text_refs(key, text)
 
     def mission(self, key: str) -> None:
-        from battlezone.bzn.scan import STOCK_SET, BZNParser
+        from battlezone.bzn.scan import STOCK_SET, BZNParser, bzn_terrain_name
 
         try:
             names = BZNParser(str(self.full(key))).parse()
@@ -346,7 +346,11 @@ class _Builder:
                 target = self.external(filename, "odf", stock=filename.lower() in STOCK_SET)
             self.link(key, target, "bzn-odf")
         stem = os.path.splitext(os.path.basename(key))[0]
-        self.link(key, self.resolve(stem + ".trn"), "bzn-trn")
+        terrain = bzn_terrain_name(str(self.full(key))) or stem   # a mission can reuse another map's terrain
+        target = self.resolve(terrain + ".trn")
+        if target is None and terrain.lower() != stem.lower():
+            target = self.external(terrain + ".trn", "terrain")
+        self.link(key, target, "bzn-trn", "" if terrain.lower() == stem.lower() else "TerrainName")
 
     def odf(self, key: str) -> None:
         from battlezone.bzn.scan import STOCK_SET
