@@ -74,9 +74,7 @@ This is especially useful when cleaning up old campaigns or consolidating large 
 
 ## Missions and ODFs
 
-The Mission Inspector combines the former BZN and ODF tooling.
-
-It can read both ASCII and binary Redux BZN files, identify the ODFs used by a mission, separate stock and custom dependencies, and check whether required custom files are present.
+Mission checks live with the rest of the project checks: **Validation** reads ASCII and binary Redux BZN files and reports custom ODFs a mission places that are missing (it can also check another folder or a ZIP), and **Dependencies** shows everything a mission uses. **Missions › BZCC → Redux Port** converts BZ2/BZCC missions, terrain first and then the mission, with safe defaults and the full converter options under "Advanced".
 
 The ODF validator is based on recovered Battlezone 98 Redux loader behavior and supporting stock-content research rather than only on old documentation. It is intended to catch errors that can otherwise result in silently ignored parameters, incorrect behavior, or crashes.
 
@@ -124,7 +122,7 @@ The goal is to cover the common asset-preparation work without requiring a chain
 
 The mesh tools work directly with Ogre binary `.mesh` files used by Battlezone Redux.
 
-They can recalculate mesh normals to repair bad lighting and export static geometry to OBJ. The toolbox includes its own Ogre mesh reader, so normal repair and OBJ export do not require Ogre command-line utilities or Blender.
+They can recalculate mesh normals to repair bad lighting and export static geometry to OBJ. The toolbox includes its own Ogre mesh reader, so normal repair and OBJ export do not require Ogre command-line utilities or Blender. The live 3D preview uses Ogre (`ogre-python`), which Windows and Linux release builds include.
 
 ## Audio
 

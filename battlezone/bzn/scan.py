@@ -859,19 +859,21 @@ class BZNParser:
             return set()
 
     def _parse_ascii(self, content):
-        # Extract PrjID, buildClass, dropClass, curPilot, label
+        # Extract PrjID, buildClass, dropClass, curPilot, label.
+        # The value sits on the same line or the next one. An empty value
+        # (a factory building nothing writes "buildClass [1] =" and a blank
+        # line) must not swallow the next field's name, e.g. "buildDoneTime".
         tags = [r"PrjID", r"buildClass", r"dropClass", r"curPilot", r"label"]
         for tag in tags:
-            # Handle both quoted and unquoted values, and optional newlines after =
-            pattern = fr"{tag}\s*\[\d+\]\s*=\s*(?:\"([^\"]+)\"|([\w\d_-]+))"
-            matches = re.finditer(pattern, content)
-            for match in matches:
+            pattern = (fr"(?m)^[ \t]*{tag}[ \t]*\[\d+\][ \t]*=[ \t]*(?:\r?\n[ \t]*)?"
+                       r"(?:\"([^\"\r\n]+)\"|([\w-]+)(?![\w-]))(?![ \t]*\[\d+\][ \t]*=)")
+            for match in re.finditer(pattern, content):
                 m = match.group(1) or match.group(2)
                 if m and not m.isdigit():
                     self.odf_matches.add(m)
-        
+
         # BZ1 legacy format matches
-        matches = re.finditer(r"PrjID\s*=\s*(?:\"([^\"]+)\"|([\w\d_-]+))", content)
+        matches = re.finditer(r"(?m)^[ \t]*PrjID[ \t]*=[ \t]*(?:\"([^\"\r\n]+)\"|([\w-]+))", content)
         for match in matches:
             m = match.group(1) or match.group(2)
             if m and not m.isdigit():

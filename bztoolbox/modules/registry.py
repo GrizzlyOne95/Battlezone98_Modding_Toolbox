@@ -77,7 +77,7 @@ PAGES: Sequence[PageSpec] = (
              "The open mod: metadata shared by every module and what the folder contains.",
              f"{_P}.project:ProjectPage"),
     PageSpec("project.validation", "project", "Validation",
-             "One validation engine for missions, ODFs, assets and Workshop layout.",
+             "Missions, ODFs, assets and Workshop layout for the project, another folder or a ZIP.",
              f"{_P}.validation:ValidationPage", keywords=("odf", "preflight", "check")),
     PageSpec("project.dependencies", "project", "Dependencies",
              "Asset graph: what uses each file, missing references, unreferenced files, texture memory.",
@@ -92,9 +92,11 @@ PAGES: Sequence[PageSpec] = (
              project_hook=f"{_L}:publishing_project"),
 
     # --- Missions ---------------------------------------------------------
-    PageSpec("missions.inspector", "missions", "Mission Inspector",
-             "BZN dependencies, ODF validation and BZ2/BZCC to Redux mission ports.",
-             f"{_L}:missions", kind="legacy", package="bztoolbox.modules.missions", origin="BZN Toolbox", keywords=("bzn", "odf", "bzcc")),
+    # BZN dependency and ODF checks of the former BZN Toolbox live in Project ›
+    # Validation / Dependencies; its mission port is this page.
+    PageSpec("missions.port", "missions", "BZCC → Redux Port",
+             "Port a BZ2/BZCC mission to Battlezone 98 Redux: terrain first, then the mission.",
+             f"{_P}.bzcc_port:BZCCPortPage", origin="BZN Toolbox", keywords=("bzn", "bzcc", "bz2", "port")),
 
     # --- World & Terrain --------------------------------------------------
     PageSpec("world.builder", "world", "World Builder",

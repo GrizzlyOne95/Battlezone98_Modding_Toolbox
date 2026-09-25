@@ -72,6 +72,19 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual(summary.missions, ["a.bzn"])
         self.assertEqual(summary.worlds, ["a.trn"])
         self.assertEqual(summary.kinds["Object files"], 1)
+        self.assertEqual(summary.planets, {"Custom / unknown": 1})
+
+    def test_missions_are_grouped_by_planet(self):
+        for stem, trn in (("m1", '[Color]\r\nPalette = "mars.act"\r\n'),
+                          ("m2", '[Color]\r\nPalette = "Mars.act"\r\n'),
+                          ("v1", '[Atlases]\r\nMaterialName = VenusAtlas\r\n'),
+                          ("c1", '[Color]\r\nPalette = "mymod.act"\r\n')):
+            (self.mod / f"{stem}.bzn").write_bytes(b"x")
+            (self.mod / f"{stem}.trn").write_text(trn, encoding="ascii")
+        (self.mod / "unused.trn").write_text("[Size]\r\n", encoding="ascii")
+        summary = summarize_folder(self.mod)
+        self.assertEqual(summary.planets, {"Mars": 2, "Venus": 1, "Custom / unknown": 1})
+        self.assertEqual(len(summary.worlds), 5)
 
     def test_workshop_id(self):
         self.assertEqual(Project(mod_path="x").workshop_id, "")
@@ -80,3 +93,22 @@ class ProjectStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FingerprintTests(unittest.TestCase):
+    def test_changes_when_a_file_changes(self):
+        import os
+        import tempfile
+
+        from battlezone.project import folder_fingerprint
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.odf"
+            path.write_text("x")
+            first = folder_fingerprint(tmp)
+            self.assertEqual(first, folder_fingerprint(tmp))
+            path.write_text("xy")
+            self.assertNotEqual(first, folder_fingerprint(tmp))
+            second = folder_fingerprint(tmp)
+            os.remove(path)
+            self.assertNotEqual(second, folder_fingerprint(tmp))

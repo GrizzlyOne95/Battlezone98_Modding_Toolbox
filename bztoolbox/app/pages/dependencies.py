@@ -9,8 +9,9 @@ from tkinter import filedialog, ttk
 
 from battlezone.assets import build_graph
 from battlezone.assets.graph import GraphCancelled
+from battlezone.project import folder_fingerprint
 from bztoolbox.app import theme
-from bztoolbox.app.widgets import StatBox, humanize_bytes, open_in_file_manager
+from bztoolbox.app.widgets import StatBox, add_scrollbars, humanize_bytes, open_in_file_manager
 
 
 def _table(parent, columns):
@@ -20,10 +21,7 @@ def _table(parent, columns):
     for key, heading, width in columns:
         tree.heading(key, text=heading)
         tree.column(key, width=width, anchor="w", stretch=key == columns[0][0])
-    scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview, style="Toolbox.Vertical.TScrollbar")
-    tree.configure(yscrollcommand=scroll.set)
-    tree.pack(side="left", fill="both", expand=True)
-    scroll.pack(side="right", fill="y")
+    add_scrollbars(frame, tree)
     tree.tag_configure("missing", foreground=theme.ERROR)
     tree.tag_configure("external", foreground=theme.MUTED)
     return frame, tree
@@ -35,6 +33,7 @@ class DependenciesPage(ttk.Frame):
         self.shell = shell
         self.graph = None
         self.job = None
+        self._fingerprint = None   # folder state the graph on screen was built from
         self.filter_var = tk.StringVar()
         self.filter_var.trace_add("write", lambda *_: self._render_files())
 
@@ -55,7 +54,7 @@ class DependenciesPage(ttk.Frame):
         self.stat_refs = StatBox(stats, "References", "–")
         self.stat_missing = StatBox(stats, "Missing", "–", theme.ERROR)
         self.stat_unused = StatBox(stats, "Unreferenced", "–", theme.WARNING)
-        self.stat_vram = StatBox(stats, "Texture memory", "–")
+        self.stat_vram = StatBox(stats, "Textures, whole mod", "–")
         for box in (self.stat_files, self.stat_refs, self.stat_missing, self.stat_unused, self.stat_vram):
             box.pack(side="left", padx=(0, 8))
 
@@ -64,7 +63,10 @@ class DependenciesPage(ttk.Frame):
 
         # Files: pick one to see what it needs and what uses it
         files_tab = ttk.Frame(tabs, style="Toolbox.TFrame", padding=(0, 6))
-        tabs.add(files_tab, text="Files")
+        tabs.add(files_tab, text="All files")
+        ttk.Label(files_tab, text="Every file in the project. Pick one to see what it needs and what uses it "
+                                  "(what breaks if you rename or remove it).",
+                  style="Toolbox.Muted.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(0, 4))
         search = ttk.Frame(files_tab, style="Toolbox.TFrame")
         search.pack(fill="x", pady=(0, 4))
         ttk.Label(search, text="Filter", style="Toolbox.Muted.TLabel").pack(side="left", padx=(0, 6))
@@ -98,17 +100,29 @@ class DependenciesPage(ttk.Frame):
 
         unused_tab = ttk.Frame(tabs, style="Toolbox.TFrame", padding=(0, 6))
         tabs.add(unused_tab, text="Unreferenced")
-        ttk.Label(unused_tab, text="Files nothing in the project refers to. They are still uploaded; some "
-                                    "(for example ODFs only built from stock menus) are used by the game directly.",
+        ttk.Label(unused_tab, text="The files from All files that nothing in the project refers to (Used by = 0). "
+                                    "Not necessarily unused: the game can load some directly, for example ODFs "
+                                    "built from stock menus or files named by stock ODFs. Model parts are traced "
+                                    "through VDF/SDF/GEO files.",
                   style="Toolbox.Muted.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(0, 4))
         frame, self.unused = _table(unused_tab, (("file", "File", 360), ("kind", "Kind", 80), ("size", "Size", 80)))
         frame.pack(fill="both", expand=True)
 
         tex_tab = ttk.Frame(tabs, style="Toolbox.TFrame", padding=(0, 6))
         tabs.add(tex_tab, text="Texture memory")
-        frame, self.textures = _table(tex_tab, (("file", "Texture", 360), ("vram", "Estimated memory", 120),
-                                                ("used", "Used by", 60)))
-        frame.pack(fill="both", expand=True)
+        ttk.Label(tex_tab, text="Estimated GPU memory (DDS from its header, other images as RGBA with mipmaps). "
+                                "The whole-mod figure counts every texture as if all were loaded at once; "
+                                "a mission only loads what it uses, shown per mission below. Stock textures "
+                                "are not counted.",
+                  style="Toolbox.Muted.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(0, 4))
+        tex_panes = ttk.PanedWindow(tex_tab, orient="vertical")
+        tex_panes.pack(fill="both", expand=True)
+        frame, self.mission_textures = _table(tex_panes, (("mission", "Mission", 360),
+                                                          ("vram", "Its textures", 120), ("count", "Textures", 80)))
+        tex_panes.add(frame, weight=1)
+        frame, self.textures = _table(tex_panes, (("file", "Texture", 360), ("vram", "Estimated memory", 120),
+                                                  ("used", "Used by", 60)))
+        tex_panes.add(frame, weight=2)
 
         self.project_changed(shell.project)
 
@@ -120,6 +134,31 @@ class DependenciesPage(ttk.Frame):
         else:
             self.target_label.configure(text=f"Target: {project.mod_path}")
             self.run_button.configure(state="normal")
+        if self.graph is not None and (project is None or
+                                       os.path.normcase(self.graph.root) != os.path.normcase(project.mod_path)):
+            self._clear()   # never show another mod's graph
+        if self.shell.current_page == "project.dependencies":
+            self.on_show()
+
+    def on_show(self) -> None:
+        """Rebuild the graph of the open project when its files changed."""
+        project = self.shell.project
+        if project is None or (self.job is not None and self.job.status in ("queued", "running")):
+            return
+        shown = self.graph
+        if shown is not None and os.path.normcase(shown.root) != os.path.normcase(project.mod_path):
+            return   # the user is looking at an "Other folder…" result
+        self._start(project.mod_path, only_if_changed=True)
+
+    def _clear(self) -> None:
+        self.graph = None
+        self._fingerprint = None
+        self.export_button.configure(state="disabled")
+        for box in (self.stat_files, self.stat_refs, self.stat_missing, self.stat_unused, self.stat_vram):
+            box.set("–")
+        for table in (self.files, self.used_by, self.needs, self.missing, self.unused, self.textures,
+                      self.mission_textures):
+            table.delete(*table.get_children())
 
     def run(self) -> None:
         if self.shell.project:
@@ -130,15 +169,19 @@ class DependenciesPage(ttk.Frame):
         if folder:
             self._start(folder)
 
-    def _start(self, folder: str) -> None:
+    def _start(self, folder: str, only_if_changed: bool = False) -> None:
         if self.job is not None and self.job.status in ("queued", "running"):
             self.job.cancel()
         self.target_label.configure(text=f"Target: {folder}")
         self.run_button.configure(state="disabled")
+        previous = self._fingerprint
 
         def work(job):
+            fingerprint = (os.path.normcase(folder), folder_fingerprint(folder))
+            if only_if_changed and fingerprint == previous:
+                return None   # nothing changed since the graph on screen
             try:
-                return build_graph(folder, progress=job.report, cancel=job.cancel_event)
+                return fingerprint, build_graph(folder, progress=job.report, cancel=job.cancel_event)
             except GraphCancelled:
                 job.check_cancelled()
                 raise
@@ -150,7 +193,11 @@ class DependenciesPage(ttk.Frame):
         self.job = self.shell.jobs.submit(f"Dependencies of {os.path.basename(folder) or folder}", work,
                                           on_done=self._done, on_error=failed)
 
-    def _done(self, graph) -> None:
+    def _done(self, result) -> None:
+        if result is None:
+            self.run_button.configure(state="normal" if self.shell.project else "disabled")
+            return
+        self._fingerprint, graph = result
         self.graph = graph
         self.run_button.configure(state="normal" if self.shell.project else "disabled")
         self.export_button.configure(state="normal")
@@ -170,6 +217,9 @@ class DependenciesPage(ttk.Frame):
         self.unused.delete(*self.unused.get_children())
         for node in graph.unreferenced():
             self.unused.insert("", "end", values=(node.key, node.kind, humanize_bytes(node.size)))
+        self.mission_textures.delete(*self.mission_textures.get_children())
+        for node, size, count in graph.mission_texture_memory():
+            self.mission_textures.insert("", "end", values=(node.key, humanize_bytes(size), count))
         self.textures.delete(*self.textures.get_children())
         for node in graph.textures_by_memory():
             self.textures.insert("", "end", values=(node.key, humanize_bytes(node.texture_bytes),

@@ -29,11 +29,13 @@ dependencies = [
     "qrcode>=7",
     "deep-translator>=1.11",
     "google-auth>=2.20",
+    # live mesh preview; only where ogre-python publishes wheels
+    'ogre-python>=14; (sys_platform == "win32" or sys_platform == "linux") and (platform_machine == "AMD64" or platform_machine == "x86_64") and (python_version == "3.10" or python_version == "3.12")',
 ]
 
 [project.optional-dependencies]
 dnd = ["tkinterdnd2>=0.3"]            # drag & drop in Textures
-mesh-preview = ["ogre-python"]        # optional live 3D preview in Models & Meshes
+mesh-preview = ["ogre-python"]        # other platforms: preview if a wheel exists
 dev = ["pytest>=7", "pyinstaller>=6"]
 
 [project.scripts]

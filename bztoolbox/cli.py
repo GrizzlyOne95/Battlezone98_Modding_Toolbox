@@ -365,7 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
     val = sub.add_parser("validate", help="validate a mod folder with the unified engine")
     val.add_argument("path", nargs="?")
     val.add_argument("--checks", help="comma-separated checks to run instead of the defaults")
-    val.add_argument("--add", help="comma-separated extra checks, e.g. odf-lint")
+    val.add_argument("--add", help="comma-separated extra checks to add to the defaults")
     val.add_argument("--list-checks", action="store_true", help="list available checks")
     val.add_argument("--json", action="store_true", help="machine-readable output")
     val.add_argument("--strict", action="store_true", help="exit 1 on warnings too")

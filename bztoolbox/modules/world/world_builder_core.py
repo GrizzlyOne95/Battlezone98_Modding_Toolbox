@@ -1882,8 +1882,11 @@ class BZ98TRNArchitect:
         self.on_mode_change()
         
         # --- LOG CONSOLE ---
+        # Packed before the notebook so it keeps its rows on every tab; packed
+        # after it, a tall tab squeezed the console (and the window below) away.
         self.log_frame = ttk.Frame(self.root, padding=5)
-        self.log_frame.pack(side="bottom", fill="x")
+        self.log_frame.pack(side="bottom", fill="x", before=self.notebook)
+        ttk.Label(self.log_frame, text="WORLD BUILDER LOG", foreground="#666666").pack(anchor="w")
         self.log_box = tk.Text(self.log_frame, height=6, state="disabled", bg="#050505", fg=BZ_FG, font=("Consolas", 9))
         self.log_box.pack(fill="both", expand=True)
         self.log_box.tag_config("info", foreground=BZ_CYAN)
@@ -1895,14 +1898,7 @@ class BZ98TRNArchitect:
         self.print_welcome_log()
 
     def print_welcome_log(self):
-        self.log("--------------------------------------------------", "timestamp")
-        self.log("   BZ98 REDUX WORLD BUILDER SUITE - INITIALIZED   ", "success")
-        self.log("--------------------------------------------------", "timestamp")
-        self.log("• Stock Map Creator: Generate standard multiplayer maps", "info")
-        self.log("• Atlas Creator: Build custom terrain texture atlases", "info")
-        self.log("• HG2 Management: Convert and edit heightmaps", "info")
-        self.log("• Cubemap Creator: Generate skyboxes from panoramas", "info")
-        self.log("Select a tab to begin operations.", "timestamp")
+        self.log("World Builder ready. Messages from every World Builder tab appear here.", "timestamp")
 
     def setup_stock_tab(self):
         container = ttk.Frame(self.tab_stock, padding=20)

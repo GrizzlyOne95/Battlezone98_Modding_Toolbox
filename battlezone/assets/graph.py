@@ -16,6 +16,8 @@ Nodes are the files in the project, plus referenced names that are not in it
 ``trn-palette``         ``[Color] Palette``
 ``trn-texture``         ``.map`` textures a TRN names
 ``trn-material``        ``[Atlases] MaterialName``
+``model-part``          legacy binary models: ``.vdf``/``.sdf`` -> ``.geo`` parts,
+                        ``.geo`` -> textures (names embedded in the file)
 ``text``                any other file name mentioned in a text file
 ======================  =====================================================
 
@@ -67,6 +69,8 @@ _MATERIAL_TEX = re.compile(
     r"\b(?:texture\s+([^\s{}]+)|set_texture_alias\s+\S+\s+([^\s{}]+)|cubic_texture\s+([^\s{}]+))", re.I)
 _QUOTED = re.compile(r"[\"']([^\"'\r\n]+)[\"']")
 _ASSIGNED = re.compile(r"=\s*([\w.\-]+)")
+BINARY_MODEL_EXTS = (".vdf", ".sdf", ".geo")
+_BINARY_NAME = re.compile(rb"[A-Za-z0-9_\-]{2,}(?:\.[A-Za-z0-9]{2,4})?")
 
 
 def kind_of(name: str) -> str:
@@ -185,6 +189,22 @@ class AssetGraph:
     def textures_by_memory(self) -> List[AssetNode]:
         return sorted((n for n in self.nodes.values() if n.texture_bytes),
                       key=lambda n: n.texture_bytes, reverse=True)
+
+    def mission_texture_memory(self) -> List[Tuple[AssetNode, int, int]]:
+        """``(mission, bytes, texture count)`` for the project textures each mission pulls in.
+
+        This is the closer estimate of what one mission loads; the summary's
+        ``texture_bytes`` adds up every texture in the mod as if all were
+        loaded at once. Stock textures (not in the project) are not counted.
+        """
+        out = []
+        for node in self.nodes.values():
+            if node.kind != "mission" or not node.in_project:
+                continue
+            textures = [self.nodes[k] for k in self.closure(node.key) if k in self.nodes
+                        and self.nodes[k].texture_bytes]
+            out.append((node, sum(t.texture_bytes for t in textures), len(textures)))
+        return sorted(out, key=lambda item: item[1], reverse=True)
 
     @property
     def _has_ini(self) -> bool:
@@ -403,6 +423,21 @@ class _Builder:
             self.link(key, target or self.external(doc.material_name, "material"), "trn-material",
                       "MaterialName")
 
+    def binary_model(self, key: str) -> None:
+        """Names embedded in legacy VDF/SDF/GEO files: GEO parts by name or stem, textures by name."""
+        try:
+            data = self.full(key).read_bytes()
+        except OSError as exc:
+            self.graph.warnings.append(f"{key}: {exc}")
+            return
+        for raw in set(_BINARY_NAME.findall(data)):
+            name = raw.decode("ascii").lower()
+            hits = self.by_name.get(name)
+            if not hits and "." not in name and not key.lower().endswith(".geo"):
+                hits = self.by_name.get(name + ".geo")
+            for target in hits or ():
+                self.link(key, target, "model-part", os.path.basename(target))
+
     def text_refs(self, key: str, text: str) -> None:
         for number, raw in enumerate(text.splitlines(), 1):
             line = raw.split("//", 1)[0]
@@ -492,6 +527,8 @@ def build_graph(root, progress: Optional[ProgressCallback] = None,
                 b.text_refs(key, material_texts[key])
             elif ext == ".trn":
                 b.trn(key)
+            elif ext in BINARY_MODEL_EXTS:
+                b.binary_model(key)
             elif ext in TEXT_EXTS:
                 b.text_refs(key, b.read_text(key))
             if node.kind == "texture" and ext != ".map":

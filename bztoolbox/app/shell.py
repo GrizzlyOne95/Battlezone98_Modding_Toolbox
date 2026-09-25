@@ -30,6 +30,7 @@ from battlezone.project import Project, ProjectStore
 from bztoolbox import APP_ID, APP_NAME, __version__, external, paths
 from bztoolbox.app import theme
 from bztoolbox.app.jobs import FINISHED, Job, JobManager
+from bztoolbox.app.widgets import install_treeview_resize_cursor
 from bztoolbox.modules.registry import PAGES, PAGES_BY_ID, SECTIONS, PageSpec, pages_in
 from bztoolbox.settings import Settings, get_settings
 
@@ -51,6 +52,7 @@ class Shell:
         _apply_window_icon(root)
         theme.apply(root)
         _apply_generic_baseline(root)
+        install_treeview_resize_cursor(root)
 
         self.jobs = JobManager(root)
         self.jobs.add_listener(self._on_job)
@@ -60,12 +62,14 @@ class Shell:
         self.banner_slot = ttk.Frame(root, style="Toolbox.TFrame")
         self.banner_slot.pack(fill="x")
         self._update_bar: Optional[ttk.Frame] = None
+        # The status bar is packed before the body: pack gives space in packing
+        # order, so a tall page can no longer squeeze the status bar away.
+        self._build_statusbar()
         body = ttk.Frame(root, style="Toolbox.TFrame")
         body.pack(fill="both", expand=True)
         self._build_sidebar(body)
         self.page_area = ttk.Frame(body, style="Toolbox.TFrame")
         self.page_area.pack(side="left", fill="both", expand=True)
-        self._build_statusbar()
 
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._restore_last_project()
@@ -121,9 +125,9 @@ class Shell:
         ttk.Label(side, text=f"v{__version__}", style="Toolbox.SurfaceMuted.TLabel").pack(anchor="w", padx=12, pady=(0, 8))
 
     def _build_statusbar(self) -> None:
-        ttk.Separator(self.root, orient="horizontal", style="Toolbox.TSeparator").pack(fill="x")
         bar = ttk.Frame(self.root, style="Toolbox.Surface.TFrame", padding=(10, 3))
-        bar.pack(fill="x")
+        bar.pack(side="bottom", fill="x")
+        ttk.Separator(self.root, orient="horizontal", style="Toolbox.TSeparator").pack(side="bottom", fill="x")
         self.status_label = ttk.Label(bar, text="Ready.", style="Toolbox.SurfaceMuted.TLabel")
         self.status_label.pack(side="left")
         self.jobs_button = ttk.Button(bar, text="No background tasks", style="Toolbox.Link.TButton",
@@ -161,6 +165,11 @@ class Shell:
             self.nav.see(page_id)
         page.shown()
         self.settings.set("last_page", page_id)
+
+    @property
+    def current_page(self) -> Optional[str]:
+        """Id of the page on screen (already set while a page is being built)."""
+        return self._current
 
     def toggle_sidebar(self) -> None:
         """Collapse the navigation to give wide tools (e.g. Publish) more room."""

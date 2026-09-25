@@ -43,14 +43,6 @@ def publishing_project(app, project) -> None:
         app.mod_path.set(str(project.root))
 
 
-# --- Missions ----------------------------------------------------------------
-
-def missions(container):
-    from bztoolbox.modules.missions.toolbox_app import BZNToolboxApp
-
-    return _hosted(container, BZNToolboxApp)
-
-
 # --- World & Terrain -----------------------------------------------------------
 
 def world(container):

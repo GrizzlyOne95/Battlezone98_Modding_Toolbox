@@ -78,6 +78,9 @@ def test_queries(mod):
     assert g.find("MYTANK_D.DDS").texture_bytes == int(256 * 256 * 0.5 * 4 / 3)
     assert g.summary()["missing"] == 2
     assert g.to_dict()["unreferenced"] == ["textures/unused.tga"]
+    [(mission, size, count)] = g.mission_texture_memory()
+    assert mission.key == "mymod.bzn" and count == 1                        # the unused .tga is not loaded
+    assert size == g.find("MYTANK_D.DDS").texture_bytes
 
 
 def test_cancel(mod):
@@ -98,3 +101,19 @@ def test_cli(mod, capsys):
     assert main(["deps", str(mod), "--why", "mytank_d.dds"]) == 0
     assert "mymod.ini" in capsys.readouterr().out
     assert main(["deps", str(mod), "--json"]) == 1
+
+
+def test_legacy_binary_models_reference_their_parts(tmp_path):
+    root = tmp_path / "legacy"
+    root.mkdir()
+    (root / "avtank.vdf").write_bytes(b"VDFC\0\0GEOG\x10\0\0\0avtank10\0\0\0\0hvtank11.geo\0\x01\x02")
+    (root / "avtank10.geo").write_bytes(b"GEO\0\0\0avtank.map\0\x05")
+    (root / "hvtank11.geo").write_bytes(b"\0")
+    (root / "avtank.map").write_bytes(b"\0")
+    (root / "orphan.geo").write_bytes(b"\0")
+    graph = build_graph(root)
+    parts = {(e.source, e.target) for e in graph.edges if e.kind == "model-part"}
+    assert parts == {("avtank.vdf", "avtank10.geo"), ("avtank.vdf", "hvtank11.geo"),
+                     ("avtank10.geo", "avtank.map")}
+    unreferenced = {n.key for n in graph.unreferenced()}
+    assert "avtank10.geo" not in unreferenced and "orphan.geo" in unreferenced

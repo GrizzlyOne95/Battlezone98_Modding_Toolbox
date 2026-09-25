@@ -123,7 +123,7 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         # 4. RTShader + resources.
         log_msg("[OgrePreview] Initialising ApplicationContext resources and RTShader...")
         self.locateResources()
-        self.initialiseRTShaderSystem()
+        self._init_rtshader()
 
         self.loadResources()
         log_msg("[OgrePreview] All resources loaded.")
@@ -177,6 +177,20 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         except Exception as e:
             log_msg(f"[OgrePreview] Warning: Failed to set viewport scheme: {e}")
 
+    def _init_rtshader(self):
+        """Start the RTShader system for our externally created window.
+
+        ApplicationContext.initialiseRTShaderSystem() expects the window it
+        creates itself and crashes (in native code) for an embedded one, so
+        do its two steps here: initialise the generator and install the
+        technique resolver that builds shaders for fixed-function materials.
+        """
+        if not RTShader.ShaderGenerator.initialize():
+            raise RuntimeError("The Ogre RTShader system could not be initialised.")
+        generator = RTShader.ShaderGenerator.getSingleton()
+        self._technique_resolver = OgreBites.SGTechniqueResolverListener(generator)   # keep alive
+        Ogre.MaterialManager.getSingleton().addListener(self._technique_resolver)
+
     def locateResources(self):
         """
         Populate the Ogre ResourceGroupManager with paths before loadResources().
@@ -197,6 +211,9 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
             if ogre_spec and ogre_spec.origin:
                 ogre_pkg_dir = os.path.dirname(ogre_spec.origin)
                 possible_paths.append(os.path.join(ogre_pkg_dir, "Media"))
+            # ogre-python 14.x installs Media to <prefix>/share/OGRE-<version>/
+            import glob
+            possible_paths += sorted(glob.glob(os.path.join(sys.prefix, "share", "OGRE-*", "Media")), reverse=True)
 
             ogre_media_dir = None
             for p in possible_paths:
@@ -432,9 +449,10 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
             # Unique preview material name to avoid global conflicts
             preview_mat_name = f"__preview__{mat_name}"
 
-            # Reuse if already created this session
-            if mm.resourceExists(preview_mat_name):
-                sub.setMaterialName(preview_mat_name)
+            # Reuse if already created this session (several submeshes can
+            # share one material; the lookup needs our resource group)
+            if mm.resourceExists(preview_mat_name, self._rg):
+                sub.setMaterialName(preview_mat_name, self._rg)
                 continue
 
             # Find diffuse texture: try several common BZ Redux suffixes
@@ -477,18 +495,10 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                 print(f"[OgrePreview] {mat_name} -> no texture found (grey)")
 
             mat.compile()
-            
-            # Force RTShader to handle this material (CRITICAL for D3D11/GL3+)
-            try:
-                shadergen = RTShader.ShaderGenerator.getSingleton()
-                # Use "DefaultLib" and "RTG_ShaderSystem"
-                shadergen.createShaderBasedTechnique(preview_mat_name, "DefaultLib", "RTShaderLib")
-                shadergen.validateMaterial("DefaultLib", preview_mat_name, mat.getGroup())
-            except Exception as e:
-                # log_msg(f"[OgrePreview] RTShader error for {preview_mat_name}: {e}")
-                pass
-
-            sub.setMaterialName(preview_mat_name)
+            # No shader technique is created here: the technique resolver
+            # installed in _init_rtshader() generates one when the material
+            # is first rendered (required by D3D11 / GL3+).
+            sub.setMaterialName(preview_mat_name, self._rg)
 
 
 
@@ -534,6 +544,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
 
         self._ctx: "_EmbeddedOgreContext | None" = None
         self._render_job = None
+        self._init_failed = ""   # set once if Ogre cannot start; Root cannot be re-created
 
         # Camera orbit state
         self._orbit_yaw   = 30.0   # degrees
@@ -628,29 +639,40 @@ class OgrePreviewFrame(ctk.CTkFrame):
         h = max(150, self._render_frame.winfo_height())
         log_msg(f"[OgrePreview] HWND: {hwnd}, Size: {w}x{h}")
 
+        if self._init_failed:
+            self._show_error(self._init_failed)
+            return
         ctx = _EmbeddedOgreContext(hwnd, w, h)
         try:
             log_msg("[OgrePreview] Calling initApp()...")
             ctx.initApp()
             log_msg("[OgrePreview] initApp() completed.")
+        except Exception as e:
+            import traceback
+            log_msg(f"[OgrePreview] CRITICAL ERROR DURING INIT:\n{traceback.format_exc()}")
+            # closeApp() on a half-initialised embedded context crashes in
+            # native code, and Ogre's Root cannot be created twice: keep the
+            # failure and report it instead of retrying.
+            self._init_failed = f"The 3D preview could not start: {e}"
+            self._show_error(self._init_failed)
+            return
+
+        self._ctx = ctx
+        try:
             diam = ctx.load_mesh(mesh_path)
             log_msg("[OgrePreview] load_mesh() completed.")
         except Exception as e:
             import traceback
-            err_details = traceback.format_exc()
-            log_msg(f"[OgrePreview] CRITICAL ERROR DURING INIT:\n{err_details}")
-            try:
-                ctx.closeApp()
-            except Exception:
-                pass
+            log_msg(f"[OgrePreview] Mesh load failed:\n{traceback.format_exc()}")
             self._show_error(str(e))
             return
-
-        self._ctx = ctx
         self._reset_camera(diam)
         self._apply_camera()
 
         self._placeholder.place_forget()
+        if getattr(self, "_error_label", None) is not None:
+            self._error_label.destroy()
+            self._error_label = None
         self._hint.place(relx=0.5, rely=1.0, anchor="s", y=-4)
 
         self._render_job = self.after(16, self._render_loop)
@@ -781,12 +803,12 @@ class OgrePreviewFrame(ctk.CTkFrame):
                 self._ctx.resize(w, h)
 
     def _show_error(self, message: str):
-        for child in self._render_frame.winfo_children():
-            try:
-                child.destroy()
-            except Exception:
-                pass
-        lbl = tk.Label(
+        # Replace a previous error, keep the placeholder and hint for later loads.
+        old = getattr(self, "_error_label", None)
+        if old is not None:
+            old.destroy()
+        self._placeholder.place_forget()
+        lbl = self._error_label = tk.Label(
             self._render_frame,
             text=f"Preview error:\n{message}",
             fg="#ff4444",

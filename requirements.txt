@@ -11,3 +11,5 @@ qrcode>=7
 deep-translator>=1.11
 google-auth>=2.20
 tkinterdnd2>=0.3
+# Live 3D mesh preview. Wheels exist only for these platforms/Pythons (no source build).
+ogre-python>=14; (sys_platform == "win32" or sys_platform == "linux") and (platform_machine == "AMD64" or platform_machine == "x86_64") and (python_version == "3.10" or python_version == "3.12")

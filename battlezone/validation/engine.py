@@ -10,8 +10,8 @@ in separate tools:
 * ``assets``     - ODF/material asset references (Workshop Uploader)
 * ``trn``        - TRN line endings / duplicate headers (Workshop Uploader)
 * ``legacy``     - legacy ``.map`` textures left in the upload (Workshop Uploader)
-* ``odf-lint``   - the older list-based ODF header/field scan (off by default;
-  kept until its remaining coverage is folded into the ODF schema)
+* ``odf-lint``   - list-based ODF header/field scan; particle/render sections
+  (``renderBase``/``simulateBase``, or named as ``file.Section``) are accepted
 
 Every check reports :class:`Issue` records with one shared severity scale.
 """
@@ -237,7 +237,7 @@ CHECKS: dict[str, Check] = {check.id: check for check in (
     Check("assets", "Asset references", "Geometry/texture files named by ODFs and materials.", _check_assets),
     Check("trn", "TRN files", "Line endings and duplicate [Size] sections.", _check_trn),
     Check("legacy", "Legacy files", "Old .map textures left in the upload.", _check_legacy),
-    Check("odf-lint", "ODF field lint", "Older list-based ODF header/field scan.", _check_odf_lint, default=False),
+    Check("odf-lint", "ODF field lint", "Class headers, unknown and missing fields.", _check_odf_lint),
 )}
 
 DEFAULT_CHECKS: tuple = tuple(check.id for check in CHECKS.values() if check.default)
