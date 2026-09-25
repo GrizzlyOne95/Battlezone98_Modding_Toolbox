@@ -1,6 +1,7 @@
 """BZN dependency scanning: stock ODF list and ASCII/binary BZN parser.
 
-Extracted unchanged from the BZN Toolbox ``bzn_scan`` module.
+Extracted from the BZN Toolbox ``bzn_scan`` module; :func:`bzn_terrain_name`
+was added later.
 """
 import os
 import re
@@ -806,6 +807,46 @@ STOCK_ODF_LIST = [
     "xtorxplb.odf"
 ]
 STOCK_SET = {name.lower() for name in STOCK_ODF_LIST}
+
+_BINARY_SAVE = re.compile(rb"binarySave\s*\[\d+\]\s*=\s*(true|false|1|0)")
+_TERRAIN_NAME = re.compile(rb"(?m)^\s*TerrainName\s*=\s*([^\s\x00]+)")
+# binary header fields after binarySave: msn_filename, seq_count, missionSave, TerrainName
+_BINARY_TERRAIN_FIELD = 3
+
+
+def bzn_terrain_name(source):
+    """The terrain a mission loads (``TerrainName``), without extension, or ``None``.
+
+    A mission can reuse another map's terrain, so this is not always the
+    mission's own name. ``source`` is a path or the file's bytes. ASCII
+    missions write ``TerrainName = name``; binary ones store it as the fourth
+    header field. Some stock missions store it with a ``.bzn`` extension.
+    """
+    if isinstance(source, bytes):
+        data = source
+    else:
+        try:
+            with open(source, "rb") as handle:
+                data = handle.read(8192)
+        except OSError:
+            return None
+    value = None
+    match = _BINARY_SAVE.search(data[:4096])
+    if match and match.group(1) in (b"true", b"1"):
+        pos = match.end()
+        while pos < len(data) and data[pos] in b" \t\r\n":
+            pos += 1
+        for _ in range(_BINARY_TERRAIN_FIELD + 1):
+            if pos + 4 > len(data):
+                return None
+            size = struct.unpack_from("<H", data, pos + 2)[0]
+            value, pos = data[pos + 4:pos + 4 + size], pos + 4 + size
+        value = value.split(b"\0", 1)[0]
+    else:
+        found = _TERRAIN_NAME.search(data[:4096])
+        value = found.group(1) if found else None
+    name = os.path.splitext(value.decode("latin-1").strip().strip('"'))[0] if value else ""
+    return name if re.fullmatch(r"[\w\-]+", name) else None
 
 
 class BinaryFieldType:

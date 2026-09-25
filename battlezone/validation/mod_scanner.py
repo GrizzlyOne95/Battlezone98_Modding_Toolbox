@@ -568,6 +568,29 @@ class ModScanner:
     # gameType letters the official uploader accepts: Deathmatch, Strategy, MP Action, MP Instant, King of the Hill
     VALID_GAME_TYPES = "DSAMK"
 
+    TERRAIN_EXTS = (".hg2", ".trn", ".mat", ".lgt")
+
+    def _check_map_terrain(self, mod_dir, base_name, files_lower, errors, warnings):
+        """Terrain files for a map. A mission can reuse another map's terrain (its
+        ``TerrainName``); the game follows that, the official uploader still wants
+        same-named files."""
+        from battlezone.bzn.scan import bzn_terrain_name
+        from battlezone.validation.models import stock_models
+
+        missing = [ext for ext in self.TERRAIN_EXTS if f"{base_name}{ext}".lower() not in files_lower]
+        bzn = next((name for name in os.listdir(mod_dir) if name.lower() == f"{base_name}.bzn".lower()), None)
+        terrain = bzn_terrain_name(os.path.join(mod_dir, bzn)) if bzn else None
+        if not terrain or terrain.lower() == base_name.lower():
+            for ext in missing:
+                errors.append(f"Missing essential file: {base_name}{ext}")
+            return
+        stock_trn = stock_models().get("trn", frozenset())
+        if f"{terrain}.trn".lower() not in files_lower and f"{terrain}.trn".lower() not in stock_trn:
+            errors.append(f"{bzn} loads terrain '{terrain}', which is not in the mod or the stock game.")
+        elif missing:
+            warnings.append(f"{bzn} reuses terrain '{terrain}', so the game loads; the official uploader "
+                            f"still requires {', '.join(base_name + ext for ext in missing)}.")
+
     def _check_workshop_ini(self, mod_dir, target_ini, files_lower, errors, warnings):
         """Check one Workshop ``.ini``; returns its mapType, or ``None`` when unreadable."""
         ini_path = os.path.join(mod_dir, target_ini)
@@ -601,8 +624,9 @@ class ModScanner:
 
         if map_type in ["multiplayer", "instant_action"]:
             # the official uploader requires the .bmp and .des for both map types
-            for ext in [".hg2", ".trn", ".mat", ".bzn", ".lgt", ".bmp", ".des"]:
+            for ext in [".bzn", ".bmp", ".des"]:
                 check_ext(ext)
+            self._check_map_terrain(mod_dir, base_name, files_lower, errors, warnings)
 
             if map_type == "multiplayer":
                 check_ext(".vxt", required=False)

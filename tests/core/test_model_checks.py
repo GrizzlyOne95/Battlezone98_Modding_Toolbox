@@ -171,5 +171,47 @@ class UploadRuleTests(unittest.TestCase):
         self.assertFalse(any("Invalid mapType" in m for m in messages), messages)   # campaign is valid
 
 
+def binary_bzn(terrain: bytes) -> bytes:
+    def field(code, value):
+        return struct.pack("<BBH", code, 0, len(value)) + value
+    return (b"version [1] =\r\n2016\r\nbinarySave [1] =\r\ntrue\r\n" + field(2, b"mymap.bzn\0\0\0")
+            + field(4, struct.pack("<i", 54)) + field(1, b"\x01") + field(2, terrain + b"\0t\0bzn" + b"\0" * 20))
+
+
+class TerrainNameTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        (self.root / "mymap.ini").write_text('[WORKSHOP]\nmapType = "instant_action"\n', encoding="utf-8")
+        for ext in (".bmp", ".des"):
+            (self.root / f"mymap{ext}").write_bytes(b"")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def structure(self):
+        return [(i.severity, i.message) for i in validate_project(self.root, ["structure"]).issues]
+
+    def test_terrain_name_from_both_formats(self):
+        from battlezone.bzn.scan import bzn_terrain_name
+        self.assertEqual(bzn_terrain_name(binary_bzn(b"chill")), "chill")
+        self.assertEqual(bzn_terrain_name(b"binarySave [1] =\nfalse\nTerrainName = seabattl\n"), "seabattl")
+        self.assertEqual(bzn_terrain_name(b"binarySave [1] =\nfalse\nTerrainName = misn03.bzn\n"), "misn03")
+
+    def test_reused_terrain_is_a_warning(self):
+        (self.root / "mymap.bzn").write_bytes(binary_bzn(b"chill"))
+        (self.root / "chill.trn").write_bytes(b"")
+        issues = self.structure()
+        self.assertEqual([sev for sev, _ in issues], ["warning"], issues)
+        self.assertIn("reuses terrain 'chill'", issues[0][1])
+
+    def test_stock_terrain_counts_and_a_missing_one_is_an_error(self):
+        (self.root / "mymap.bzn").write_bytes(b"binarySave [1] =\nfalse\nTerrainName = misn03\n")
+        self.assertEqual([sev for sev, _ in self.structure()], ["warning"])
+        (self.root / "mymap.bzn").write_bytes(b"binarySave [1] =\nfalse\nTerrainName = nowhere\n")
+        self.assertIn(("error", "mymap.bzn loads terrain 'nowhere', which is not in the mod or the stock game."),
+                      self.structure())
+
+
 if __name__ == "__main__":
     unittest.main()
