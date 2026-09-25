@@ -537,15 +537,40 @@ class ModScanner:
                 except Exception as e:
                     self.log(f"Warning: Could not remove {name}: {e}")
 
-        ini_files = [name for name in files if name.lower().endswith(".ini") and os.path.isfile(os.path.join(mod_dir, name))]
+        ini_files = sorted((name for name in files
+                            if name.lower().endswith(".ini") and os.path.isfile(os.path.join(mod_dir, name))),
+                           key=str.lower)
 
         if not ini_files:
             errors.append("Missing configuration (.ini) file in content root.")
             return errors, warnings
 
-        target_ini = ini_files[0]
-        ini_path = os.path.join(mod_dir, target_ini)
+        # every .ini describes one Workshop entry; the official uploader checks each of them
+        files_lower = set(name.lower() for name in files)
+        type_counts = {"mod": 0, "map": 0, "campaign": 0}
+        for target_ini in ini_files:
+            map_type = self._check_workshop_ini(mod_dir, target_ini, files_lower, errors, warnings)
+            if map_type in ("instant_action", "multiplayer"):
+                type_counts["map"] += 1
+            elif map_type in type_counts:
+                type_counts[map_type] += 1
 
+        if type_counts["mod"] and (type_counts["map"] or type_counts["campaign"]):
+            errors.append("A mod .ini cannot share the content folder with map or campaign .ini files; "
+                          "the official uploader refuses the mix.")
+        elif type_counts["mod"] > 1:
+            errors.append("More than one .ini has mapType \"mod\"; a content folder holds one mod.")
+        if type_counts["campaign"] > 1:
+            errors.append("More than one .ini has mapType \"campaign\"; a content folder holds one campaign.")
+        return errors, warnings
+
+    VALID_MAP_TYPES = ("instant_action", "multiplayer", "mod", "campaign")
+    # gameType letters the official uploader accepts: Deathmatch, Strategy, MP Action, MP Instant, King of the Hill
+    VALID_GAME_TYPES = "DSAMK"
+
+    def _check_workshop_ini(self, mod_dir, target_ini, files_lower, errors, warnings):
+        """Check one Workshop ``.ini``; returns its mapType, or ``None`` when unreadable."""
+        ini_path = os.path.join(mod_dir, target_ini)
         config = configparser.ConfigParser()
         try:
             with open(ini_path, "r", encoding="utf-8-sig") as f:
@@ -555,21 +580,19 @@ class ModScanner:
                 config.read(ini_path)
             except Exception as e:
                 errors.append(f"Failed to parse {target_ini}: {e}")
-                return errors, warnings
+                return None
 
         if "WORKSHOP" not in config:
             errors.append(f"{target_ini} missing [WORKSHOP] section.")
-            return errors, warnings
+            return None
 
         map_type = config["WORKSHOP"].get("maptype", "").lower().strip().strip('"').strip("'")
-        valid_types = ["instant_action", "multiplayer", "mod"]
-
-        if map_type not in valid_types:
-            errors.append(f"Invalid mapType '{map_type}' in {target_ini}.\nMust be one of: {', '.join(valid_types)}")
-            return errors, warnings
+        if map_type not in self.VALID_MAP_TYPES:
+            errors.append(f"Invalid mapType '{map_type}' in {target_ini}.\nMust be one of: "
+                          f"{', '.join(self.VALID_MAP_TYPES)}")
+            return None
 
         base_name = os.path.splitext(target_ini)[0]
-        files_lower = set(name.lower() for name in files)
 
         def check_ext(ext, required=True):
             if f"{base_name}{ext}".lower() not in files_lower:
@@ -577,17 +600,20 @@ class ModScanner:
                 (errors if required else warnings).append(f"Missing {kind} file: {base_name}{ext}")
 
         if map_type in ["multiplayer", "instant_action"]:
-            for ext in [".hg2", ".trn", ".mat", ".bzn", ".lgt"]:
+            # the official uploader requires the .bmp and .des for both map types
+            for ext in [".hg2", ".trn", ".mat", ".bzn", ".lgt", ".bmp", ".des"]:
                 check_ext(ext)
 
             if map_type == "multiplayer":
-                for ext in [".bmp", ".des", ".vxt"]:
-                    check_ext(ext, required=False)
+                check_ext(".vxt", required=False)
                 if "MULTIPLAYER" not in config:
                     errors.append(f"{target_ini} missing [MULTIPLAYER] section.")
                 else:
                     for key in ["minplayers", "maxplayers", "gametype"]:
                         if key not in config["MULTIPLAYER"]:
                             warnings.append(f"[MULTIPLAYER] missing '{key}'")
-
-        return errors, warnings
+                    game_type = config["MULTIPLAYER"].get("gametype", "").strip().strip('"').strip("'")
+                    if game_type and game_type[:1].upper() not in self.VALID_GAME_TYPES:
+                        errors.append(f"{target_ini}: gameType '{game_type}' is not one of D, S, A, M or K "
+                                      "(Deathmatch, Strategy, MP Action, MP Instant, King of the Hill).")
+        return map_type
