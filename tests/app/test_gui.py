@@ -10,6 +10,7 @@ import tkinter as tk
 import tkinter.ttk  # noqa: F401 - tk.ttk in the shell test
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def _make_root():
@@ -101,6 +102,33 @@ class HostTests(unittest.TestCase):
         self.assertEqual(created[0].title(), "Standalone")
         host.destroy()
         self.assertFalse(created[0].winfo_exists())
+
+
+class WidgetTests(unittest.TestCase):
+    def setUp(self):
+        self.root = _make_root()
+
+    def tearDown(self):
+        self.root.destroy()
+
+    def test_issue_tree_double_click_activates_row(self):
+        from bztoolbox.app.widgets import IssueTree
+
+        activated = []
+        tree = IssueTree(self.root, on_activate=activated.append)
+        tree.pack(fill="both", expand=True)
+        issue = SimpleNamespace(
+            severity="warning",
+            check="odf",
+            message="Example warning",
+            location=lambda: "unit.odf:12",
+        )
+        tree.set_issues([issue])
+        self.root.update_idletasks()
+        iid = tree.tree.get_children()[0]
+        x, y, width, height = tree.tree.bbox(iid)
+        tree._activated(SimpleNamespace(y=y + max(1, height // 2)))
+        self.assertEqual(activated, [issue])
 
 
 class JobTests(unittest.TestCase):
