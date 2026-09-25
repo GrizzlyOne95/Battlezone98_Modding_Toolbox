@@ -1,0 +1,288 @@
+{
+ "source": "odf_loader_schema.json schema_version 4",
+ "sections": {
+  "flarebuildingclass": {
+   "name": "FlareBuildingClass",
+   "read_instead": "FlareMineClass"
+  },
+  "magnetclass": {
+   "name": "MagnetClass",
+   "read_instead": "MagnetMineClass"
+  },
+  "scavengercraftclass": {
+   "name": "ScavengerCraftClass",
+   "read_instead": "ScavengerClass"
+  },
+  "spraybuildngclass": {
+   "name": "SprayBuildngClass",
+   "read_instead": "SprayBuildingClass"
+  },
+  "gameobject": {
+   "name": "GameObject",
+   "read_instead": "GameObjectClass"
+  },
+  "spraybomb": {
+   "name": "SprayBomb",
+   "read_instead": "SprayBombClass"
+  },
+  "flameclass": {
+   "name": "flameClass",
+   "read_instead": ""
+  }
+ },
+ "keys": {
+  "*": {
+   "triggetdelay": {
+    "name": "triggetDelay",
+    "read_in": [],
+    "evidence": "nowhere in code or stock: code reads triggerDelay 0x682CD2B2 (FlareMine/MagnetMine/SprayBuilding/SpecialItem); stock uses triggerDelay x11"
+   },
+   "powerrange": {
+    "name": "powerRange",
+    "read_in": [],
+    "evidence": "No recovered native reader in the audited loader schema. The verified PowerPlantClass key is powerRadius (0x2FB89BE4, default 100). Redux decomp hash search for 0x9E9F3273 returned zero hits; do not treat powerRange as an alias."
+   }
+  },
+  "craftclass": {
+   "stopmsg": {
+    "name": "stopMsg",
+    "read_in": [],
+    "evidence": "stock/avscav.odf [CraftClass]: dead"
+   },
+   "bombmsg": {
+    "name": "bombMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x1: no reader"
+   },
+   "buildmsg": {
+    "name": "buildMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x1: no reader"
+   },
+   "cameramsg": {
+    "name": "cameraMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x1: no reader"
+   },
+   "gogeysermsg": {
+    "name": "goGeyserMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x17: no reader"
+   },
+   "nogeysermsg": {
+    "name": "noGeyserMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x10: no reader"
+   },
+   "selectbuildingmsg": {
+    "name": "selectBuildingMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x1: no reader"
+   },
+   "selectdeployingmsg": {
+    "name": "selectDeployingMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x9: no reader"
+   },
+   "selectnopowermsg": {
+    "name": "selectNoPowerMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x1: no reader"
+   },
+   "weaponmsg": {
+    "name": "weaponMsg",
+    "read_in": [],
+    "evidence": "retail [CraftClass] x1: no reader"
+   },
+   "soundsteer": {
+    "name": "soundSteer",
+    "read_in": [],
+    "evidence": "retail x2 (avmine/savtnk): read only under [HoverCraftClass]; dead here"
+   },
+   "soundthrust": {
+    "name": "soundThrust",
+    "read_in": [
+     "HoverCraftClass",
+     "TorpedoClass"
+    ],
+    "evidence": "retail x2 (avmine/savtnk): read only under [HoverCraftClass]; dead here"
+   }
+  },
+  "flamepuffclass": {
+   "flamedelay": {
+    "name": "flameDelay",
+    "read_in": [],
+    "evidence": "stock/flame.odf + charge1-6.odf [FlamePuffClass]: dead; code reads frameDelay"
+   }
+  },
+  "gameobjectclass": {
+   "maxheat": {
+    "name": "maxHeat",
+    "read_in": [],
+    "evidence": "retail splint x4: no reader"
+   },
+   "setname": {
+    "name": "SetName",
+    "read_in": [],
+    "evidence": "retail [GameObjectClass] x4: no reader in either build"
+   },
+   "curammo": {
+    "name": "curAmmo",
+    "read_in": [],
+    "evidence": "retail [GameObjectClass] x2: no reader"
+   },
+   "haspilot": {
+    "name": "hasPilot",
+    "read_in": [],
+    "evidence": "retail [GameObjectClass] x5: no reader"
+   }
+  },
+  "minelayerclass": {
+   "minerad": {
+    "name": "mineRad",
+    "read_in": [],
+    "evidence": "retail avmine.odf: 1.5-only keys, dead in Redux (replaced by mineCount/mineAngle)"
+   },
+   "minestep": {
+    "name": "mineStep",
+    "read_in": [],
+    "evidence": "retail avmine.odf: 1.5-only keys, dead in Redux (replaced by mineCount/mineAngle)"
+   }
+  },
+  "ordnanceclass": {
+   "xplsoundground": {
+    "name": "xplSoundGround",
+    "read_in": [],
+    "evidence": "stock/flame.odf [OrdnanceClass]: dead; code reads xplGround/xplVehicle/xplBuilding"
+   },
+   "xplnameground": {
+    "name": "xplNameGround",
+    "read_in": [],
+    "evidence": "stock/flame.odf [OrdnanceClass]: dead; code reads xplGround/xplVehicle/xplBuilding"
+   },
+   "xplsoundvehicle": {
+    "name": "xplSoundVehicle",
+    "read_in": [],
+    "evidence": "stock/flame.odf [OrdnanceClass]: dead; code reads xplGround/xplVehicle/xplBuilding"
+   },
+   "xplsoundbuilding": {
+    "name": "xplSoundBuilding",
+    "read_in": [],
+    "evidence": "stock/flame.odf [OrdnanceClass]: dead; code reads xplGround/xplVehicle/xplBuilding"
+   },
+   "xplnamevehicle": {
+    "name": "xplNameVehicle",
+    "read_in": [],
+    "evidence": "stock/flame.odf [OrdnanceClass]: dead; code reads xplGround/xplVehicle/xplBuilding"
+   },
+   "xplnamebuilding": {
+    "name": "xplNameBuilding",
+    "read_in": [],
+    "evidence": "stock/flame.odf [OrdnanceClass]: dead; code reads xplGround/xplVehicle/xplBuilding"
+   },
+   "heatsignature": {
+    "name": "heatSignature",
+    "read_in": [
+     "GameObjectClass"
+    ],
+    "evidence": "retail x1 (flame.odf): read only under [GameObjectClass]; dead here"
+   }
+  },
+  "rocketclass": {
+   "flaredelay": {
+    "name": "flareDelay",
+    "read_in": [],
+    "evidence": "retail x2: no reader (cf. flameDelay under [FlamePuffClass])"
+   }
+  },
+  "turretcraftclass": {
+   "alphaturret": {
+    "name": "alphaTurret",
+    "read_in": [],
+    "evidence": "retail [TurretCraftClass] x21 + [TurretTankClass] x16: zero readers in either build (verified full-decomp grep)"
+   },
+   "setaltitude": {
+    "name": "setAltitude",
+    "read_in": [
+     "HoverCraftClass",
+     "SprayBuildingClass",
+     "TorpedoClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   },
+   "soundthrust": {
+    "name": "soundThrust",
+    "read_in": [
+     "HoverCraftClass",
+     "TorpedoClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   },
+   "soundturbo": {
+    "name": "soundTurbo",
+    "read_in": [
+     "HoverCraftClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   },
+   "timedeploy": {
+    "name": "timeDeploy",
+    "read_in": [
+     "APCClass",
+     "ProducerClass",
+     "TurretTankClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   },
+   "timeundeploy": {
+    "name": "timeUndeploy",
+    "read_in": [
+     "APCClass",
+     "ProducerClass",
+     "TurretTankClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   }
+  },
+  "turrettankclass": {
+   "alphaturret": {
+    "name": "alphaTurret",
+    "read_in": [],
+    "evidence": "retail [TurretCraftClass] x21 + [TurretTankClass] x16: zero readers in either build (verified full-decomp grep)"
+   },
+   "setaltitude": {
+    "name": "setAltitude",
+    "read_in": [
+     "HoverCraftClass",
+     "SprayBuildingClass",
+     "TorpedoClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   },
+   "soundthrust": {
+    "name": "soundThrust",
+    "read_in": [
+     "HoverCraftClass",
+     "TorpedoClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   },
+   "soundturbo": {
+    "name": "soundTurbo",
+    "read_in": [
+     "HoverCraftClass"
+    ],
+    "evidence": "retail turret ODFs: read only under [HoverCraftClass] (sounds/altitude); Turret ctors never read them here"
+   }
+  },
+  "weaponclass": {
+   "basename": {
+    "name": "baseName",
+    "read_in": [
+     "GameObjectClass"
+    ],
+    "evidence": "retail x17: read only under [GameObjectClass]; dead here"
+   }
+  }
+ }
+}

@@ -38,9 +38,12 @@ def publishing(container):
 
 
 def publishing_project(app, project) -> None:
-    # The uploader loads the shared project profile for this folder itself.
+    # The uploader loads (or creates) the shared project profile for this
+    # folder itself, then offers to link it to an installed Workshop item with
+    # the same mission files when it has none.
     if app.mod_path.get() != str(project.root):
-        app.mod_path.set(str(project.root))
+        app._activate_content_folder(str(project.root), quiet=True)
+        app.root.after(500, app.suggest_workshop_link)
 
 
 # --- World & Terrain -----------------------------------------------------------

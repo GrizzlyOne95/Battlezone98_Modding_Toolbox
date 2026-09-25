@@ -96,7 +96,25 @@ class ValidationEngineTests(unittest.TestCase):
         report = validate_project(self.root, ["odf-lint"])
         headers = {i.message for i in report.issues if i.rule_id == "odf-lint-invalid-header"}
         self.assertEqual(headers, {"Invalid Header: tga", "Invalid Header: NotAClass"})
-        self.assertFalse([i for i in report.issues if "particleInherit1" in i.message])
+        [inherit] = [i for i in report.issues if "particleInherit1" in i.message]
+        self.assertEqual(inherit.rule_id, "odf-lint-bz2-field")   # BZ2 particle key, not read by Redux
+
+    def test_odf_lint_explains_bzcc_damage_fields(self):
+        write(self.root / "odf" / "ported.odf",
+              '[ExplosionClass]\nclassLabel = "explosion"\ndamageValue(N) = 0 // none\ndamageBallistic = 5\n')
+        report = validate_project(self.root, ["odf-lint"])
+        [issue] = [i for i in report.issues if "damageValue" in i.message]
+        self.assertEqual((issue.severity, issue.rule_id, issue.line), ("warning", "odf-lint-bz2-field", 3))
+        self.assertIn("ignored by Redux", issue.message)
+        self.assertIn("damageBallistic", issue.message)
+        self.assertFalse([i for i in report.issues if "Unknown Field" in i.message])
+        self.assertNotIn("inherited", issue.message)   # damageBallistic is set here
+
+    def test_odf_lint_says_when_damage_is_only_in_bzcc_fields(self):
+        write(self.root / "odf" / "lazy.odf", '[OrdnanceClass]\nclassLabel = "grenade"\ndamageValue(N) = 200\n')
+        report = validate_project(self.root, ["odf-lint"])
+        [issue] = [i for i in report.issues if "damageValue" in i.message]
+        self.assertIn("inherited from the class", issue.message)
 
     def test_unknown_check_and_bad_root(self):
         with self.assertRaises(ValueError):
