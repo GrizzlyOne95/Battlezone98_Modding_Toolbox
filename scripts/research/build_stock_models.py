@@ -1,10 +1,10 @@
 """Build battlezone/validation/data/stock_models.json from a Redux install.
 
-The model check needs to know which parts, meshes, skeletons and materials
-the stock game already provides, so a mod that uses them is not reported as
+The model and structure checks need to know which parts, terrains, meshes,
+skeletons and materials the stock game already provides, so a mod that uses them is not reported as
 missing something. Only names are recorded, never file contents:
 
-* ``geo`` / ``vdf`` / ``sdf``: members of ``bzone.zfs``;
+* ``geo`` / ``vdf`` / ``sdf`` / ``trn``: members of ``bzone.zfs``;
 * ``mesh`` / ``skeleton``: files under ``BZ_ASSETS`` and ``BZ_ASSETS_CORE``;
 * ``materials``: every ``material <name>`` defined in their ``.material`` files.
 
@@ -35,11 +35,11 @@ _MATERIAL_DEF = re.compile(r"^\s*material\s+([^\s:{]+)", re.I | re.M)
 
 
 def build(install: Path) -> dict:
-    out = {key: set() for key in ("geo", "vdf", "sdf", "mesh", "skeleton", "materials")}
+    out = {key: set() for key in ("geo", "vdf", "sdf", "trn", "mesh", "skeleton", "materials")}
     for entry in ZFSArchive(install / "bzone.zfs").entries:
         name = entry.name.lower()
         ext = name.rsplit(".", 1)[-1]
-        if ext in ("geo", "vdf", "sdf"):
+        if ext in ("geo", "vdf", "sdf", "trn"):
             out[ext].add(name)
     for folder in ASSET_DIRS:
         for path in sorted((install / folder).rglob("*")):
