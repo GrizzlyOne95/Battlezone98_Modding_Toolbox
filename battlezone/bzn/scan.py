@@ -859,21 +859,28 @@ class BZNParser:
             return set()
 
     def _parse_ascii(self, content):
-        # Only fields whose values identify object/ODF classes belong in the
-        # dependency set. Human-readable labels (for example "builddonetime")
-        # are metadata and must not be reported as <label>.odf dependencies.
-        tags = [r"PrjID", r"buildClass", r"dropClass", r"curPilot"]
+        # These fields can carry object/ODF identifiers. Keep whitespace
+        # matching horizontal: \\s* would also consume newlines, so an empty
+        # field such as "buildClass [1] =" could steal the next field name
+        # (for example "buildDoneTime") and report it as a fake dependency.
+        tags = [r"PrjID", r"buildClass", r"dropClass", r"curPilot", r"label"]
         for tag in tags:
-            # Handle both quoted and unquoted values, and optional newlines after =
-            pattern = fr"{tag}\s*\[\d+\]\s*=\s*(?:\"([^\"]+)\"|([\w\d_-]+))"
+            pattern = (
+                fr"{tag}[ \\t]*\\[\\d+\\][ \\t]*=[ \\t]*"
+                fr"(?:\\\"([^\\\"\\r\\n]+)\\\"|([\\w-]+)(?![\\w-]))"
+            )
             matches = re.finditer(pattern, content)
             for match in matches:
                 m = match.group(1) or match.group(2)
                 if m and not m.isdigit():
                     self.odf_matches.add(m)
-        
-        # BZ1 legacy format matches
-        matches = re.finditer(r"PrjID\s*=\s*(?:\"([^\"]+)\"|([\w\d_-]+))", content)
+
+        # BZ1 legacy format matches. Apply the same same-line rule here so an
+        # empty PrjID cannot consume the following line either.
+        matches = re.finditer(
+            r"PrjID[ \\t]*=[ \\t]*(?:\\\"([^\\\"\\r\\n]+)\\\"|([\\w-]+)(?![\\w-]))",
+            content,
+        )
         for match in matches:
             m = match.group(1) or match.group(2)
             if m and not m.isdigit():
