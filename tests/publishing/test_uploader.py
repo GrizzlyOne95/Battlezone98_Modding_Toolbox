@@ -1257,6 +1257,20 @@ class TestWorkshopUploader(unittest.TestCase):
         with open(os.path.join(backup, "textures", "old.map"), "rb") as f:
             self.assertEqual(f.read(), b"map")
 
+    def test_legacy_backup_survives_paths_that_have_no_relative_form(self):
+        legacy = os.path.join(self.test_dir, "old.map")
+        backup = os.path.join(self.test_dir, "backup")
+        with open(legacy, "wb") as f:
+            f.write(b"map")
+        with patch.object(os.path, "relpath", side_effect=ValueError("path is on mount 'C:', start on mount 'D:'")):
+            self.assertEqual(ContentFixer().delete_legacy_files([legacy], backup, "C:/Mods/mod"), 1)
+        self.assertTrue(os.path.exists(os.path.join(backup, "old.map")))
+        bad_mod = MagicMock()
+        bad_mod.__fspath__ = MagicMock(return_value=None)   # not a real path
+        with open(legacy, "wb") as f:
+            f.write(b"map")
+        self.assertEqual(ContentFixer().delete_legacy_files([legacy], os.path.join(backup, "2"), bad_mod), 1)
+
     def test_backup_folder_name_is_valid_on_every_file_system(self):
         for folder in ('C:/Mods/My <Best> Mod: "v2"?', MagicMock()):
             self.uploader.mod_path = DummyVar(folder)

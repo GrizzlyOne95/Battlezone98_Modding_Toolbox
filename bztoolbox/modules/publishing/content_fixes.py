@@ -75,10 +75,14 @@ class ContentFixer:
         """
         backup = os.path.abspath(backup_dir)
         rel = os.path.basename(path)
-        if isinstance(mod_dir, (str, os.PathLike)) and mod_dir:
-            candidate = os.path.relpath(os.path.abspath(path), os.path.abspath(mod_dir))
-            if not candidate.startswith(os.pardir) and not os.path.isabs(candidate):
-                rel = candidate
+        try:
+            mod = os.fspath(mod_dir) if mod_dir else ""
+            # relpath raises ValueError for another drive on Windows
+            candidate = os.path.relpath(os.path.abspath(path), os.path.abspath(mod)) if isinstance(mod, str) and mod else ""
+        except (TypeError, ValueError):
+            candidate = ""
+        if candidate and not candidate.startswith(os.pardir) and not os.path.isabs(candidate):
+            rel = candidate
         target = os.path.abspath(os.path.join(backup, rel))
         if os.path.commonpath([target, backup]) != backup:
             target = os.path.join(backup, os.path.basename(path))
