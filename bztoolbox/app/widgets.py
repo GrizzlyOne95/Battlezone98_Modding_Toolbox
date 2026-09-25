@@ -140,7 +140,8 @@ class IssueTree(ttk.Frame):
     COLUMNS = (("severity", "Severity", 80), ("check", "Check", 90), ("location", "Location", 260),
                ("message", "Message", 520))
 
-    def __init__(self, master, on_select: Optional[Callable[[object], None]] = None):
+    def __init__(self, master, on_select: Optional[Callable[[object], None]] = None,
+                 on_activate: Optional[Callable[[object], None]] = None):
         super().__init__(master, style="Toolbox.TFrame")
         self.tree = ttk.Treeview(self, columns=[c[0] for c in self.COLUMNS], show="headings",
                                  style="Toolbox.Treeview", selectmode="browse")
@@ -155,7 +156,9 @@ class IssueTree(ttk.Frame):
         scroll.pack(side="right", fill="y")
         self._items: dict = {}
         self._on_select = on_select
+        self._on_activate = on_activate
         self.tree.bind("<<TreeviewSelect>>", self._selected)
+        self.tree.bind("<Double-1>", self._activated)
 
     def set_issues(self, issues: Iterable) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -170,6 +173,19 @@ class IssueTree(ttk.Frame):
         if self._on_select:
             selection = self.tree.selection()
             self._on_select(self._items.get(selection[0]) if selection else None)
+
+    def _activated(self, event=None) -> None:
+        iid = self.tree.identify_row(event.y) if event is not None else ""
+        if not iid:
+            selection = self.tree.selection()
+            iid = selection[0] if selection else ""
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        self.tree.focus(iid)
+        issue = self._items.get(iid)
+        if issue is not None and self._on_activate:
+            self._on_activate(issue)
 
 
 class LogView(ttk.Frame):
