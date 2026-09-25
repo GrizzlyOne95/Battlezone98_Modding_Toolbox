@@ -1257,6 +1257,12 @@ class TestWorkshopUploader(unittest.TestCase):
         with open(os.path.join(backup, "textures", "old.map"), "rb") as f:
             self.assertEqual(f.read(), b"map")
 
+    def test_backup_folder_name_is_valid_on_every_file_system(self):
+        for folder in ('C:/Mods/My <Best> Mod: "v2"?', MagicMock()):
+            self.uploader.mod_path = DummyVar(folder)
+            name = os.path.basename(self.uploader._backup_dir("x"))
+            self.assertRegex(name, r"^[\w.-]+$")
+
     def test_legacy_backup_never_lands_outside_the_backup_folder(self):
         outside = os.path.join(self.test_dir, "elsewhere", "stray.map")
         os.makedirs(os.path.dirname(outside))

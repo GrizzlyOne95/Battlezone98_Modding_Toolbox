@@ -2729,7 +2729,9 @@ class WorkshopUploader:
         """A fresh folder outside the mod (so it is never uploaded) for files a fix replaces or removes."""
         from bztoolbox import paths
 
-        name = os.path.basename(self.mod_path.get().rstrip("\\/")) or "mod"
+        folder = self.mod_path.get()
+        name = os.path.basename(folder.rstrip("\\/")) if isinstance(folder, str) else ""
+        name = re.sub(r"[^\w.-]+", "_", name).strip("._") or "mod"   # safe on every file system
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         return str(paths.user_data_dir() / "publish-backups" / f"{name}-{stamp}-{label}")
 
