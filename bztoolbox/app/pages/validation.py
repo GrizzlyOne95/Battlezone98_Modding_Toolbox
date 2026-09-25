@@ -57,7 +57,7 @@ class ValidationPage(ttk.Frame):
 
         panes = ttk.PanedWindow(self, orient="vertical")
         panes.pack(fill="both", expand=True)
-        self.tree = IssueTree(panes, on_select=self._show_detail)
+        self.tree = IssueTree(panes, on_select=self._show_detail, on_activate=self._open_issue)
         panes.add(self.tree, weight=4)
         detail_frame = ttk.Frame(panes, style="Toolbox.TFrame")
         panes.add(detail_frame, weight=1)
@@ -158,6 +158,13 @@ class ValidationPage(ttk.Frame):
             self.detail.insert("1.0", "\n".join(lines))
         self.detail.configure(state="disabled")
         self.reveal_button.configure(state="normal" if issue is not None and issue.path else "disabled")
+
+    def _open_issue(self, issue) -> None:
+        if issue is None or self.report is None or not issue.path:
+            return
+        path = os.path.join(self.report.root, issue.path)
+        if os.path.isfile(path):
+            open_in_file_manager(path)
 
     def _reveal(self) -> None:
         if self._selected is None or self.report is None:
