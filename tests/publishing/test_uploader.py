@@ -1257,6 +1257,17 @@ class TestWorkshopUploader(unittest.TestCase):
         with open(os.path.join(backup, "textures", "old.map"), "rb") as f:
             self.assertEqual(f.read(), b"map")
 
+    def test_legacy_backup_never_lands_outside_the_backup_folder(self):
+        outside = os.path.join(self.test_dir, "elsewhere", "stray.map")
+        os.makedirs(os.path.dirname(outside))
+        with open(outside, "wb") as f:
+            f.write(b"map")
+        backup = os.path.join(self.test_dir, "backup")
+        mod = os.path.join(self.test_dir, "a", "b", "mod")   # the file is not inside the mod
+        self.assertEqual(ContentFixer().delete_legacy_files([outside], backup, mod), 1)
+        self.assertFalse(os.path.exists(outside))
+        self.assertTrue(os.path.exists(os.path.join(backup, "stray.map")))
+
     def test_trn_fixes_keep_non_ascii_bytes(self):
         path = os.path.join(self.test_dir, "caf\u00e9.trn")
         with open(path, "wb") as f:

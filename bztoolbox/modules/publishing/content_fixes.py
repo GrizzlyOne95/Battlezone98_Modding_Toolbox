@@ -56,8 +56,7 @@ class ContentFixer:
         for path in files:
             try:
                 if backup_dir:
-                    rel = os.path.relpath(path, mod_dir) if mod_dir else os.path.basename(path)
-                    target = os.path.join(backup_dir, rel)
+                    target = self._backup_target(path, backup_dir, mod_dir)
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                     shutil.move(path, target)
                 else:
@@ -66,6 +65,24 @@ class ContentFixer:
             except Exception as e:
                 self.log(f"Error removing {path}: {e}")
         return count
+
+    @staticmethod
+    def _backup_target(path, backup_dir, mod_dir=None):
+        """Where ``path`` goes inside ``backup_dir``: its place in the mod when it is in the mod, else its name.
+
+        Never outside ``backup_dir``: a relative path that climbs out ("../..")
+        could land back on the original file, or anywhere else.
+        """
+        backup = os.path.abspath(backup_dir)
+        rel = os.path.basename(path)
+        if isinstance(mod_dir, (str, os.PathLike)) and mod_dir:
+            candidate = os.path.relpath(os.path.abspath(path), os.path.abspath(mod_dir))
+            if not candidate.startswith(os.pardir) and not os.path.isabs(candidate):
+                rel = candidate
+        target = os.path.abspath(os.path.join(backup, rel))
+        if os.path.commonpath([target, backup]) != backup:
+            target = os.path.join(backup, os.path.basename(path))
+        return target
 
     def fix_trn_files(self, files):
         count = 0
