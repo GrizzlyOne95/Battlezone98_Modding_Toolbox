@@ -98,6 +98,16 @@ class ValidationEngineTests(unittest.TestCase):
         self.assertEqual(headers, {"Invalid Header: tga", "Invalid Header: NotAClass"})
         self.assertFalse([i for i in report.issues if "particleInherit1" in i.message])
 
+    def test_odf_lint_explains_bzcc_damage_fields(self):
+        write(self.root / "odf" / "ported.odf",
+              '[ExplosionClass]\nclassLabel = "explosion"\ndamageValue(N) = 0 // none\ndamageBallistic = 5\n')
+        report = validate_project(self.root, ["odf-lint"])
+        [issue] = [i for i in report.issues if "damageValue" in i.message]
+        self.assertEqual((issue.severity, issue.rule_id, issue.line), ("warning", "odf-lint-bz2-field", 3))
+        self.assertIn("ignored by Redux", issue.message)
+        self.assertIn("damageBallistic", issue.message)
+        self.assertFalse([i for i in report.issues if "Unknown Field" in i.message])
+
     def test_unknown_check_and_bad_root(self):
         with self.assertRaises(ValueError):
             validate_project(self.root, ["nope"])

@@ -34,6 +34,21 @@ _FILE_EXTENSIONS = frozenset({
 })
 
 
+# BZ2/BZCC fields that turn up in Redux ODFs copied from BZCC. Redux ignores
+# them silently, so they get a pointed hint instead of "Unknown Field".
+BZ2_FIELDS = (
+    (re.compile(r"^damagevalue\(\w+\)$", re.I),
+     "BZ2/BZCC field, ignored by Redux. Use damageBallistic / damageConcussion / damageFlame / damageImpact"),
+)
+
+
+def bz2_field_hint(key):
+    for pattern, hint in BZ2_FIELDS:
+        if pattern.match(key):
+            return hint
+    return None
+
+
 def _read_odf_sections(lines):
     """``([(header, line, [(key, line), ...]), ...], referenced_section_names)``."""
     sections = []
@@ -185,6 +200,10 @@ class ModScanner:
 
             for header, header_line, params in sections:
                 header_key = header.lower()
+                for key, line_no in params:
+                    hint = bz2_field_hint(key)
+                    if hint:
+                        issues.append((path, "BZ2 Field", f"[{header}] {key}: {hint}", line_no))
                 if header_key not in allowed_headers:
                     if _is_render_section(header_key, params, references):
                         continue  # particle / render definition; its fields are free-form
@@ -193,6 +212,8 @@ class ModScanner:
                     found_params = set()
                     for key, line_no in params:
                         key_key = key.lower()
+                        if bz2_field_hint(key):
+                            continue   # reported above as a BZ2 field
                         if not _param_allowed(key_key, allowed_params[header_key]):
                             issues.append((path, "Unknown Field", f"[{header}] {key}", line_no))
                         else:
