@@ -107,6 +107,13 @@ class ValidationEngineTests(unittest.TestCase):
         self.assertIn("ignored by Redux", issue.message)
         self.assertIn("damageBallistic", issue.message)
         self.assertFalse([i for i in report.issues if "Unknown Field" in i.message])
+        self.assertNotIn("inherited", issue.message)   # damageBallistic is set here
+
+    def test_odf_lint_says_when_damage_is_only_in_bzcc_fields(self):
+        write(self.root / "odf" / "lazy.odf", '[OrdnanceClass]\nclassLabel = "grenade"\ndamageValue(N) = 200\n')
+        report = validate_project(self.root, ["odf-lint"])
+        [issue] = [i for i in report.issues if "damageValue" in i.message]
+        self.assertIn("inherited from the class", issue.message)
 
     def test_unknown_check_and_bad_root(self):
         with self.assertRaises(ValueError):

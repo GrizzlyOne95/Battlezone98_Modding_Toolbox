@@ -36,6 +36,9 @@ _FILE_EXTENSIONS = frozenset({
 
 # BZ2/BZCC fields that turn up in Redux ODFs copied from BZCC. Redux ignores
 # them silently, so they get a pointed hint instead of "Unknown Field".
+# Redux reads damage only from these four keys; if a section sets none of
+# them the damage is inherited (Battlezone_Source BZ1/research/ODF_REFERENCE.md).
+REDUX_DAMAGE_KEYS = frozenset({"damageballistic", "damageconcussion", "damageflame", "damageimpact"})
 BZ2_FIELDS = (
     (re.compile(r"^damagevalue\(\w+\)$", re.I),
      "BZ2/BZCC field, ignored by Redux. Use damageBallistic / damageConcussion / damageFlame / damageImpact"),
@@ -200,9 +203,13 @@ class ModScanner:
 
             for header, header_line, params in sections:
                 header_key = header.lower()
+                inherits_damage = not any(key.lower() in REDUX_DAMAGE_KEYS for key, _ in params)
                 for key, line_no in params:
                     hint = bz2_field_hint(key)
                     if hint:
+                        if inherits_damage and key.lower().startswith("damagevalue"):
+                            hint += (". This section sets none of them, so its damage is inherited "
+                                     "from the class, not taken from these values")
                         issues.append((path, "BZ2 Field", f"[{header}] {key}: {hint}", line_no))
                 if header_key not in allowed_headers:
                     if _is_render_section(header_key, params, references):
