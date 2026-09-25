@@ -860,14 +860,14 @@ class BZNParser:
 
     def _parse_ascii(self, content):
         # These fields can carry object/ODF identifiers. Keep whitespace
-        # matching horizontal: \\s* would also consume newlines, so an empty
+        # matching horizontal: \s* would also consume newlines, so an empty
         # field such as "buildClass [1] =" could steal the next field name
         # (for example "buildDoneTime") and report it as a fake dependency.
         tags = [r"PrjID", r"buildClass", r"dropClass", r"curPilot", r"label"]
         for tag in tags:
             pattern = (
-                fr"{tag}[ \\t]*\\[\\d+\\][ \\t]*=[ \\t]*"
-                fr"(?:\\\"([^\\\"\\r\\n]+)\\\"|([\\w-]+)(?![\\w-]))"
+                fr"{tag}[ \t]*\[\d+\][ \t]*=[ \t]*"
+                fr"(?:\"([^\"\r\n]+)\"|([\w-]+)(?![\w-]))"
             )
             matches = re.finditer(pattern, content)
             for match in matches:
@@ -878,7 +878,7 @@ class BZNParser:
         # BZ1 legacy format matches. Apply the same same-line rule here so an
         # empty PrjID cannot consume the following line either.
         matches = re.finditer(
-            r"PrjID[ \\t]*=[ \\t]*(?:\\\"([^\\\"\\r\\n]+)\\\"|([\\w-]+)(?![\\w-]))",
+            r"PrjID[ \t]*=[ \t]*(?:\"([^\"\r\n]+)\"|([\w-]+)(?![\w-]))",
             content,
         )
         for match in matches:
