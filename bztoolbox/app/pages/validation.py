@@ -76,6 +76,12 @@ class ValidationPage(ttk.Frame):
         self.reveal_button = ttk.Button(self.detail_actions, text="Show file in folder", style="Toolbox.TButton",
                                         state="disabled", command=self._reveal)
         self.reveal_button.pack(side="left", pady=4, padx=6)
+        self.fix_button = ttk.Button(self.detail_actions, text="Apply fix", style="Toolbox.Accent.TButton",
+                                     state="disabled", command=lambda: self._apply_fixes([self._selected]))
+        self.fix_button.pack(side="left", pady=4)
+        self.fix_all_button = ttk.Button(self.detail_actions, text="Fix all like this", style="Toolbox.TButton",
+                                         state="disabled", command=self._apply_similar_fixes)
+        self.fix_all_button.pack(side="left", pady=4, padx=6)
         ttk.Label(self.detail_actions, text="Double-click a finding to open its file.",
                   style="Toolbox.Muted.TLabel").pack(side="left", padx=6)
         self._selected = None
@@ -216,6 +222,55 @@ class ValidationPage(ttk.Frame):
         has_file = issue is not None and bool(issue.path)
         self.reveal_button.configure(state="normal" if has_file else "disabled")
         self.open_button.configure(state="normal" if has_file else "disabled")
+        fixable = has_file and bool(issue.fix) and self._fixable()
+        similar = len(self._similar_fixes(issue)) if fixable else 0
+        self.fix_button.configure(state="normal" if fixable else "disabled")
+        self.fix_all_button.configure(state="normal" if similar > 1 else "disabled",
+                                      text=f"Fix all {similar} like this" if similar > 1 else "Fix all like this")
+
+    # ------------------------------------------------------------------ fixes
+    def _fixable(self) -> bool:
+        """Fixes edit real project files: not a ZIP's temporary copy."""
+        return self.report is not None and self._fingerprint is not None and self._fingerprint[2] is not None
+
+    def _similar_fixes(self, issue) -> list:
+        if issue is None or not issue.fix or self.report is None:
+            return []
+        want = (issue.rule_id, issue.fix[1].lower(), issue.fix[2].lower())
+        return [i for i in self.report.issues
+                if i.fix and (i.rule_id, i.fix[1].lower(), i.fix[2].lower()) == want]
+
+    def _apply_similar_fixes(self) -> None:
+        self._apply_fixes(self._similar_fixes(self._selected))
+
+    def _apply_fixes(self, issues) -> None:
+        from datetime import datetime
+
+        from battlezone.validation.fixes import FixError, apply_fixes
+        from bztoolbox import paths
+
+        issues = [i for i in issues if i is not None and i.fix]
+        if not issues or not self._fixable():
+            return
+        files = sorted({i.path for i in issues})
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = paths.user_data_dir() / "fix-backups" / f"{os.path.basename(self.report.root)}-{stamp}"
+        labels = sorted({i.fix[3] for i in issues})
+        detail = "\n".join(f"• {label}" for label in labels[:6])
+        if not messagebox.askokcancel(
+                "Apply fix",
+                f"{detail}\n\nThis edits {len(issues)} line(s) in {len(files)} file(s):\n"
+                + "\n".join(files[:8]) + ("\n…" if len(files) > 8 else "")
+                + f"\n\nOriginals are copied to\n{backup}\n(outside the mod folder, so they are never uploaded).",
+                parent=self):
+            return
+        try:
+            changed = apply_fixes(self.report.root, [(i.path, i.line, i.fix) for i in issues], backup)
+        except (FixError, OSError) as exc:
+            messagebox.showerror("Apply fix", str(exc), parent=self)
+            return
+        self.shell.status(f"Fixed {len(issues)} line(s) in {len(changed)} file(s). Backups: {backup}")
+        self._start(self.report.root)   # re-validate what was fixed
 
     def _issue_file(self, issue):
         if issue is None or self.report is None or not issue.path:

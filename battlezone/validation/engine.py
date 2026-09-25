@@ -49,6 +49,7 @@ class Issue:
     section: str = ""
     key: str = ""
     evidence_ids: tuple = ()
+    fix: tuple = ()               # (action, old, new, label); see battlezone.validation.fixes
 
     def location(self) -> str:
         if not self.path:
@@ -224,10 +225,13 @@ def _check_legacy(ctx: _Context) -> Iterator[Issue]:
 
 
 def _check_odf_lint(ctx: _Context) -> Iterator[Issue]:
-    for path, kind, detail, line in ctx.scanner.scan_mod_safety(str(ctx.root), inventory=ctx.inventory):
-        severity = "warning" if kind in ("Missing Fields", "BZ2 Field", "Dead Field", "Dead Section") else "info"
-        yield Issue(severity, "odf-lint", f"{kind}: {detail}", ctx.rel(path), line=line,
-                    rule_id="odf-lint-" + kind.lower().replace(" ", "-"))
+    warn = ("Missing Fields", "BZ2 Field", "Dead Field", "Dead Section", "Wrong Key")
+    for finding in ctx.scanner.scan_mod_safety(str(ctx.root), inventory=ctx.inventory):
+        path, kind, detail, line = finding
+        fix = getattr(finding, "fix", ())
+        yield Issue("warning" if kind in warn else "info", "odf-lint", f"{kind}: {detail}", ctx.rel(path),
+                    line=line, rule_id="odf-lint-" + kind.lower().replace(" ", "-"),
+                    suggestion=fix[3] if fix else "", fix=fix)
 
 
 CHECKS: dict[str, Check] = {check.id: check for check in (

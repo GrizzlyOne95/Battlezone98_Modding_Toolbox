@@ -249,6 +249,44 @@ class ColumnResizeTests(unittest.TestCase):
             root.destroy()
 
 
+class ValidationFixTests(unittest.TestCase):
+    def test_apply_fix_edits_the_file_and_revalidates(self):
+        root = _make_root()
+        try:
+            from unittest import mock
+
+            from bztoolbox.app.shell import Shell
+            from bztoolbox.settings import Settings
+
+            with tempfile.TemporaryDirectory() as tmp:
+                mod = Path(tmp) / "mod"
+                mod.mkdir()
+                for name in ("a", "b"):
+                    (mod / f"{name}.odf").write_text('[GameObjectClass]\nclassLabel = "wingman"\nfaction = "x"\n')
+                shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                shell.open_project(str(mod))
+                shell.navigate("project.validation")
+                page = shell._pages["project.validation"].widget
+                pump(root, 10, until=lambda: page.report is not None)
+                [first, *_] = [i for i in page.report.issues if i.fix]
+                page._show_detail(first)
+                self.assertEqual(str(page.fix_button.cget("state")), "normal")
+                self.assertEqual(page.fix_all_button.cget("text"), "Fix all 2 like this")
+                before = page.report
+                with mock.patch("tkinter.messagebox.askokcancel", return_value=True):
+                    page._apply_similar_fixes()
+                self.assertEqual((mod / "a.odf").read_text(), '[GameObjectClass]\nclassLabel = "wingman"\nnation = "x"\n')
+                self.assertIn("nation", (mod / "b.odf").read_text())
+                pump(root, 10, until=lambda: page.report is not before)
+                self.assertFalse([i for i in page.report.issues if i.fix])
+                shell.close(confirm=False)
+        finally:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+
+
 class AutoRefreshTests(unittest.TestCase):
     def test_project_pages_rescan_when_shown_after_changes(self):
         root = _make_root()

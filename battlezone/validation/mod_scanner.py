@@ -153,6 +153,37 @@ def lua_odf_reads(inventory):
     return reads
 
 
+class LintFinding(tuple):
+    """``(path, kind, detail, line)`` plus an optional :attr:`fix` for a one-to-one repair.
+
+    Still unpacks as a 4-tuple, so existing callers keep working. ``fix`` is
+    ``(action, old, new, label)``; see :mod:`battlezone.validation.fixes`.
+    """
+
+    def __new__(cls, path, kind, detail, line, fix=()):
+        finding = super().__new__(cls, (path, kind, detail, line))
+        finding.fix = tuple(fix)
+        return finding
+
+
+# Keys Redux reads under another name; a one-to-one rename is safe to offer.
+# (section_lower or "*", key_lower) -> correct key. Evidence: the loader schema
+# (triggetDelay, flameDelay, xplName*) and the binaries (nation is read by
+# both games, faction by neither).
+MISNAMED_KEYS = {
+    ("*", "faction"): "nation",
+    ("*", "triggetdelay"): "triggerDelay",
+    ("flamepuffclass", "flamedelay"): "frameDelay",
+    ("ordnanceclass", "xplnameground"): "xplGround",
+    ("ordnanceclass", "xplnamevehicle"): "xplVehicle",
+    ("ordnanceclass", "xplnamebuilding"): "xplBuilding",
+}
+
+
+def misnamed_key(section_key, key):
+    return MISNAMED_KEYS.get((section_key, key)) or MISNAMED_KEYS.get(("*", key))
+
+
 def dead_key(dead, section_key, key):
     """The dead-key entry for ``key`` written under ``section_key``, if any."""
     return dead["keys"].get(section_key, {}).get(key) or dead["never_read"].get(key)
@@ -348,9 +379,14 @@ class ModScanner:
                 dead_section = dead["sections"].get(header_key)
                 if dead_section:
                     instead = dead_section["read_instead"]
-                    issues.append((path, "Dead Section",
-                                   f"[{header}] is never read by Redux, so all its keys are ignored"
-                                   + (f"; Redux reads [{instead}]" if instead else ""), header_line))
+                    fix = ()
+                    if instead and instead.lower() not in {h.lower() for h, _, _ in sections}:
+                        fix = ("rename-section", header, instead,
+                               f"Rename [{header}] to [{instead}]. Its {len(params)} key(s) are ignored today "
+                               "and will start being read, which can change how the object plays.")
+                    issues.append(LintFinding(path, "Dead Section",
+                                              f"[{header}] is never read by Redux, so all its keys are ignored"
+                                              + (f"; Redux reads [{instead}]" if instead else ""), header_line, fix))
                     continue
                 if header_key not in allowed_headers and header_key not in allowed_params:
                     if header_key in lua_reads:
@@ -367,6 +403,18 @@ class ModScanner:
                             continue
                         if bz2_field_hint(key):
                             continue   # reported above as a BZ2 field
+                        correct = misnamed_key(header_key, key_key)
+                        if correct:
+                            present = {k.lower() for k, _ in params}
+                            if correct.lower() in present:
+                                fix = ("remove-line", key, correct,
+                                       f"Remove the {key} line: Redux ignores it and {correct} is already set here.")
+                            else:
+                                fix = ("rename-key", key, correct, f"Rename {key} to {correct}.")
+                            issues.append(LintFinding(path, "Wrong Key",
+                                                      f"[{header}] {key}: Redux reads {correct}, not {key}",
+                                                      line_no, fix))
+                            continue
                         entry = dead_key(dead, header_key, key_key)
                         if entry:
                             where = (f"Redux reads it only under [{'], ['.join(entry['read_in'])}]"
