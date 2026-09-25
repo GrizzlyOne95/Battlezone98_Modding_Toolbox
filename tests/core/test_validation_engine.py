@@ -14,7 +14,7 @@ def write(path: Path, text: str, newline: str = "\r\n") -> None:
 def make_mod(root: Path) -> None:
     write(root / "mymod.ini", '[DESCRIPTION]\nmissionName = "mymod"\n\n[WORKSHOP]\nmapType = "instant_action"\n')
     write(root / "mymod.trn", "[Size]\nTileSize = 8\n")
-    for ext in (".hg2", ".mat", ".lgt"):
+    for ext in (".hg2", ".mat", ".lgt", ".bmp", ".des"):
         (root / f"mymod{ext}").write_bytes(b"")
     write(root / "mymod.bzn", "version [1] =\n2016\nPrjID [1] =\navtank\nPrjID [1] =\nmytank\n")
     write(root / "odf" / "mytank.odf", '[GameObjectClass]\nclassLabel = "wingman"\n')
@@ -33,7 +33,7 @@ class ValidationEngineTests(unittest.TestCase):
         report = validate_project(self.root)
         self.assertEqual(report.checks, list(DEFAULT_CHECKS))
         self.assertTrue(report.ok, [i.message for i in report.issues if i.severity == "error"])
-        self.assertEqual(report.file_count, 7)
+        self.assertEqual(report.file_count, 9)
 
     def test_missing_custom_odf_from_mission_is_an_error(self):
         write(self.root / "mymod.bzn", "PrjID [1] =\nghosttank\nPrjID [1] =\navtank\n")
