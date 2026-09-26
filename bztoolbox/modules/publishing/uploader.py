@@ -1811,13 +1811,6 @@ class WorkshopUploader:
         self.resolve_owner_btn = ttk.Button(owner_row, text="RESOLVE", command=self.resolve_owner_identity)
         self.resolve_owner_btn.pack(side="left", padx=(4, 0))
 
-        native_appid_cb = ttk.Checkbutton(
-            self.access_advanced_frame,
-            text="NATIVE TAGS VIA steam_appid.txt",
-            variable=self.experimental_native_appid_var,
-        )
-        native_appid_cb.grid(row=3, column=1, columnspan=3, sticky="w", pady=(5, 0))
-
         diagnostics = ttk.Frame(self.access_advanced_frame)
         diagnostics.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(8, 0))
         ttk.Label(diagnostics, textvariable=self.steamcmd_status_var, foreground="#ffff44").pack(side="left", padx=(0, 18))
@@ -3455,7 +3448,6 @@ class WorkshopUploader:
                     change_note=change_note,
                     steamworks_updater=self._get_steamworks_tag_updater(),
                     base_dir=self.base_dir,
-                    create_appid_file=self.experimental_native_appid_var.get(),
                 )
                 if result.get("method") == "steamworks":
                     self.log("Workshop tags updated successfully via Steamworks.")

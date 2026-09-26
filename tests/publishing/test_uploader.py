@@ -1034,11 +1034,70 @@ class TestWorkshopUploader(unittest.TestCase):
         with patch.object(steamworks_tags, "IS_64BIT", True), \
                 patch.object(steamworks_tags, "STEAM_API_DLL", "steam_api64.dll"), \
                 patch.object(updater, "_candidate_dirs", return_value=[game_dir]):
-            # The game's 32-bit DLL is useless to a 64-bit process, and named as the reason.
+            # A 64-bit process cannot load the game's 32-bit DLL in-process; the helper drives it.
             self.assertIsNone(updater.find_steam_api_path())
-            self.assertEqual(updater._wrong_architecture_dll(), os.path.join(game_dir, "steam_api.dll"))
+            self.assertEqual(updater.find_32bit_steam_api_path(), os.path.join(game_dir, "steam_api.dll"))
             open(os.path.join(game_dir, "steam_api64.dll"), "wb").close()
             self.assertEqual(updater.find_steam_api_path(), os.path.join(game_dir, "steam_api64.dll"))
+
+    def test_interface_version_is_read_from_the_dll_or_the_game_beside_it(self):
+        from bztoolbox.modules.publishing import steamworks_tags
+
+        game_dir = os.path.join(self.test_dir, "game")
+        os.makedirs(game_dir)
+        dll = os.path.join(game_dir, "steam_api.dll")
+        with open(dll, "wb") as f:
+            f.write(b"\0SteamClient017\0SteamUtils008\0")
+        with open(os.path.join(game_dir, "battlezone98redux.exe"), "wb") as f:
+            f.write(b"MZ\0STEAMUGC_INTERFACE_VERSION009\0")
+
+        self.assertEqual(steamworks_tags.embedded_interface_version(dll, "SteamUtils"), "SteamUtils008")
+        # Old SDKs compile the ISteamUGC version into the game, not the DLL.
+        self.assertEqual(steamworks_tags.embedded_interface_version(dll, "STEAMUGC_INTERFACE_VERSION"),
+                         "STEAMUGC_INTERFACE_VERSION009")
+        self.assertIsNone(steamworks_tags.embedded_interface_version(dll, "SteamApps"))
+
+    def test_64bit_toolbox_drives_the_games_32bit_dll_through_the_helper(self):
+        from bztoolbox.modules.publishing import steamworks_tags
+
+        updater = SteamworksTagUpdater()
+        with patch.object(steamworks_tags.os, "name", "nt"), \
+                patch.object(updater, "find_steam_api_path", return_value=None), \
+                patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
+                patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
+            result = updater.try_update_tags("301650", "123", [" CRA ", "", "Pilot"])
+
+        self.assertEqual(result["method"], "steamworks")
+        helper.assert_called_once_with("C:/game/steam_api.dll", "301650", "123", ["CRA", "Pilot"], "", 20.0)
+
+    def test_tag_helper_passes_tags_one_per_line_and_reads_its_json_result(self):
+        from bztoolbox.modules.publishing import steamworks_tags
+        import base64
+
+        game_dir = os.path.join(self.test_dir, "game")
+        os.makedirs(game_dir)
+        dll = os.path.join(game_dir, "steam_api.dll")
+        with open(dll, "wb") as f:
+            f.write(b"STEAMUGC_INTERFACE_VERSION009 SteamUtils008")
+        completed = MagicMock(returncode=0, stderr="",
+                              stdout='noise\n{"ok": true, "publishedfileid": "123", "needs_legal_agreement": false}\n')
+        updater = SteamworksTagUpdater()
+        with patch.object(steamworks_tags, "_powershell_32", return_value="powershell32.exe"), \
+                patch.object(steamworks_tags.subprocess, "run", return_value=completed) as run:
+            result = updater._update_tags_via_helper(dll, "301650", "123", ["CRA", "Pilot, Ölig"], "", 20)
+
+        cmd = run.call_args.args[0]
+        tags = base64.b64decode(cmd[cmd.index("-TagsB64") + 1]).decode("utf-8")
+        self.assertEqual(tags.split("\n"), ["CRA", "Pilot, Ölig"])
+        self.assertEqual(cmd[cmd.index("-UgcVersion") + 1], "STEAMUGC_INTERFACE_VERSION009")
+        self.assertEqual(run.call_args.kwargs["env"]["SteamAppId"], "301650")
+        self.assertEqual(result["publishedfileid"], "123")
+
+        completed.stdout = '{"ok": false, "error": "SteamAPI_Init failed."}\n'
+        with patch.object(steamworks_tags, "_powershell_32", return_value="powershell32.exe"), \
+                patch.object(steamworks_tags.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(RuntimeError, "SteamAPI_Init failed"):
+                updater._update_tags_via_helper(dll, "301650", "123", ["CRA"], "", 20)
 
     def test_steamworks_init_uses_the_entry_point_the_dll_exports(self):
         updater = SteamworksTagUpdater()

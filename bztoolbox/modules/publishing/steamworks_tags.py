@@ -1,12 +1,49 @@
+import base64
 import ctypes
+import glob
+import json
 import os
+import re
 import struct
+import subprocess
 import time
 
 # The DLL has to match this process: 64-bit Python can only load
 # steam_api64.dll, and Battlezone 98 Redux ships just the 32-bit steam_api.dll.
 IS_64BIT = struct.calcsize("P") == 8
 STEAM_API_DLL = "steam_api64.dll" if IS_64BIT else "steam_api.dll"
+
+# Runs the 32-bit tag update for a 64-bit toolbox (see steam_tags_helper.ps1).
+HELPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steam_tags_helper.ps1")
+UPLOADER_TOOL_FOLDER = "Battlezone 98 Redux - Uploader Tool"
+
+
+def _powershell_32():
+    """The 32-bit Windows PowerShell of a 64-bit Windows, or None."""
+    windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or r"C:\Windows"
+    path = os.path.join(windir, "SysWOW64", "WindowsPowerShell", "v1.0", "powershell.exe")
+    return path if os.path.exists(path) else None
+
+
+def embedded_interface_version(dll_path, prefix, default=None):
+    """The ``<prefix>NNN`` interface version compiled against ``dll_path``.
+
+    The flat API calls methods through the vtable of the SDK the DLL was
+    built from, so the interface must be requested at exactly that version.
+    Old SDKs compiled the ISteamUGC version into the game, not the DLL, so
+    executables beside it are searched too.
+    """
+    pattern = re.compile(re.escape(prefix.encode("ascii")) + rb"(\d{3})")
+    folder = os.path.dirname(dll_path)
+    for path in [dll_path] + sorted(glob.glob(os.path.join(folder, "*.exe"))):
+        try:
+            with open(path, "rb") as f:
+                versions = sorted(set(pattern.findall(f.read())))
+        except OSError:
+            continue
+        if versions:
+            return prefix + versions[-1].decode("ascii")
+    return default
 
 
 class SteamParamStringArray(ctypes.Structure):
@@ -65,6 +102,15 @@ class SteamworksTagUpdater:
         game_dir = os.environ.get("BZR_GAME_DIR", "").strip()
         if game_dir:
             dirs.append(game_dir)
+        try:
+            from bztoolbox import external
+
+            for install in external.detect_game_installs():
+                dirs.append(str(install))
+                # The official uploader tool ships the same steam_api.dll.
+                dirs.append(os.path.join(os.path.dirname(str(install)), UPLOADER_TOOL_FOLDER))
+        except Exception:
+            pass
 
         user_profile = os.environ.get("USERPROFILE", "")
         if user_profile:
@@ -88,8 +134,8 @@ class SteamworksTagUpdater:
                 return norm
         return None
 
-    def _wrong_architecture_dll(self, base_dir=None):
-        """A steam_api.dll this 64-bit process cannot load, to explain the failure."""
+    def find_32bit_steam_api_path(self, base_dir=None):
+        """The game's 32-bit steam_api.dll, which a 64-bit toolbox drives through the helper."""
         if not IS_64BIT:
             return None
         for directory in self._candidate_dirs(base_dir):
@@ -97,6 +143,73 @@ class SteamworksTagUpdater:
             if os.path.exists(path):
                 return os.path.normpath(path)
         return None
+
+    def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds):
+        powershell = _powershell_32()
+        if not powershell:
+            raise RuntimeError("32-bit Windows PowerShell (SysWOW64) was not found.")
+        if not os.path.exists(HELPER_SCRIPT):
+            raise FileNotFoundError(f"Tag helper script is missing: {HELPER_SCRIPT}")
+
+        ugc_version = embedded_interface_version(dll_path, "STEAMUGC_INTERFACE_VERSION")
+        if not ugc_version:
+            raise RuntimeError(f"Could not tell which ISteamUGC version {dll_path} was built for.")
+        utils_version = embedded_interface_version(dll_path, "SteamUtils", default="SteamUtils008")
+
+        def b64(text):
+            return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+        cmd = [
+            powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", HELPER_SCRIPT,
+            "-DllPath", dll_path,
+            "-AppId", str(appid),
+            "-ItemId", str(publishedfileid),
+            "-TagsB64", b64("\n".join(tags)),
+            "-UgcVersion", ugc_version,
+            "-UtilsVersion", utils_version,
+            "-TimeoutSeconds", str(int(timeout_seconds)),
+        ]
+        if change_note:
+            cmd += ["-NoteB64", b64(change_note)]
+        env = dict(os.environ, SteamAppId=str(appid), SteamGameId=str(appid))
+
+        self.log(f"Attempting Steamworks tag update via 32-bit helper and {dll_path} ({ugc_version})")
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds + 60,   # PowerShell start-up and the C# compile
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        payload = None
+        for line in reversed(completed.stdout.splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    payload = json.loads(line)
+                    break
+                except ValueError:
+                    continue
+        if payload is None:
+            detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+            raise RuntimeError(
+                f"Tag helper exited with code {completed.returncode}"
+                + (f": {detail[-1]}" if detail else "")
+            )
+        if not payload.get("ok"):
+            raise RuntimeError(payload.get("error") or "Tag helper reported a failure.")
+        return {
+            "publishedfileid": str(payload.get("publishedfileid") or publishedfileid),
+            "needs_legal_agreement": bool(payload.get("needs_legal_agreement")),
+            "method": "steamworks",
+            "dll_path": dll_path,
+            "ugc_version": ugc_version,
+            "via": "32-bit helper",
+        }
 
     def _configure_exports(self, dll):
         # SDK 1.58+ dropped SteamAPI_Init for SteamAPI_InitFlat /
@@ -179,7 +292,8 @@ class SteamworksTagUpdater:
         else:
             dll_cookie = None
         try:
-            dll = ctypes.WinDLL(dll_path)
+            # The flat API is cdecl; only 32-bit Python tells cdecl from stdcall.
+            dll = ctypes.CDLL(dll_path)
         finally:
             if dll_cookie is not None:
                 dll_cookie.close()
@@ -214,10 +328,14 @@ class SteamworksTagUpdater:
                     return interface, name
         return None, None
 
-    def _get_ugc_interface(self, dll, client, h_user, h_pipe):
+    def _get_ugc_interface(self, dll, client, h_user, h_pipe, dll_path=None):
         ugc, name = self._get_accessor_interface(dll, self.UGC_ACCESSORS)
         if ugc:
             return ugc, name
+        built_for = embedded_interface_version(dll_path, "STEAMUGC_INTERFACE_VERSION") if dll_path else None
+        if built_for:
+            ugc = dll.SteamAPI_ISteamClient_GetISteamUGC(client, h_user, h_pipe, built_for.encode("ascii"))
+            return (ugc, built_for) if ugc else (None, None)
         for version in self.STEAM_UGC_VERSIONS:
             ugc = dll.SteamAPI_ISteamClient_GetISteamUGC(client, h_user, h_pipe, version)
             if ugc:
@@ -279,13 +397,15 @@ class SteamworksTagUpdater:
 
         target_dll = dll_path or self.find_steam_api_path(base_dir=base_dir)
         if not target_dll:
-            wrong = self._wrong_architecture_dll(base_dir=base_dir)
-            if wrong:
-                raise FileNotFoundError(
-                    f"Only the 32-bit {wrong} was found; the toolbox runs 64-bit and needs {STEAM_API_DLL}. "
-                    f"Put {STEAM_API_DLL} (Steamworks SDK redistributable) in {base_dir or 'the game folder'}."
-                )
-            raise FileNotFoundError(f"{STEAM_API_DLL} was not found in known Battlezone locations.")
+            # A 64-bit toolbox cannot load the game's 32-bit steam_api.dll,
+            # so a 32-bit PowerShell drives it instead.
+            game_dll = self.find_32bit_steam_api_path(base_dir=base_dir)
+            if game_dll:
+                return self._update_tags_via_helper(
+                    game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds)
+            raise FileNotFoundError(
+                f"Neither {STEAM_API_DLL} nor the game's steam_api.dll was found in known Battlezone locations."
+            )
 
         created_appid_path = None
         if create_appid_file:
@@ -310,13 +430,14 @@ class SteamworksTagUpdater:
             if not client or not h_user or not h_pipe:
                 raise RuntimeError("Steamworks client handles were not available after SteamAPI_Init.")
 
-            ugc, ugc_version = self._get_ugc_interface(dll, client, h_user, h_pipe)
+            ugc, ugc_version = self._get_ugc_interface(dll, client, h_user, h_pipe, dll_path=target_dll)
             if not ugc:
                 raise RuntimeError("Failed to acquire ISteamUGC interface.")
 
             steam_utils, _name = self._get_accessor_interface(dll, self.UTILS_ACCESSORS)
             if not steam_utils:
-                steam_utils = dll.SteamAPI_ISteamClient_GetISteamUtils(client, h_pipe, self.STEAM_UTILS_VERSION)
+                utils_version = embedded_interface_version(target_dll, "SteamUtils", default="SteamUtils008")
+                steam_utils = dll.SteamAPI_ISteamClient_GetISteamUtils(client, h_pipe, utils_version.encode("ascii"))
             if not steam_utils:
                 raise RuntimeError("Failed to acquire ISteamUtils interface.")
 
