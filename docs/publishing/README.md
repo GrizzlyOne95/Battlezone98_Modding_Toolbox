@@ -7,7 +7,7 @@ This tool is built around a folder-driven Workshop workflow:
 - open or create a local upload profile by selecting a content folder
 - load the complete set of owned Workshop items and explicitly link an existing item when needed
 - scan the folder for common Battlezone content issues and review what changed since the last publish
-- publish through SteamCMD with adaptive Steam Guard/mobile-approval handling and expandable diagnostics
+- publish through your running Steam client (Steamworks), with no SteamCMD login, password or Steam Guard; SteamCMD with adaptive Steam Guard/mobile-approval handling is the fallback when Steam is not running
 
 ## Release Builds
 
@@ -37,7 +37,7 @@ OriginalFilename: BZWorkshopUploader.exe
 
 ## Why Use This Instead Of The Old BZR Uploader?
 
-- Uses SteamCMD, so failures are easier to diagnose.
+- Uses the running Steam client when it can (like the official uploader tool), and SteamCMD otherwise.
 - Does not force every upload public.
 - Keeps local project state tied to Workshop IDs.
 - Warns about common mod-breaking issues without hard-blocking every workflow.
@@ -53,7 +53,7 @@ python uploader.py
 
 Then use the workspace like this:
 
-1. Launch the uploader. SteamCMD, cached Steam authentication, and the Workshop owner are detected automatically when possible.
+1. Start Steam and launch the uploader. With Steam running, Publish goes through your Steam client and needs no SteamCMD sign-in; SteamCMD, cached Steam authentication, and the Workshop owner are detected automatically for the fallback.
 2. Select a content folder. Its **Local Upload Profile** opens automatically, or a new one is created for that folder.
 3. To update an existing item, choose it from **Your Workshop Items** and click **USE ITEM** or **LOAD ITEM**. Leave the profile unlinked to create a new item.
 4. Fill in preview, title, description, visibility, tags, and change note in the **Workshop Item Editor**.
@@ -109,7 +109,7 @@ Then use the workspace like this:
 - The review lists what an update would change on Steam (title, visibility) from the loaded library
 - The preview is uploaded under a name derived from its content: Steam ignores a new preview that has the same file name as the last one, so this makes changed images update without renaming the file
 - Expandable Steam/upload diagnostics rather than an always-visible raw log
-- Workshop tags are set after a successful publish through Steamworks and your own Steam login (SteamCMD cannot set tags, and the Steam Web API only accepts tag changes from the game's publisher)
+- Content, title, description, visibility, preview and tags go to Steam in one Steamworks update through your Steam client, with upload progress in the activity log (SteamCMD cannot set tags, and the Steam Web API only accepts tag changes from the game's publisher)
 
 ### Analysis
 
@@ -120,7 +120,7 @@ Then use the workspace like this:
 
 - Python 3.x
 - Dependencies from `requirements.txt`
-- SteamCMD
+- Steam running and signed in (or SteamCMD, as the fallback)
 - A Steam account that owns Battlezone 98 Redux
 
 Install dependencies:
@@ -136,15 +136,15 @@ pip install -r requirements.txt
 - `mod_scanner.py`: content scanning and validation
 - `workshop_backend.py`: SteamCMD and Workshop API interactions
 - `upload_preflight.py`: upload validation and VDF writing
-- `steamworks_tags.py` / `steam_tags_helper.ps1`: Workshop tag updates through Steamworks
+- `steamworks_tags.py` / `steamworks_helper.ps1`: publishing, tags and previews through Steamworks
 - `profiles/`: saved local upload-profile state
 
 ## Notes
 
 - The app is primarily intended for Windows-based Battlezone modding workflows.
 - Steam Web API features require an API key from `https://steamcommunity.com/dev/apikey`.
-- Tags are set through the game's own `steam_api.dll`. The toolbox is 64-bit and that DLL is 32-bit, so the update runs in the 32-bit Windows PowerShell (`steam_tags_helper.ps1`); a `steam_api64.dll` in the toolbox data folder, or the folder named by `BZ_STEAM_API_DIR`, is used in-process instead. Steam must be running and signed in to an account that owns Battlezone 98 Redux.
-- Steam applies preview changes only from the app that created the item. Items made with the official **Battlezone 98 Redux - Uploader Tool** were created by that tool (app 450970), so SteamCMD, which runs as the game, reports their preview upload as OK while Steam keeps the old image. After a publish the toolbox compares Steam's preview hash with the uploaded file and, if they differ, sets the preview through Steamworks as the item's creator app (tags too).
+- Steamworks runs through the game's own `steam_api.dll` (or the official uploader tool's). The toolbox is 64-bit and that DLL is 32-bit, so it runs in the 32-bit Windows PowerShell (`steamworks_helper.ps1`), a fresh process per publish; a `steam_api64.dll` in the toolbox data folder, or the folder named by `BZ_STEAM_API_DIR`, is used in-process for tag and preview fixes only when no game DLL is found. Steam must be running and signed in to an account that owns Battlezone 98 Redux.
+- Steam applies preview changes only from the app that created the item. Items made with the official **Battlezone 98 Redux - Uploader Tool** were created by that tool (app 450970), so SteamCMD, which runs as the game, reports their preview upload as OK while Steam keeps the old image. SteamCMD's login also signs a running Steam client out ("Session Replaced"), which is why Publish prefers the Steam client. After a publish the toolbox compares Steam's preview hash with the uploaded file and, if they differ, sets the preview through Steamworks as the item's creator app (tags too).
 
 ## License
 

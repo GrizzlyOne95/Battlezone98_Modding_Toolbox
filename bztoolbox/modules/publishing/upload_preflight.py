@@ -21,6 +21,7 @@ class UploadPreflight:
         title_limit,
         description_limit,
         is_update=False,
+        via_steamworks=False,
     ):
         if len(title) > title_limit:
             return ("Title Too Long", f"Your title is {len(title)} characters long. The maximum is {title_limit}.")
@@ -31,15 +32,19 @@ class UploadPreflight:
                 "Description Too Long",
                 f"Your description is {len(description)} characters long. The maximum is {description_limit}.",
             )
-        if not all([steamcmd_path, content_path]):
+        if not content_path:
+            return ("Error", "Select a content folder.")
+        if not via_steamworks and not steamcmd_path:
             return ("Error", "Missing required fields (SteamCMD, Content Folder).")
         # an update without a preview keeps the image already on Steam
         if not preview_path and not is_update:
             return ("Error", "A new Workshop item needs a Preview Image.")
-        if not use_cached_creds and not username.strip():
-            return ("Error", "Steam Username is required unless 'USE CACHED CREDENTIALS' is enabled.")
-        if not os.path.exists(steamcmd_path):
-            return ("Error", "SteamCMD executable not found.")
+        # Publishing through the running Steam client needs no SteamCMD login.
+        if not via_steamworks:
+            if not use_cached_creds and not username.strip():
+                return ("Error", "Steam Username is required unless 'USE CACHED CREDENTIALS' is enabled.")
+            if not os.path.exists(steamcmd_path):
+                return ("Error", "SteamCMD executable not found.")
         if preview_path and not os.path.isfile(preview_path):
             return ("Error", f"Preview image not found:\n{preview_path}")
         return None

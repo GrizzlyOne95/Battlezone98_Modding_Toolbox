@@ -13,8 +13,31 @@ import time
 IS_64BIT = struct.calcsize("P") == 8
 STEAM_API_DLL = "steam_api64.dll" if IS_64BIT else "steam_api.dll"
 
-# Runs the 32-bit tag update for a 64-bit toolbox (see steam_tags_helper.ps1).
-HELPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steam_tags_helper.ps1")
+# Runs Steamworks through the game's 32-bit DLL for a 64-bit toolbox (see steamworks_helper.ps1).
+HELPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steamworks_helper.ps1")
+
+# EItemUpdateStatus, for progress messages.
+UPDATE_STATUS = {
+    1: "Preparing",
+    2: "Preparing content",
+    3: "Uploading content",
+    4: "Uploading preview",
+    5: "Committing changes",
+}
+
+# EResult values Steam returns for Workshop submissions, in words.
+ERESULT_TEXT = {
+    2: "generic failure",
+    3: "no connection to Steam",
+    8: "invalid parameter (check the title, description length and tags)",
+    9: "file not found (content folder or preview image)",
+    15: "access denied (the item belongs to another account, or the Workshop legal agreement is not accepted)",
+    16: "timed out",
+    17: "the Steam account is banned from the Workshop",
+    25: "limit exceeded (preview images must be under 1 MB)",
+    33: "not logged on",
+    44: "the Steam client is not signed in to Steam",
+}
 UPLOADER_TOOL_FOLDER = "Battlezone 98 Redux - Uploader Tool"
 
 
@@ -166,78 +189,164 @@ class SteamworksTagUpdater:
                 return os.path.normpath(path)
         return None
 
-    def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds,
-                                preview_path=None, init_app_id=None):
+    def helper_available(self, base_dir=None):
+        """The 32-bit steam_api.dll the helper can drive, or None."""
+        if os.name != "nt" or not _powershell_32() or not os.path.exists(HELPER_SCRIPT):
+            return None
+        return self.find_32bit_steam_api_path(base_dir=base_dir)
+
+    def _run_helper(self, dll_path, appid, publishedfileid, *, init_app_id=None, title="", description="",
+                    content="", preview_path="", tags=None, change_note="", visibility=None,
+                    timeout_seconds=20, on_progress=None, on_created=None):
+        """Run steamworks_helper.ps1 and return its final JSON object; raises on failure."""
         powershell = _powershell_32()
         if not powershell:
             raise RuntimeError("32-bit Windows PowerShell (SysWOW64) was not found.")
         if not os.path.exists(HELPER_SCRIPT):
-            raise FileNotFoundError(f"Tag helper script is missing: {HELPER_SCRIPT}")
+            raise FileNotFoundError(f"Steamworks helper script is missing: {HELPER_SCRIPT}")
 
         ugc_version = embedded_interface_version(dll_path, "STEAMUGC_INTERFACE_VERSION")
         if not ugc_version:
             raise RuntimeError(f"Could not tell which ISteamUGC version {dll_path} was built for.")
         utils_version = embedded_interface_version(dll_path, "SteamUtils", default="SteamUtils008")
+        user_version = embedded_interface_version(dll_path, "SteamUser", default="SteamUser019")
 
         def b64(text):
             return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
+        run_as = str(init_app_id or appid)
         cmd = [
             powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", HELPER_SCRIPT,
             "-DllPath", dll_path,
             "-AppId", str(appid),
-            "-InitAppId", str(init_app_id or appid),
-            "-ItemId", str(publishedfileid),
+            "-InitAppId", run_as,
+            "-ItemId", str(publishedfileid or 0),
             "-UgcVersion", ugc_version,
             "-UtilsVersion", utils_version,
+            "-UserVersion", user_version,
             "-TimeoutSeconds", str(int(timeout_seconds)),
         ]
         # Only non-empty values: Windows PowerShell's -File drops an empty
         # argument, and the flag before it would then swallow the next flag.
-        if tags:
-            cmd += ["-TagsB64", b64("\n".join(tags))]
-        if change_note:
-            cmd += ["-NoteB64", b64(change_note)]
-        if preview_path:
-            cmd += ["-PreviewB64", b64(os.path.abspath(preview_path))]
-        env = dict(os.environ, SteamAppId=str(init_app_id or appid), SteamGameId=str(init_app_id or appid))
+        for flag, value in (("-TitleB64", title), ("-DescriptionB64", description),
+                            ("-ContentB64", os.path.abspath(content) if content else ""),
+                            ("-PreviewB64", os.path.abspath(preview_path) if preview_path else ""),
+                            ("-TagsB64", "\n".join(tags or [])), ("-NoteB64", change_note)):
+            if value:
+                cmd += [flag, b64(value)]
+        if visibility is not None and str(visibility).strip() != "":
+            cmd += ["-Visibility", str(int(visibility))]
+        env = dict(os.environ, SteamAppId=run_as, SteamGameId=run_as)
 
-        self.log(f"Attempting Steamworks item update via 32-bit helper and {dll_path} ({ugc_version})")
-        completed = subprocess.run(
+        self.log(f"Steamworks via 32-bit helper and {dll_path} ({ugc_version}, running as app {run_as})")
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout_seconds + 60,   # PowerShell start-up and the C# compile
             env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         payload = None
-        for line in reversed(completed.stdout.splitlines()):
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    payload = json.loads(line)
-                    break
-                except ValueError:
+        other = []
+        deadline = time.time() + timeout_seconds + 90   # PowerShell start-up and the C# compile
+        try:
+            for raw in proc.stdout:
+                line = raw.strip()
+                if not line.startswith("{"):
+                    if line:
+                        other.append(line)
                     continue
+                try:
+                    data = json.loads(line)
+                except ValueError:
+                    other.append(line)
+                    continue
+                if "progress" in data:
+                    if on_progress:
+                        on_progress(data["progress"])
+                elif "created" in data:
+                    if on_created:
+                        on_created(str(data["created"]), bool(data.get("needs_legal_agreement")))
+                else:
+                    payload = data
+                if time.time() > deadline:
+                    proc.kill()
+                    raise TimeoutError("The Steamworks helper did not finish in time.")
+            proc.wait(timeout=30)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+
         if payload is None:
-            detail = (completed.stderr or completed.stdout or "").strip().splitlines()
             raise RuntimeError(
-                f"Tag helper exited with code {completed.returncode}"
-                + (f": {detail[-1]}" if detail else "")
-            )
+                f"Steamworks helper exited with code {proc.returncode}" + (f": {other[-1]}" if other else ""))
         if not payload.get("ok"):
-            raise RuntimeError(payload.get("error") or "Tag helper reported a failure.")
+            error = payload.get("error") or ""
+            if not error and "eresult" in payload:
+                code = int(payload["eresult"])
+                error = f"Steam rejected the item {payload.get('stage', 'update')} (EResult {code}: " \
+                        f"{ERESULT_TEXT.get(code, 'see Steamworks EResult codes')})."
+            raise RuntimeError(error.replace("NOT_LOGGED_ON: ", "") or "Steamworks helper reported a failure.")
+        payload["ugc_version"] = ugc_version
+        payload["dll_path"] = dll_path
+        return payload
+
+    def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds,
+                                preview_path=None, init_app_id=None):
+        payload = self._run_helper(dll_path, appid, publishedfileid, init_app_id=init_app_id, tags=tags,
+                                   change_note=change_note, preview_path=preview_path,
+                                   timeout_seconds=timeout_seconds)
         return {
             "publishedfileid": str(payload.get("publishedfileid") or publishedfileid),
             "needs_legal_agreement": bool(payload.get("needs_legal_agreement")),
             "method": "steamworks",
             "dll_path": dll_path,
-            "ugc_version": ugc_version,
+            "ugc_version": payload.get("ugc_version"),
             "via": "32-bit helper",
+        }
+
+    def publish_item(self, appid, publishedfileid, *, title, description, content_folder, preview_path="",
+                     tags=None, visibility=None, change_note="", init_app_id=None, base_dir=None,
+                     timeout_seconds=4 * 3600, on_progress=None, on_created=None):
+        """Create or update a Workshop item through the running Steam client (no SteamCMD).
+
+        ``publishedfileid`` "0"/empty creates a new item. Blank description or
+        preview on an update leave Steam's copy alone. Returns
+        ``{"publishedfileid", "needs_legal_agreement", "created"}``.
+        """
+        if not steam_client_running():
+            raise RuntimeError("Steam is not running or not signed in. Start Steam, then try again.")
+        dll = self.helper_available(base_dir=base_dir)
+        if not dll:
+            raise FileNotFoundError("No Battlezone 98 Redux steam_api.dll (game or uploader tool) was found.")
+        created = {}
+
+        def remember(item_id, legal):
+            created.update(id=item_id, legal=legal)
+            if on_created:
+                on_created(item_id, legal)
+
+        is_new = str(publishedfileid or "0").strip() in ("", "0")
+        try:
+            payload = self._run_helper(
+                dll, appid, "0" if is_new else publishedfileid, init_app_id=init_app_id,
+                title=title, description=description, content=content_folder, preview_path=preview_path,
+                tags=[t.strip() for t in (tags or []) if str(t).strip()], change_note=change_note,
+                visibility=visibility, timeout_seconds=timeout_seconds, on_progress=on_progress,
+                on_created=remember)
+        except Exception as e:
+            if created:
+                # The item exists even though its upload failed: keep the id.
+                e.created_item_id = created["id"]
+            raise
+        return {
+            "publishedfileid": str(payload.get("publishedfileid") or created.get("id") or publishedfileid),
+            "needs_legal_agreement": bool(payload.get("needs_legal_agreement") or created.get("legal")),
+            "created": is_new,
         }
 
     def _configure_exports(self, dll):
@@ -465,17 +574,18 @@ class SteamworksTagUpdater:
         if not steam_client_running():
             raise RuntimeError("Steam is not running or not signed in. Start Steam, then try again.")
 
+        # Prefer the helper: the game's own DLL, in a fresh process for every
+        # update (a long-running app should not init/shut Steamworks down
+        # over and over). A steam_api64.dll is only used in-process without it.
+        game_dll = None if dll_path else self.helper_available(base_dir=base_dir)
+        if game_dll:
+            return self._update_tags_via_helper(
+                game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds,
+                preview_path=preview_path, init_app_id=init_app_id)
         target_dll = dll_path or self.find_steam_api_path(base_dir=base_dir)
         if not target_dll:
-            # A 64-bit toolbox cannot load the game's 32-bit steam_api.dll,
-            # so a 32-bit PowerShell drives it instead.
-            game_dll = self.find_32bit_steam_api_path(base_dir=base_dir)
-            if game_dll:
-                return self._update_tags_via_helper(
-                    game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds,
-                    preview_path=preview_path, init_app_id=init_app_id)
             raise FileNotFoundError(
-                f"Neither {STEAM_API_DLL} nor the game's steam_api.dll was found in known Battlezone locations."
+                f"Neither the game's steam_api.dll nor {STEAM_API_DLL} was found in known Battlezone locations."
             )
 
         created_appid_path = None

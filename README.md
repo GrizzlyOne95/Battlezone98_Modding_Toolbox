@@ -22,7 +22,7 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **Audio** | Prepare Battlezone-style radio voiceovers, engine/turbo WAVs, soundtrack OGGs, and timing manifests. |
 | **Localization** | Scan mod ODFs for player-visible names and build Battlezone-compatible localization table entries. |
 | **Archives** | Browse, search, extract, verify, and build ZFS archives, including supported legacy and encrypted formats. |
-| **Workshop Publishing** | Check a mod before release, review changed files, fix common problems, and upload through SteamCMD. |
+| **Workshop Publishing** | Check a mod before release, review changed files, fix common problems, and upload through your Steam client (or SteamCMD). |
 
 ## A unified modding workflow
 
@@ -166,9 +166,9 @@ It can:
 - show files changed since the last publish
 - apply supported one-click fixes for common content problems
 - handle Steam Guard/mobile-approval states during upload
-- publish through SteamCMD with expandable diagnostics
+- publish through your running Steam client, with SteamCMD as the fallback
 
-**SteamCMD is the only external program required by the toolbox, and only for Workshop uploads.**
+**Workshop uploads go through your running Steam client; SteamCMD is only needed as a fallback when Steam is not running.**
 
 ## Installation
 
@@ -218,7 +218,7 @@ The toolbox never writes next to its program files. Settings, project profiles a
 
 Release builds are intended to be self-contained. You do **not** need to separately install Python, FFmpeg, Blender, Ogre command-line tools, or an LZO library for the normal toolbox features.
 
-SteamCMD is only needed if you want to publish to the Steam Workshop.
+SteamCMD is only needed to publish to the Steam Workshop without the Steam client running.
 
 ## Command line
 
