@@ -47,6 +47,9 @@ class TestWorkshopUploader(unittest.TestCase):
 
         # Redirect log to not pollute stdout during tests
         self.uploader.log = MagicMock()
+        # Publish would go through a running Steam client on a machine that has
+        # one; tests take the SteamCMD route unless they say otherwise.
+        self.uploader._steamworks_publish_available = MagicMock(return_value=False)
         uploader.messagebox.showerror.reset_mock()
         uploader.messagebox.askyesno.return_value = True
 
@@ -1060,7 +1063,7 @@ class TestWorkshopUploader(unittest.TestCase):
         with patch.object(steamworks_tags.os, "name", "nt"), \
                 patch.object(steamworks_tags, "steam_client_running", return_value=True), \
                 patch.object(updater, "find_steam_api_path", return_value=None), \
-                patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
+                patch.object(updater, "helper_available", return_value="C:/game/steam_api.dll"), \
                 patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
             result = updater.try_update_tags("301650", "123", [" CRA ", "", "Pilot"])
 
@@ -1079,7 +1082,7 @@ class TestWorkshopUploader(unittest.TestCase):
         with patch.object(steamworks_tags.os, "name", "nt"), \
                 patch.object(steamworks_tags, "steam_client_running", return_value=True), \
                 patch.object(updater, "find_steam_api_path", return_value=None), \
-                patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
+                patch.object(updater, "helper_available", return_value="C:/game/steam_api.dll"), \
                 patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
             updater.try_update_item("301650", "123", preview_path=__file__, init_app_id="450970")
         self.assertEqual(helper.call_args.kwargs["init_app_id"], "450970")
@@ -1092,34 +1095,117 @@ class TestWorkshopUploader(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Steam is not running"):
                 updater.try_update_tags("301650", "123", ["CRA"])
 
+    def _fake_helper_dll(self):
+        game_dir = os.path.join(self.test_dir, "game")
+        os.makedirs(game_dir, exist_ok=True)
+        dll = os.path.join(game_dir, "steam_api.dll")
+        with open(dll, "wb") as f:
+            f.write(b"STEAMUGC_INTERFACE_VERSION009 SteamUtils008 SteamUser019")
+        return dll
+
+    @staticmethod
+    def _fake_popen(*lines, returncode=0):
+        proc = MagicMock()
+        proc.stdout = iter(line + "\n" for line in lines)
+        proc.returncode = returncode
+        proc.poll.return_value = returncode
+        return proc
+
     def test_tag_helper_passes_tags_one_per_line_and_reads_its_json_result(self):
         import base64
 
-        game_dir = os.path.join(self.test_dir, "game")
-        os.makedirs(game_dir)
-        dll = os.path.join(game_dir, "steam_api.dll")
-        with open(dll, "wb") as f:
-            f.write(b"STEAMUGC_INTERFACE_VERSION009 SteamUtils008")
-        completed = MagicMock(returncode=0, stderr="",
-                              stdout='noise\n{"ok": true, "publishedfileid": "123", "needs_legal_agreement": false}\n')
+        dll = self._fake_helper_dll()
         updater = SteamworksTagUpdater()
+        proc = self._fake_popen("noise", '{"ok": true, "publishedfileid": "123", "needs_legal_agreement": false}')
         with patch.object(steamworks_tags, "_powershell_32", return_value="powershell32.exe"), \
-                patch.object(steamworks_tags.subprocess, "run", return_value=completed) as run:
+                patch.object(steamworks_tags.subprocess, "Popen", return_value=proc) as popen:
             result = updater._update_tags_via_helper(dll, "301650", "123", ["CRA", "Pilot, Ölig"], "", 20)
 
-        cmd = run.call_args.args[0]
+        cmd = popen.call_args.args[0]
         self.assertEqual(cmd[cmd.index("-InitAppId") + 1], "301650")   # defaults to the game
         tags = base64.b64decode(cmd[cmd.index("-TagsB64") + 1]).decode("utf-8")
         self.assertEqual(tags.split("\n"), ["CRA", "Pilot, Ölig"])
         self.assertEqual(cmd[cmd.index("-UgcVersion") + 1], "STEAMUGC_INTERFACE_VERSION009")
-        self.assertEqual(run.call_args.kwargs["env"]["SteamAppId"], "301650")
+        self.assertEqual(cmd[cmd.index("-UserVersion") + 1], "SteamUser019")
+        self.assertNotIn("-ContentB64", cmd)    # a tag update never touches the content
+        self.assertEqual(popen.call_args.kwargs["env"]["SteamAppId"], "301650")
         self.assertEqual(result["publishedfileid"], "123")
 
-        completed.stdout = '{"ok": false, "error": "SteamAPI_Init failed."}\n'
+        proc = self._fake_popen('{"ok": false, "error": "SteamAPI_Init failed."}', returncode=1)
         with patch.object(steamworks_tags, "_powershell_32", return_value="powershell32.exe"), \
-                patch.object(steamworks_tags.subprocess, "run", return_value=completed):
+                patch.object(steamworks_tags.subprocess, "Popen", return_value=proc):
             with self.assertRaisesRegex(RuntimeError, "SteamAPI_Init failed"):
                 updater._update_tags_via_helper(dll, "301650", "123", ["CRA"], "", 20)
+
+    def test_publish_item_creates_new_items_and_streams_progress(self):
+        import base64
+
+        dll = self._fake_helper_dll()
+        updater = SteamworksTagUpdater()
+        proc = self._fake_popen(
+            '{"created": "999", "needs_legal_agreement": false}',
+            '{"progress": {"status": 3, "processed": 50, "total": 100}}',
+            '{"ok": true, "eresult": 1, "needs_legal_agreement": false, "publishedfileid": "999"}')
+        progress, created = [], []
+        with patch.object(steamworks_tags, "steam_client_running", return_value=True), \
+                patch.object(updater, "helper_available", return_value=dll), \
+                patch.object(steamworks_tags, "_powershell_32", return_value="powershell32.exe"), \
+                patch.object(steamworks_tags.subprocess, "Popen", return_value=proc) as popen:
+            result = updater.publish_item(
+                "301650", "0", title="My Mod", description="", content_folder=self.test_dir,
+                preview_path="", tags=["Map", " "], visibility="3", change_note="first",
+                on_progress=progress.append, on_created=lambda i, legal: created.append(i))
+
+        cmd = popen.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("-ItemId") + 1], "0")                   # 0 creates the item
+        self.assertEqual(base64.b64decode(cmd[cmd.index("-ContentB64") + 1]).decode(), os.path.abspath(self.test_dir))
+        self.assertEqual(cmd[cmd.index("-Visibility") + 1], "3")
+        self.assertNotIn("-DescriptionB64", cmd)                               # blank keeps Steam's
+        self.assertNotIn("-PreviewB64", cmd)
+        self.assertEqual(created, ["999"])
+        self.assertEqual(progress, [{"status": 3, "processed": 50, "total": 100}])
+        self.assertEqual(result, {"publishedfileid": "999", "needs_legal_agreement": False, "created": True})
+
+    def test_publish_item_keeps_the_new_id_when_the_upload_fails(self):
+        dll = self._fake_helper_dll()
+        updater = SteamworksTagUpdater()
+        proc = self._fake_popen('{"created": "999", "needs_legal_agreement": false}',
+                                '{"ok": false, "eresult": 9, "stage": "submit"}', returncode=1)
+        with patch.object(steamworks_tags, "steam_client_running", return_value=True), \
+                patch.object(updater, "helper_available", return_value=dll), \
+                patch.object(steamworks_tags, "_powershell_32", return_value="powershell32.exe"), \
+                patch.object(steamworks_tags.subprocess, "Popen", return_value=proc):
+            with self.assertRaises(RuntimeError) as ctx:
+                updater.publish_item("301650", "0", title="T", description="", content_folder=self.test_dir)
+        self.assertIn("file not found", str(ctx.exception))
+        self.assertEqual(ctx.exception.created_item_id, "999")
+
+    def test_publishing_through_steamworks_needs_no_steamcmd_login(self):
+        preview = os.path.join(self.test_dir, "p.jpg")
+        open(preview, "wb").close()
+        check = dict(title="T", description="", steamcmd_path="", content_path=self.test_dir, preview_path=preview,
+                     username="", use_cached_creds=False, title_limit=128, description_limit=8000)
+        preflight = UploadPreflight()
+        self.assertIsNotNone(preflight.validate_inputs(**check))                     # SteamCMD route
+        self.assertIsNone(preflight.validate_inputs(**check, via_steamworks=True))   # Steam client route
+
+    def test_steamworks_publish_records_the_item_and_updates_the_link(self):
+        self.uploader.root.after = lambda _delay, fn: fn()
+        self.uploader.item_id_var = DummyVar("0")
+        self.uploader._record_successful_publish = MagicMock()
+        self.uploader._ensure_steam_preview = MagicMock()
+        self.uploader.refresh_current_project_readiness = MagicMock()
+        self.uploader._set_busy = MagicMock()
+        updater = MagicMock()
+        updater.publish_item.return_value = {"publishedfileid": "999", "needs_legal_agreement": False, "created": True}
+        self.uploader._get_steamworks_tag_updater = MagicMock(return_value=updater)
+
+        self.uploader.run_steamworks_publish("0", "301650", self.test_dir, "", "T", "", "0", ["Map"], "note")
+
+        self.assertEqual(updater.publish_item.call_args.kwargs["init_app_id"], "301650")   # new items: the game
+        self.assertEqual(self.uploader.item_id_var.get(), "999")
+        self.uploader._record_successful_publish.assert_called_once_with("999")
+        self.uploader._set_busy.assert_called_with("Upload", False)
 
     def test_steamworks_init_uses_the_entry_point_the_dll_exports(self):
         updater = SteamworksTagUpdater()
@@ -1417,6 +1503,16 @@ class TestWorkshopUploader(unittest.TestCase):
         with patch.object(uploader.threading, "Thread") as thread_mock:
             self.uploader.start_upload()
             return thread_mock.called
+
+    def test_publish_goes_through_the_steam_client_when_it_can(self):
+        self._publish_setup()
+        self.uploader.steamcmd_path = DummyVar("")          # no SteamCMD needed on this route
+        self.uploader._steamworks_publish_available = MagicMock(return_value=True)
+        with patch.object(uploader.threading, "Thread") as thread_mock:
+            self.uploader.start_upload()
+        uploader.messagebox.showerror.assert_not_called()
+        self.assertEqual(thread_mock.call_args.kwargs["target"], self.uploader.run_steamworks_publish)
+        self.assertFalse(os.path.exists(os.path.join(self.test_dir, "upload.vdf")))
 
     def test_empty_or_non_mod_folder_is_never_published(self):
         self._publish_setup(files=())
