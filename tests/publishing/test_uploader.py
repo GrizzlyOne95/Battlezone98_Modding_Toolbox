@@ -1066,7 +1066,24 @@ class TestWorkshopUploader(unittest.TestCase):
 
         self.assertEqual(result["method"], "steamworks")
         helper.assert_called_once_with("C:/game/steam_api.dll", "301650", "123", ["CRA", "Pilot"], "", 20.0,
-                                       preview_path=None)
+                                       preview_path=None, init_app_id=None)
+
+    def test_items_made_by_the_uploader_tool_are_updated_as_that_app(self):
+        # Steam ignores a preview sent as the game for an item the official
+        # uploader tool (450970) created; Steamworks must run as the creator.
+        backend = self.uploader.workshop_backend
+        self.assertEqual(backend.creator_app_id({"creator_app_id": 450970}, default="301650"), "450970")
+        self.assertEqual(backend.creator_app_id({}, default="301650"), "301650")
+
+        updater = SteamworksTagUpdater()
+        with patch.object(steamworks_tags.os, "name", "nt"), \
+                patch.object(steamworks_tags, "steam_client_running", return_value=True), \
+                patch.object(updater, "find_steam_api_path", return_value=None), \
+                patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
+                patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
+            updater.try_update_item("301650", "123", preview_path=__file__, init_app_id="450970")
+        self.assertEqual(helper.call_args.kwargs["init_app_id"], "450970")
+        self.assertEqual(helper.call_args.args[1], "301650")   # the item still belongs to the game
 
     def test_steamworks_update_says_so_when_steam_is_not_running(self):
         updater = SteamworksTagUpdater()
@@ -1091,6 +1108,7 @@ class TestWorkshopUploader(unittest.TestCase):
             result = updater._update_tags_via_helper(dll, "301650", "123", ["CRA", "Pilot, Ölig"], "", 20)
 
         cmd = run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("-InitAppId") + 1], "301650")   # defaults to the game
         tags = base64.b64decode(cmd[cmd.index("-TagsB64") + 1]).decode("utf-8")
         self.assertEqual(tags.split("\n"), ["CRA", "Pilot, Ölig"])
         self.assertEqual(cmd[cmd.index("-UgcVersion") + 1], "STEAMUGC_INTERFACE_VERSION009")

@@ -5,6 +5,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$DllPath,
     [Parameter(Mandatory = $true)][uint32]$AppId,
+    # The app Steamworks runs as. Steam applies preview changes only from the
+    # app that created the item (the official uploader tool is its own app).
+    [uint32]$InitAppId = 0,
     [Parameter(Mandatory = $true)][uint64]$ItemId,
     [string]$TagsB64 = "",
     [string]$NoteB64 = "",
@@ -181,8 +184,9 @@ public static class BzSteamTags
 "@
 
 try {
-    $env:SteamAppId = [string]$AppId
-    $env:SteamGameId = [string]$AppId
+    if ($InitAppId -eq 0) { $InitAppId = $AppId }
+    $env:SteamAppId = [string]$InitAppId
+    $env:SteamGameId = [string]$InitAppId
     # One tag per line. (Not JSON: Windows PowerShell 5 hands a JSON array
     # back as one object, which [string[]] would join into a single tag.)
     [string[]]$tags = @()

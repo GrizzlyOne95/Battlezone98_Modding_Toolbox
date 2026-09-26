@@ -167,7 +167,7 @@ class SteamworksTagUpdater:
         return None
 
     def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds,
-                                preview_path=None):
+                                preview_path=None, init_app_id=None):
         powershell = _powershell_32()
         if not powershell:
             raise RuntimeError("32-bit Windows PowerShell (SysWOW64) was not found.")
@@ -187,6 +187,7 @@ class SteamworksTagUpdater:
             "-File", HELPER_SCRIPT,
             "-DllPath", dll_path,
             "-AppId", str(appid),
+            "-InitAppId", str(init_app_id or appid),
             "-ItemId", str(publishedfileid),
             "-UgcVersion", ugc_version,
             "-UtilsVersion", utils_version,
@@ -200,7 +201,7 @@ class SteamworksTagUpdater:
             cmd += ["-NoteB64", b64(change_note)]
         if preview_path:
             cmd += ["-PreviewB64", b64(os.path.abspath(preview_path))]
-        env = dict(os.environ, SteamAppId=str(appid), SteamGameId=str(appid))
+        env = dict(os.environ, SteamAppId=str(init_app_id or appid), SteamGameId=str(init_app_id or appid))
 
         self.log(f"Attempting Steamworks item update via 32-bit helper and {dll_path} ({ugc_version})")
         completed = subprocess.run(
@@ -422,13 +423,15 @@ class SteamworksTagUpdater:
         base_dir=None,
         timeout_seconds=20.0,
         create_appid_file=False,
+        init_app_id=None,
     ):
         clean_tags = [tag.strip() for tag in tags if str(tag).strip()]
         if not clean_tags:
             raise ValueError("No tags were provided.")
         return self.try_update_item(
             appid, publishedfileid, tags=clean_tags, change_note=change_note, dll_path=dll_path,
-            base_dir=base_dir, timeout_seconds=timeout_seconds, create_appid_file=create_appid_file)
+            base_dir=base_dir, timeout_seconds=timeout_seconds, create_appid_file=create_appid_file,
+            init_app_id=init_app_id)
 
     def try_update_item(
         self,
@@ -441,8 +444,16 @@ class SteamworksTagUpdater:
         base_dir=None,
         timeout_seconds=20.0,
         create_appid_file=False,
+        init_app_id=None,
     ):
-        """Set an item's tags and/or preview image through Steamworks, as the signed-in Steam user."""
+        """Set an item's tags and/or preview image through Steamworks, as the signed-in Steam user.
+
+        ``appid`` is the game the item belongs to (its consumer app).
+        ``init_app_id`` is the app Steamworks runs as: pass the item's
+        creator app. Steam silently ignores a preview change sent as any other
+        app, and items made with the official Battlezone 98 Redux Uploader
+        Tool were created by that tool (450970), not the game.
+        """
         if os.name != "nt":
             raise RuntimeError("Steamworks item updates are only supported on Windows.")
 
@@ -462,7 +473,7 @@ class SteamworksTagUpdater:
             if game_dll:
                 return self._update_tags_via_helper(
                     game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds,
-                    preview_path=preview_path)
+                    preview_path=preview_path, init_app_id=init_app_id)
             raise FileNotFoundError(
                 f"Neither {STEAM_API_DLL} nor the game's steam_api.dll was found in known Battlezone locations."
             )
@@ -477,8 +488,8 @@ class SteamworksTagUpdater:
         # Outside a Steam launch the API reads the AppID from SteamAppId (or a
         # steam_appid.txt in the working directory, which is rarely ours).
         saved_env = {key: os.environ.get(key) for key in ("SteamAppId", "SteamGameId")}
-        os.environ["SteamAppId"] = str(appid)
-        os.environ["SteamGameId"] = str(appid)
+        os.environ["SteamAppId"] = str(init_app_id or appid)
+        os.environ["SteamGameId"] = str(init_app_id or appid)
         dll = None
         try:
             dll = self._load_dll(target_dll)

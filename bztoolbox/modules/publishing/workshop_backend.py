@@ -362,6 +362,15 @@ class WorkshopBackend:
         return details
 
     @staticmethod
+    def creator_app_id(details, default=None):
+        """The app that created the item: Steamworks changes must run as that app."""
+        try:
+            value = int((details or {}).get("creator_app_id") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        return str(value) if value else default
+
+    @staticmethod
     def preview_matches(details, preview_path):
         """True when Steam's current preview is ``preview_path``, byte for byte.
 
@@ -414,6 +423,7 @@ class WorkshopBackend:
         steamworks_updater=None,
         base_dir=None,
         create_appid_file=False,
+        creator_app_id=None,
     ):
         native_error = None
         if steamworks_updater is not None:
@@ -425,6 +435,7 @@ class WorkshopBackend:
                     change_note=change_note,
                     base_dir=base_dir,
                     create_appid_file=create_appid_file,
+                    init_app_id=creator_app_id,
                 )
             except Exception as e:
                 native_error = e

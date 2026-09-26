@@ -144,6 +144,7 @@ pip install -r requirements.txt
 - The app is primarily intended for Windows-based Battlezone modding workflows.
 - Steam Web API features require an API key from `https://steamcommunity.com/dev/apikey`.
 - Tags are set through the game's own `steam_api.dll`. The toolbox is 64-bit and that DLL is 32-bit, so the update runs in the 32-bit Windows PowerShell (`steam_tags_helper.ps1`); a `steam_api64.dll` in the toolbox data folder, or the folder named by `BZ_STEAM_API_DIR`, is used in-process instead. Steam must be running and signed in to an account that owns Battlezone 98 Redux.
+- Steam applies preview changes only from the app that created the item. Items made with the official **Battlezone 98 Redux - Uploader Tool** were created by that tool (app 450970), so SteamCMD, which runs as the game, reports their preview upload as OK while Steam keeps the old image. After a publish the toolbox compares Steam's preview hash with the uploaded file and, if they differ, sets the preview through Steamworks as the item's creator app (tags too).
 
 ## License
 
