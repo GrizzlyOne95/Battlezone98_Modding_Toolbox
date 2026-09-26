@@ -97,6 +97,9 @@ PAGES: Sequence[PageSpec] = (
     PageSpec("missions.port", "missions", "BZCC → Redux Port",
              "Port a BZ2/BZCC mission to Battlezone 98 Redux: terrain first, then the mission.",
              f"{_P}.bzcc_port:BZCCPortPage", origin="BZN Toolbox", keywords=("bzn", "bzcc", "bz2", "port")),
+    PageSpec("missions.convert", "missions", "1.5 ↔ Redux BZN",
+             "Re-save a Battlezone 1.5 mission (1045) for Redux (2016) or back, with every changed field listed.",
+             f"{_P}.bzn_convert:BZNConvertPage", keywords=("bzn", "1.5", "version", "convert", "redux", "1045", "2016")),
 
     # --- World & Terrain --------------------------------------------------
     PageSpec("world.builder", "world", "World Builder",
@@ -106,6 +109,10 @@ PAGES: Sequence[PageSpec] = (
     PageSpec("world.generate", "world", "Generate Terrain",
              "Procedural HG2 terrain with live HG2/LGT preview.",
              f"{_L}:terrain_generator", kind="legacy", package="bztoolbox.modules.terrain_generator", origin="HeightmapGen", keywords=("hg2", "lgt", "heightmap")),
+    PageSpec("world.heightmap", "world", "Heightmap Convert",
+             "Legacy Battlezone .HGT to Redux .HG2 and back, byte-exact for HG2s cooked from an HGT.",
+             f"{_P}.heightmap_convert:HeightmapConvertPage", package="bztoolbox.modules.terrain_generator",
+             keywords=("hgt", "hg2", "heightmap", "legacy", "1.5")),
 
     # --- Assets -----------------------------------------------------------
     PageSpec("assets.textures", "assets", "Textures & Images",
