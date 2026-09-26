@@ -419,13 +419,24 @@ class WorkshopBackend:
         for i, tag in enumerate(tags):
             data[f"tags[{i}]"] = tag
 
-        self.steam_service.request_with_retry(
-            "POST",
-            url,
-            operation_name="Update Workshop tags",
-            data=data,
-            timeout=10,
-        )
+        try:
+            self.steam_service.request_with_retry(
+                "POST",
+                url,
+                operation_name="Update Workshop tags",
+                data=data,
+                timeout=10,
+            )
+        except Exception as e:
+            if native_error is None:
+                raise
+            # The Web API only accepts publisher keys for this call, so its
+            # refusal hides the real problem: say why the native path failed.
+            raise RuntimeError(
+                f"Steamworks tag update failed: {native_error}. "
+                f"The Web API fallback was also refused ({self.steam_service.friendly_api_error(e)}); "
+                "it needs a publisher key, so fix the Steamworks path."
+            ) from e
         return {
             "method": "web_api",
             "native_error": str(native_error) if native_error else "",
