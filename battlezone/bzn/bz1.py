@@ -687,13 +687,15 @@ def _convert_field(f: Field, kind: str, *, size: Optional[int] = None,
         if not binary and raw.rstrip(b"\0") != name:
             # ASCII spells an ID as text up to its first zero byte
             raise _Unmappable(f"LONG {value & 0xFFFFFFFF} has a zero byte inside its ID bytes, which ASCII cannot spell")
-        return Field(kind, name, raw=raw), True, f"LONG {value & 0xFFFFFFFF} -> ID bytes {raw.rstrip(b'\0').hex() or '(empty)'}"
+        id_hex = raw.rstrip(b"\0").hex() or "(empty)"
+        return Field(kind, name, raw=raw), True, f"LONG {value & 0xFFFFFFFF} -> ID bytes {id_hex}"
     if f.kind == "id" and kind in ("ulong", "long"):
         source = f.raw if f.raw is not None else value
         number = int.from_bytes(source[:8].ljust(8, b"\0"), "little")
         if len(source.rstrip(b"\0")) > 8 or number > 0xFFFFFFFF:
             raise _Unmappable(f"ID {value.decode('latin-1')!r} does not fit a 32-bit LONG")
-        return Field(kind, number), True, f"ID bytes {source.rstrip(b'\0').hex() or '(empty)'} -> LONG {number}"
+        id_hex = source.rstrip(b"\0").hex() or "(empty)"
+        return Field(kind, number), True, f"ID bytes {id_hex} -> LONG {number}"
     if f.kind == "void" and kind == "ptr":              # AiPath.old_ptr, <= 2011 VOID vs > 2011 PTR
         return Field(kind, int.from_bytes(value[:8], "little")), True, "VOID bytes -> PTR"
     if f.kind == "ptr" and kind == "void":
