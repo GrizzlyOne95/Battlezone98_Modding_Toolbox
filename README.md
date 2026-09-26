@@ -17,7 +17,7 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **Projects** | Open and manage mod folders, keep Workshop metadata together, validate content, and inspect dependencies. |
 | **Missions** | Inspect BZN files, find mission ODF dependencies, validate Redux ODFs, and assist with BZ2/BZCC mission ports. |
 | **World & Terrain** | Build and convert terrain, create atlases, generate heightmaps, auto-paint maps, work with skies, and preview missions. |
-| **Textures & Graphics** | Convert and batch-process textures, edit ACT palettes, work with MAP/LGT/DXTBZ2 files, generate fonts, and create holographic text assets. |
+| **Textures & Graphics** | Convert and batch-process textures, edit ACT palettes, work with MAP/LGT/DXTBZ2 files, convert Battlezone II Softimage `.pic` textures, generate fonts, and create holographic text assets. |
 | **Models & Meshes** | Inspect Ogre meshes, recalculate normals, preview models, and export static meshes to OBJ. |
 | **Audio** | Prepare Battlezone-style radio voiceovers, engine/turbo WAVs, soundtrack OGGs, and timing manifests. |
 | **Localization** | Scan mod ODFs for player-visible names and build Battlezone-compatible localization table entries. |
@@ -156,6 +156,8 @@ Support includes the normal ZFS format, legacy MakeZFS/LZO archives, compression
 
 The PAK page does the same for Battlezone II PAKs: the BZ2 / BZ2R texture packs (`bumps.pak`, `smtex.pak`, ...) and the BZ2 demo's `data.pak` (an older, uncompressed version of the format). Browse and filter members, extract with or without their group folders (e.g. "ISDF Buildings" or `effects\chunks`), verify that every member decodes, and pack a folder back into a PAK, with each subfolder becoming a group. New PAKs use the BZ2R format; members are zlib-compressed when that saves space.
 
+The original BZ2 textures inside these PAKs are Softimage `.pic` files. The Texture Manager opens them like any other image, so they preview and convert to DDS, PNG or TGA (and back to `.pic`), one at a time or in a batch. From the command line, `bztoolbox pic` converts files or whole folders.
+
 ## Steam Workshop publishing
 
 The Workshop page is intended to take a project from "looks ready" to uploaded without needing the old Battlezone uploader.
@@ -246,6 +248,9 @@ bztoolbox zfs verify archive.zfs
 bztoolbox pak list bumps.pak
 bztoolbox pak extract bumps.pak -g -o out
 bztoolbox pak pack new.pak folder
+
+bztoolbox pic old_textures -o png
+bztoolbox pic png --to pic
 
 bztoolbox terrain ...
 bztoolbox textures ...

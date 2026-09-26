@@ -26,9 +26,12 @@ def _dnd_ready(widget):
 
 from battlezone.terrain import lgt as lgt_codec
 from battlezone.terrain.trn import TRNDocument
+from battlezone.images import softpic
 from bztoolbox.modules.textures import bcpack
 from bztoolbox.modules.textures import uiscan
 from bztoolbox.modules.textures import recompress
+
+softpic.register()   # Pillow opens and saves BZ2's Softimage .pic textures from here on
 
 class DXTBZ2Header(Structure):
     _fields_ = [
@@ -862,7 +865,7 @@ class BZReduxSuite:
         self.tex_to_ext = tk.StringVar(value=self.config.get("tex_to_ext", ".dds"))
         self.tex_to_ext.trace_add("write", self.update_tex_ui_state)
         ttk.Label(fmt_f, text="Output Format:").grid(row=0, column=0, padx=5, sticky="w")
-        ttk.Combobox(fmt_f, textvariable=self.tex_to_ext, values=[".dds", ".png", ".tga"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Combobox(fmt_f, textvariable=self.tex_to_ext, values=[".dds", ".png", ".tga", ".pic"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5)
         
         ttk.Label(fmt_f, text="Compression:").grid(row=1, column=0, padx=5, sticky="w")
         self.tex_compress = tk.StringVar(value="Auto")
@@ -947,7 +950,7 @@ class BZReduxSuite:
             filedialog.askdirectory(title="Select Source Folder") or self.tex_batch_src.get())).pack(side="left")
 
         self.tex_from_ext = tk.StringVar(value="all supported")
-        ttk.Combobox(batch_f, textvariable=self.tex_from_ext, values=["all supported", ".png", ".tga", ".dds", ".jpg"], state="readonly").pack(pady=2, fill="x")
+        ttk.Combobox(batch_f, textvariable=self.tex_from_ext, values=["all supported", ".png", ".tga", ".dds", ".jpg", ".pic"], state="readonly").pack(pady=2, fill="x")
         
         ttk.Entry(batch_f, textvariable=self.tex_batch_out).pack(fill="x", padx=10, pady=2)
         ttk.Button(batch_f, text="Set Output Folder", command=self.set_tex_batch_out).pack(pady=2, fill="x")
@@ -970,7 +973,7 @@ class BZReduxSuite:
                    style="Action.TButton").pack(pady=(5, 0), fill="x")
 
     def browse_single_tex(self):
-        path = filedialog.askopenfilename(filetypes=[("Image", "*.png;*.tga;*.jpg;*.bmp;*.dds")])
+        path = filedialog.askopenfilename(filetypes=[("Image", "*.png;*.tga;*.jpg;*.bmp;*.dds;*.pic")])
         if path:
             self.tex_single_path.set(path)
             self.load_tex_preview(path)
@@ -1103,7 +1106,7 @@ class BZReduxSuite:
         from_filter = self.tex_from_ext.get().lower()
         
         # Identify valid files
-        supported = [".png", ".tga", ".dds", ".jpg", ".bmp"]
+        supported = [".png", ".tga", ".dds", ".jpg", ".bmp", ".pic"]
         files = [f for f in os.listdir(src_folder) if os.path.splitext(f)[1].lower() in supported]
         
         if from_filter != "all supported":
