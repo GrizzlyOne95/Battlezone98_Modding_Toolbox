@@ -504,8 +504,8 @@ class WorkshopUploader:
         text = str(value or "").strip()
         if not text:
             return "0 (Public)"
-        if text in ("0", "1", "2"):
-            labels = {"0": "Public", "1": "Friends", "2": "Private"}
+        if text in ("0", "1", "2", "3"):
+            labels = {"0": "Public", "1": "Friends", "2": "Private", "3": "Unlisted"}
             return f"{text} ({labels[text]})"
         return text
 
@@ -581,6 +581,9 @@ class WorkshopUploader:
             payload["last_uploaded_item_id"] = self.current_project_data.get("last_uploaded_item_id")
         if self.current_project_data.get("declined_links"):
             payload["declined_links"] = self.current_project_data.get("declined_links")
+        for key in ("steam_time_updated", "steam_preview_url"):
+            if self.current_project_data.get(key):
+                payload[key] = self.current_project_data.get(key)
         return payload
 
     def save_current_project_state(self, quiet=False):
@@ -660,6 +663,7 @@ class WorkshopUploader:
         self.project_hint_var.set(os.path.abspath(mod_path) if mod_path else "Saved upload profile loaded.")
         self._update_project_status(self.current_inventory)
         self.refresh_recent_projects()
+        self._auto_sync_from_steam()
         return data
 
     def open_selected_project(self):
@@ -1822,6 +1826,7 @@ class WorkshopUploader:
         self.upload_mode_label.pack(side="left")
         ttk.Button(top_row, text="NEW ITEM", command=self.set_create_mode).pack(side="right")
         ttk.Button(top_row, text="OPEN PAGE", command=self.open_workshop_page).pack(side="right", padx=4)
+        ttk.Button(top_row, text="SYNC FROM STEAM", command=self.sync_from_steam).pack(side="right")
 
         ttk.Label(frame, text="Content Folder:").grid(row=1, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.mod_path).grid(row=1, column=1, columnspan=3, sticky="ew", padx=5)
@@ -1852,7 +1857,7 @@ class WorkshopUploader:
         self.desc_char_label.grid(row=6, column=3, sticky="e", padx=5)
 
         ttk.Label(frame, text="Visibility:").grid(row=7, column=0, sticky="w", pady=5)
-        ttk.Combobox(frame, textvariable=self.visibility_var, values=["0 (Public)", "1 (Friends)", "2 (Private)"], state="readonly", width=16).grid(row=7, column=1, sticky="w", padx=5, pady=5)
+        ttk.Combobox(frame, textvariable=self.visibility_var, values=["0 (Public)", "1 (Friends)", "2 (Private)", "3 (Unlisted)"], state="readonly", width=16).grid(row=7, column=1, sticky="w", padx=5, pady=5)
         ttk.Label(frame, text="Workshop ID:").grid(row=7, column=2, sticky="e")
         ttk.Entry(frame, textvariable=self.item_id_var, width=18).grid(row=7, column=3, sticky="w", padx=5)
 
@@ -2805,6 +2810,7 @@ class WorkshopUploader:
             self.save_current_project_state(quiet=True)
             self._update_project_status(self.current_inventory)
             self.log(f"Linked {folder} to Workshop item #{match.item_id}")
+            self._auto_sync_from_steam()
             return match.item_id
         self.current_project_data = dict(self.current_project_data or {},
                                          declined_links=sorted(declined | {match.item_id}))
@@ -3051,6 +3057,8 @@ class WorkshopUploader:
 
         if not quiet:
             self.log(f"Upload profile linked to Workshop item {item_id}: {title}")
+        if self._steam_api_key():
+            self.sync_from_steam(quiet=quiet)
         return True
 
     def _resolve_vanity_to_steamid(self, vanity, api_key):
@@ -3203,66 +3211,137 @@ class WorkshopUploader:
     def prepare_update(self):
         selected = self.tree.selection()
         if not selected: return
-        
+
         item_id = self.tree.item(selected[0])['values'][1]
         if not item_id or not str(item_id).isdigit():
             messagebox.showinfo("Info", "Select a Workshop item first.")
             return
-        if not self.use_selected_item_id_for_upload(switch_to_upload=False, quiet=False):
-            return
-        self.log(f"Fetching details for item {item_id}...")
-        self._set_busy("Prepare Update", True)
-        threading.Thread(target=self._prepare_update_worker, args=(item_id,), daemon=True).start()
+        # Linking already pulls the item's Steam metadata into the editor.
+        self.use_selected_item_id_for_upload(switch_to_upload=False, quiet=False)
 
-    def _prepare_update_worker(self, item_id):
+    def _linked_item_id(self):
+        from bztoolbox.modules.publishing import publish_guard
+
+        item_id = str(self.item_id_var.get() or "").strip()
+        return item_id if publish_guard.is_item_id(item_id) else ""
+
+    def _steam_api_key(self):
+        api_key = self.api_key_var.get()
+        return api_key.strip() if isinstance(api_key, str) else ""
+
+    def sync_from_steam(self, quiet=False, only_if_newer=False):
+        """Pull the linked item's title, description, visibility, tags and preview from Steam.
+
+        Steam is the source of truth for an item edited on its Workshop page.
+        With ``only_if_newer`` (opening a profile) the pull is skipped unless
+        Steam changed the item since the last sync, so unpublished local
+        edits survive a reopen.
+        """
+        item_id = self._linked_item_id()
+        if not item_id:
+            if not quiet:
+                messagebox.showinfo("Sync from Steam", "Link this folder to a Workshop item first.")
+            return False
+        api_key = self._steam_api_key()
+        if not api_key:
+            if not quiet:
+                messagebox.showerror("Sync from Steam", "A Steam Web API Key is required to read the item from Steam.")
+            return False
+        self.log(f"Reading Workshop item {item_id} from Steam...")
+        self._set_busy("Sync from Steam", True)
+        threading.Thread(
+            target=self._sync_from_steam_worker,
+            args=(item_id, api_key, only_if_newer, dict(self.current_project_data or {}), self.preview_path.get()),
+            daemon=True,
+        ).start()
+        return True
+
+    def _auto_sync_from_steam(self):
+        if self._linked_item_id() and self._steam_api_key():
+            self.sync_from_steam(quiet=True, only_if_newer=True)
+
+    @staticmethod
+    def _preview_extension(data):
+        if data.startswith(b"\x89PNG"):
+            return ".png"
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return ".gif"
+        return ".jpg"
+
+    @staticmethod
+    def _steam_tag_names(tags):
+        names = []
+        for tag in tags or []:
+            value = (tag.get("tag") or tag.get("display_name") or "") if isinstance(tag, dict) else str(tag)
+            value = value.strip()
+            if value and value not in names:
+                names.append(value)
+        return names
+
+    def _sync_from_steam_worker(self, item_id, api_key, only_if_newer=False, project=None, current_preview=""):
         try:
-            api_key = self.api_key_var.get()
-            details = self._get_workshop_backend().fetch_workshop_item_details(api_key=api_key, item_id=item_id)
-            if not details:
-                self.root.after(0, lambda: self.log(f"Could not fetch details for {item_id}"))
+            backend = self._get_workshop_backend()
+            details = backend.fetch_workshop_item_details(api_key=api_key, item_id=item_id)
+            if not details or not details.get("title"):
+                self.root.after(0, lambda: self.log(f"Could not read Workshop item {item_id} from Steam."))
                 return
 
-            preview_url = details.get("preview_url")
+            project = project or {}
+            steam_updated = str(details.get("time_updated") or "")
+            if only_if_newer and steam_updated and steam_updated == str(project.get("steam_time_updated") or ""):
+                return
+
+            # Only replace the preview when Steam's image changed (or none is
+            # set locally); an unchanged one keeps the author's own file.
+            preview_url = details.get("preview_url") or ""
             preview_local_path = ""
-            if preview_url:
-                preview_bytes = self._get_workshop_backend().download_preview_bytes(preview_url)
+            preview_changed = bool(preview_url) and (
+                preview_url != project.get("steam_preview_url")
+                or not current_preview
+                or not os.path.isfile(current_preview)
+            )
+            if preview_changed:
+                preview_bytes = backend.download_preview_bytes(preview_url)
                 if preview_bytes:
-                    preview_local_path = os.path.join(self.temp_dir, f"{item_id}.jpg")
-                    with open(preview_local_path, 'wb') as f:
+                    preview_local_path = os.path.join(self.temp_dir, f"{item_id}{self._preview_extension(preview_bytes)}")
+                    with open(preview_local_path, "wb") as f:
                         f.write(preview_bytes)
-            
-            vis_map = {0: "0 (Public)", 1: "1 (Friends)", 2: "2 (Private)"}
-            vis_str = vis_map.get(details.get("visibility"), "0 (Public)")
-            detail_tags = details.get("tags") or []
-            tag_names = []
-            for tag in detail_tags:
-                if isinstance(tag, dict):
-                    value = tag.get("tag") or tag.get("display_name") or ""
-                else:
-                    value = str(tag)
-                value = value.strip()
-                if value:
-                    tag_names.append(value)
+
+            try:
+                vis_code = str(int(details.get("visibility", 0)))
+            except (TypeError, ValueError):
+                vis_code = "0"
+            vis_str = self._normalize_visibility_value(vis_code)
+            tag_names = self._steam_tag_names(details.get("tags"))
+            description = details.get("description") or details.get("file_description") or ""
 
             def do_populate():
+                # The user may have switched folders while Steam answered.
+                if self._linked_item_id() != item_id:
+                    return
                 self.autosave_suspended = True
                 try:
-                    self.item_id_var.set(details.get("publishedfileid", "0"))
                     self.title_var.set(details.get("title", ""))
-                    self._set_desc_text_value(details.get("description", ""))
-                    self.preview_path.set(preview_local_path)
+                    self._set_desc_text_value(description)
                     self.visibility_var.set(vis_str)
-                    if tag_names:
-                        self.tags_var.set(", ".join(tag_names))
+                    self.tags_var.set(", ".join(tag_names))
+                    if preview_local_path:
+                        self.preview_path.set(preview_local_path)
                 finally:
                     self.autosave_suspended = False
+                self.current_project_data = dict(
+                    self.current_project_data or {},
+                    steam_time_updated=steam_updated,
+                    steam_preview_url=preview_url,
+                )
                 self.save_current_project_state(quiet=True)
-            
+                self.log(f"Editor updated from Steam: {details.get('title', item_id)}")
+
             self.root.after(0, do_populate)
         except Exception as e:
             self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
-            self._set_busy("Prepare Update", False)
+            self._set_busy("Sync from Steam", False)
 
     def analyze_last_upload_log(self):
         sc_exe = self.steamcmd_path.get()

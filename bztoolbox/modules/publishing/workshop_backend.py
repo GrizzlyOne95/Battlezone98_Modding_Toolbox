@@ -273,7 +273,7 @@ class WorkshopBackend:
             page += 1
 
         normalized = []
-        vis_map = {0: "Public", 1: "Friends", 2: "Private"}
+        vis_map = {0: "Public", 1: "Friends", 2: "Private", 3: "Unlisted"}
         for item in items:
             updated = item.get("time_updated")
             try:
@@ -297,16 +297,52 @@ class WorkshopBackend:
         }
 
     def fetch_workshop_item_details(self, api_key, item_id):
-        url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
-        response = self.steam_service.request_with_retry(
-            "POST",
-            url,
-            operation_name="Fetch Workshop item details",
-            data={"key": api_key, "itemcount": 1, "publishedfileids[0]": item_id},
-            timeout=10,
-        )
-        details = response.json().get("response", {}).get("publishedfiledetails", [{}])[0]
-        return details or {}
+        """Current Steam-side metadata for one item: title, description, visibility, tags, preview.
+
+        IPublishedFileService/GetDetails sees the key owner's private and
+        unlisted items and returns the full description; the older
+        ISteamRemoteStorage endpoint is the fallback for anything it misses.
+        """
+        details = {}
+        try:
+            response = self.steam_service.request_with_retry(
+                "GET",
+                "https://api.steampowered.com/IPublishedFileService/GetDetails/v1/",
+                operation_name="Fetch Workshop item details",
+                params={
+                    "key": api_key,
+                    "publishedfileids[0]": item_id,
+                    "includetags": "true",
+                    "strip_description_bbcode": "false",
+                },
+                timeout=10,
+            )
+            details = (response.json().get("response", {}).get("publishedfiledetails") or [{}])[0] or {}
+        except Exception as e:
+            self.log(f"Workshop details lookup failed, retrying with the legacy endpoint: {e}")
+            details = {}
+        if not self._details_found(details):
+            response = self.steam_service.request_with_retry(
+                "POST",
+                "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+                operation_name="Fetch Workshop item details",
+                data={"key": api_key, "itemcount": 1, "publishedfileids[0]": item_id},
+                timeout=10,
+            )
+            details = (response.json().get("response", {}).get("publishedfiledetails") or [{}])[0] or {}
+        details = dict(details)
+        if "description" not in details and "file_description" in details:
+            details["description"] = details.get("file_description") or ""
+        return details
+
+    @staticmethod
+    def _details_found(details):
+        if not details or not details.get("title"):
+            return False
+        try:
+            return int(details.get("result", 1)) == 1
+        except (TypeError, ValueError):
+            return True
 
     def download_preview_bytes(self, preview_url):
         if not preview_url:
