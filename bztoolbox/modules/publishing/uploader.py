@@ -3440,9 +3440,24 @@ class WorkshopUploader:
     def _current_tags(self):
         return [t.strip() for t in self.tags_var.get().split(",") if t.strip()]
 
-    def _apply_workshop_tags(self, item_id, tags, api_key, appid, change_note):
+    def _item_creator_app(self, item_id, api_key, appid):
+        """The app that created ``item_id`` (Steamworks must run as it), or the game's."""
+        backend = self._get_workshop_backend()
+        try:
+            details = backend.fetch_workshop_item_details(api_key=api_key, item_id=item_id)
+        except Exception:
+            return str(appid)
+        creator = backend.creator_app_id(details, default=str(appid))
+        if creator != str(appid):
+            self.log(f"Workshop item {item_id} was created by app {creator} "
+                     f"(e.g. the official uploader tool); updating it as that app.")
+        return creator
+
+    def _apply_workshop_tags(self, item_id, tags, api_key, appid, change_note, creator_app_id=None):
         """Set ``tags`` on ``item_id`` (blocking); logs the outcome."""
         self.log(f"Updating Workshop tags: {', '.join(tags)}...")
+        if creator_app_id is None:
+            creator_app_id = self._item_creator_app(item_id, api_key, appid)
         try:
             result = self._get_workshop_backend().update_workshop_tags(
                 api_key=api_key,
@@ -3452,6 +3467,7 @@ class WorkshopUploader:
                 change_note=change_note,
                 steamworks_updater=self._get_steamworks_tag_updater(),
                 base_dir=self.base_dir,
+                creator_app_id=creator_app_id,
             )
             if result.get("method") == "steamworks":
                 self.log("Workshop tags updated successfully via Steamworks.")
@@ -3464,7 +3480,7 @@ class WorkshopUploader:
         except Exception as e:
             self.log(f"Tag Update Error: {self._friendly_api_error(e)}")
 
-    def _ensure_steam_preview(self, item_id, preview_path, api_key, appid):
+    def _ensure_steam_preview(self, item_id, preview_path, api_key, appid, creator_app_id=None):
         """Push ``preview_path`` through Steamworks when Steam still shows another image."""
         backend = self._get_workshop_backend()
         try:
@@ -3476,9 +3492,11 @@ class WorkshopUploader:
         if matches is None or matches:
             return
         self.log("Steam kept the previous preview image; setting it through Steamworks...")
+        creator = creator_app_id or backend.creator_app_id(details, default=str(appid))
         try:
             self._get_steamworks_tag_updater().try_update_item(
-                appid=appid, publishedfileid=item_id, preview_path=preview_path, base_dir=self.base_dir)
+                appid=appid, publishedfileid=item_id, preview_path=preview_path, base_dir=self.base_dir,
+                init_app_id=creator)
             self.log("Workshop preview updated via Steamworks.")
         except Exception as e:
             self.log(f"Preview Update Error: {e}")
@@ -3496,11 +3514,12 @@ class WorkshopUploader:
         change_note = self.note_var.get()
 
         def _worker():
+            creator = self._item_creator_app(item_id, api_key, appid)
             # One after the other: two Steamworks sessions must not overlap.
             if tags:
-                self._apply_workshop_tags(item_id, tags, api_key, appid, change_note)
+                self._apply_workshop_tags(item_id, tags, api_key, appid, change_note, creator_app_id=creator)
             if preview_path:
-                self._ensure_steam_preview(item_id, preview_path, api_key, appid)
+                self._ensure_steam_preview(item_id, preview_path, api_key, appid, creator_app_id=creator)
 
         threading.Thread(target=_worker, daemon=True).start()
 
