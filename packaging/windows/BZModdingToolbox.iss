@@ -16,7 +16,11 @@
 ; * adds a Start menu shortcut, and optionally a desktop shortcut and the
 ;   install folder on PATH (the bztoolbox command line);
 ; * upgrades in place: the same AppId finds the previous install, and the old
-;   library folder is cleared first so no stale files are left behind;
+;   library folder is cleared first so no stale files are left behind. An
+;   installed copy turns the wizard into an update: it reuses the previous
+;   install mode (UsePreviousPrivileges), folder and options, skips the licence
+;   and options pages, says "Update from <old> to <new>", and asks before
+;   replacing a newer version with an older one;
 ; * uninstalls cleanly, and offers to delete the user's settings, project
 ;   profiles and saved Steam API key (bztoolbox clean-user-data).
 ;
@@ -130,6 +134,126 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags
 const
   UserEnvKey = 'Environment';
   MachineEnvKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+  NewVersion = '{#AppVersion}';
+
+var
+  { version of the copy already installed in this install mode, '' if none }
+  PreviousVersion: String;
+
+function UninstallKey: String;
+begin
+  Result := ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#emit SetupSetting("AppId")}_is1');
+end;
+
+function IsUpdate: Boolean;
+begin
+  Result := PreviousVersion <> '';
+end;
+
+{ Next number of a dotted version, removed from Version ('1.2.3' -> 1, Version = '2.3'). }
+function TakeVersionPart(var Version: String): Integer;
+var
+  Dot: Integer;
+begin
+  Dot := Pos('.', Version);
+  if Dot = 0 then
+  begin
+    Result := StrToIntDef(Trim(Version), 0);
+    Version := '';
+  end else
+  begin
+    Result := StrToIntDef(Trim(Copy(Version, 1, Dot - 1)), 0);
+    Version := Copy(Version, Dot + 1, Length(Version));
+  end;
+end;
+
+{ -1, 0 or 1 as version A is older than, the same as or newer than B. }
+function CompareVersions(A, B: String): Integer;
+var
+  I, PartA, PartB: Integer;
+begin
+  Result := 0;
+  for I := 1 to 3 do
+  begin
+    PartA := TakeVersionPart(A);
+    PartB := TakeVersionPart(B);
+    if PartA > PartB then Result := 1;
+    if PartA < PartB then Result := -1;
+    if Result <> 0 then Exit;
+  end;
+end;
+
+{ Update-specific wording: "Update" for a newer version, "Reinstall" for the same one. }
+function UpdateVerb: String;
+begin
+  if CompareVersions(NewVersion, PreviousVersion) = 0 then Result := 'Reinstall' else Result := 'Update';
+end;
+
+function InitializeSetup: Boolean;
+var
+  Root: Integer;
+begin
+  Result := True;
+  { The install mode is settled by now: UsePreviousPrivileges picked the mode
+    of an existing install, so its uninstall entry is in this root. }
+  if IsAdminInstallMode then Root := HKEY_LOCAL_MACHINE else Root := HKEY_CURRENT_USER;
+  if not RegQueryStringValue(Root, UninstallKey, 'DisplayVersion', PreviousVersion) then
+    PreviousVersion := '';
+  if not IsUpdate then
+  begin
+    Log('No previous install found: installing ' + NewVersion + '.');
+    Exit;
+  end;
+  Log('Found installed version ' + PreviousVersion + ': updating to ' + NewVersion + '.');
+  if CompareVersions(NewVersion, PreviousVersion) < 0 then
+    Result := SuppressibleMsgBox('{#AppName} ' + PreviousVersion + ' is installed, which is newer than this setup (' +
+                                 NewVersion + ').' + #13#10#13#10 + 'Replace it with the older version ' + NewVersion + '?',
+                                 mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDYES) = IDYES;
+end;
+
+procedure InitializeWizard;
+begin
+  if IsUpdate then
+    WizardForm.Caption := UpdateVerb + ' - {#AppName}';
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  { An update keeps the licence already accepted and the options chosen at
+    install (Setup remembers them), so it goes straight to "Ready to update". }
+  Result := IsUpdate and ((PageID = wpLicense) or (PageID = wpSelectTasks));
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+var
+  FromTo: String;
+begin
+  if not IsUpdate then Exit;
+  if UpdateVerb = 'Update' then
+    FromTo := ' from ' + PreviousVersion + ' to ' + NewVersion
+  else
+    FromTo := ' ' + NewVersion;
+  case CurPageID of
+    wpReady:
+      begin
+        WizardForm.PageNameLabel.Caption := 'Ready to ' + Lowercase(UpdateVerb);
+        WizardForm.PageDescriptionLabel.Caption := UpdateVerb + ' {#AppName}' + FromTo + '.';
+        WizardForm.ReadyLabel.Caption := 'Click ' + UpdateVerb + ' to continue. Your settings and project profiles are kept.';
+        WizardForm.NextButton.Caption := '&' + UpdateVerb;
+      end;
+    wpInstalling:
+      begin
+        WizardForm.PageNameLabel.Caption := 'Updating';
+        WizardForm.PageDescriptionLabel.Caption := 'Please wait while Setup updates {#AppName}' + FromTo + '.';
+      end;
+    wpFinished:
+      begin
+        { shorter than the default texts, so the launch checkbox below them stays clear }
+        WizardForm.FinishedHeadingLabel.Caption := '{#AppName} is up to date';
+        WizardForm.FinishedLabel.Caption := 'Setup has updated {#AppName} to ' + NewVersion + '.';
+      end;
+  end;
+end;
 
 function EnvRoot: Integer;
 begin

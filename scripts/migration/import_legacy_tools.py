@@ -158,7 +158,7 @@ def build_tools() -> list[Tool]:
     tools.append(t)
 
     # --- Workshop Uploader -> Project / Publish ---------------------------
-    wu = ["app_file_manager", "content_fixes", "memory_analyzer", "mod_scanner", "project_store",
+    wu = ["app_file_manager", "content_fixes", "mod_scanner", "project_store",
           "steam_service", "steamworks_tags", "upload_preflight", "uploader", "workshop_backend"]
     t = Tool("Battlezone98Redux_WorkshopUploader", "bztoolbox.modules.publishing")
     t.files = {**_py(wu), "bzrODFparams.txt": "bzrODFparams.txt",
