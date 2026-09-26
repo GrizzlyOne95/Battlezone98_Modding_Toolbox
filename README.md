@@ -80,6 +80,8 @@ The ODF validator is based on recovered Battlezone 98 Redux loader behavior and 
 
 There is also tooling for **BZ2/BZCC to Redux mission conversion**, including ODF/team mapping and conversion reports for areas that require manual review.
 
+**Missions › 1.5 ↔ Redux BZN** (`bztoolbox bzn convert`) re-saves a Battlezone 1.5 mission (BZN version 1045; 1037–1044 from older patches, ASCII or binary) for Redux (2016), or a Redux mission for 1.5. It reads and writes every version-gated field the way BZNParser does, lists each field it added, dropped or converted, and refuses a conversion that would lose a value (for example a Redux-only `isCritical = true`, or an ODF name longer than the 8 bytes 1.5 can store) unless the loss is allowed explicitly. See [docs/missions/README.md](docs/missions/README.md#battlezone-15--redux-bzn-conversion).
+
 ## World and terrain tools
 
 The toolbox includes the major WorldBuilder and HeightmapGen workflows in one place.
@@ -91,7 +93,7 @@ You can:
 - convert and work with legacy terrain
 - create custom and legacy texture atlases
 - auto-paint terrain using elevation and terrain rules
-- convert heightmaps
+- convert heightmaps, including legacy `.HGT` ↔ Redux `.HG2` (**World & Terrain › Heightmap Convert**, `bztoolbox terrain heightmap`)
 - work with Battlezone sky assets
 - visualize mission terrain
 - use the evolving BZ2/BZCC terrain-port workflow where supported

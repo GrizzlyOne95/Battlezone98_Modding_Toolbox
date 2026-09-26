@@ -121,6 +121,8 @@ def _configure(style: ttk.Style) -> None:
     style.map("Toolbox.TCheckbutton", background=[("active", BG)], foreground=[("active", ACCENT)])
     style.configure("Toolbox.Surface.TCheckbutton", background=SURFACE, foreground=FG, font=body)
     style.map("Toolbox.Surface.TCheckbutton", background=[("active", SURFACE)], foreground=[("active", ACCENT)])
+    style.configure("Toolbox.Surface.TRadiobutton", background=SURFACE, foreground=FG, font=body)
+    style.map("Toolbox.Surface.TRadiobutton", background=[("active", SURFACE)], foreground=[("active", ACCENT)])
     style.configure("Toolbox.TCombobox", fieldbackground="#050505", foreground=FG, background=SURFACE_ALT,
                     arrowcolor=ACCENT, selectbackground=ACCENT_DIM, selectforeground=ACCENT)
     style.map("Toolbox.TCombobox", fieldbackground=[("readonly", "#050505")], foreground=[("readonly", FG)],
