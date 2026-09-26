@@ -25,6 +25,20 @@ def _powershell_32():
     return path if os.path.exists(path) else None
 
 
+def steam_client_running():
+    """False when the Steam client is known not to be running and signed in, else True."""
+    if os.name != "nt":
+        return True
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as key:
+            user, _ = winreg.QueryValueEx(key, "ActiveUser")
+        return bool(user)
+    except OSError:
+        return True   # cannot tell: let SteamAPI_Init decide
+
+
 def embedded_interface_version(dll_path, prefix, default=None):
     """The ``<prefix>NNN`` interface version compiled against ``dll_path``.
 
@@ -102,6 +116,14 @@ class SteamworksTagUpdater:
         game_dir = os.environ.get("BZR_GAME_DIR", "").strip()
         if game_dir:
             dirs.append(game_dir)
+        try:
+            from bztoolbox.settings import Settings
+
+            configured = str(Settings().get("game_dir", "") or "").strip()   # Settings › Game folder
+            if configured:
+                dirs.append(configured)
+        except Exception:
+            pass
         try:
             from bztoolbox import external
 
@@ -429,6 +451,8 @@ class SteamworksTagUpdater:
             raise FileNotFoundError(f"Preview image not found: {preview_path}")
         if not clean_tags and not preview_path:
             raise ValueError("Nothing to update: no tags and no preview image.")
+        if not steam_client_running():
+            raise RuntimeError("Steam is not running or not signed in. Start Steam, then try again.")
 
         target_dll = dll_path or self.find_steam_api_path(base_dir=base_dir)
         if not target_dll:
