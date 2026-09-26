@@ -231,6 +231,88 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertIn("Line1\\nLine2", content)
         self.assertIn("\\\\", content)
 
+    def test_build_upload_vdf_content_omits_blank_optional_fields(self):
+        # SteamCMD applies every key present: a blank description or preview
+        # would wipe the item's current one on Steam.
+        content = self.uploader._build_upload_vdf_content(
+            appid="301650", publishedfileid="123", contentfolder=r"C:\mods\test",
+            previewfile="", visibility="2", title="Title", description="  ", changenote="",
+        )
+        self.assertNotIn('"description"', content)
+        self.assertNotIn('"previewfile"', content)
+        self.assertNotIn('"changenote"', content)
+        self.assertIn('"title" "Title"', content)
+        self.assertIn('"visibility" "2"', content)
+
+    def test_upload_preflight_preview_required_only_for_new_items(self):
+        preflight = UploadPreflight()
+        steamcmd_path = os.path.join(self.test_dir, "steamcmd.exe")
+        with open(steamcmd_path, "w", encoding="utf-8") as f:
+            f.write("exe")
+        kwargs = dict(title="Test Mod", description="", steamcmd_path=steamcmd_path,
+                      content_path=self.test_dir, preview_path="", username="user",
+                      use_cached_creds=False, title_limit=128, description_limit=8000)
+
+        self.assertEqual(preflight.validate_inputs(**kwargs)[1], "A new Workshop item needs a Preview Image.")
+        self.assertIsNone(preflight.validate_inputs(is_update=True, **kwargs))
+        kwargs["preview_path"] = os.path.join(self.test_dir, "missing.jpg")
+        self.assertIn("Preview image not found", preflight.validate_inputs(is_update=True, **kwargs)[1])
+
+    def test_stage_preview_names_file_by_content(self):
+        self.uploader.base_dir = self.test_dir
+        preview = os.path.join(self.test_dir, "preview.jpg")
+        with open(preview, "wb") as f:
+            f.write(b"first image")
+        first = self.uploader._stage_preview_for_upload(preview)
+        self.assertEqual(first, self.uploader._stage_preview_for_upload(preview))
+
+        with open(preview, "wb") as f:
+            f.write(b"second image")
+        second = self.uploader._stage_preview_for_upload(preview)
+        self.assertNotEqual(os.path.basename(first), os.path.basename(second))
+        self.assertTrue(second.endswith(".jpg"))
+        self.assertFalse(os.path.exists(first))   # older staged copies are pruned
+        with open(second, "rb") as f:
+            self.assertEqual(f.read(), b"second image")
+
+    def test_library_sorts_by_each_column(self):
+        self.uploader.library_items = [
+            {"title": "beta", "publishedfileid": "300", "visibility_label": "Private", "updated_ts": 1, "updated_label": ""},
+            {"title": "Alpha", "publishedfileid": "20", "visibility_label": "Public", "updated_ts": 9, "updated_label": ""},
+            {"title": "gamma", "publishedfileid": "1000", "visibility_label": "Friends", "updated_ts": 5, "updated_label": ""},
+        ]
+
+        def order():
+            return [i["publishedfileid"] for i in self.uploader._sorted_library_items()]
+
+        self.assertEqual(order(), ["20", "1000", "300"])          # default: newest first
+        self.uploader.sort_library("Title")
+        self.assertEqual(order(), ["20", "300", "1000"])
+        self.uploader.sort_library("Title")
+        self.assertEqual(order(), ["1000", "300", "20"])
+        self.uploader.sort_library("ID")
+        self.assertEqual(order(), ["20", "300", "1000"])          # numeric, not text
+        self.uploader.sort_library("Visibility")
+        self.assertEqual(order(), ["1000", "300", "20"])
+
+    def test_workshop_backend_tag_names(self):
+        names = self.uploader.workshop_backend.tag_names(
+            [{"tag": "Map"}, {"display_name": "Multiplayer"}, "Map", {"tag": " "}, "Mod"])
+        self.assertEqual(names, ["Map", "Multiplayer", "Mod"])
+
+    def test_overwrite_warnings_compare_with_steam(self):
+        self.uploader.library_items = [
+            {"title": "Old", "publishedfileid": "55", "visibility_label": "Private"}]
+        self.uploader.title_var = DummyVar("New")
+        self.uploader.visibility_var = DummyVar("0 (Public)")
+        self.uploader.desc_text = MagicMock()
+        self.uploader.desc_text.get.return_value = ""
+
+        warnings = self.uploader._steam_overwrite_warnings("55")
+        self.assertTrue(any("description" in w for w in warnings))
+        self.assertTrue(any('"Old" -> "New"' in w for w in warnings))
+        self.assertTrue(any("Private -> Public" in w for w in warnings))
+
     def test_workshop_backend_builds_manual_steamcmd_command(self):
         cmd = self.uploader.workshop_backend.build_steamcmd_command(
             exe="steamcmd.exe",
