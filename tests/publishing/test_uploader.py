@@ -1063,7 +1063,7 @@ class TestWorkshopUploader(unittest.TestCase):
         with patch.object(steamworks_tags.os, "name", "nt"), \
                 patch.object(steamworks_tags, "steam_client_running", return_value=True), \
                 patch.object(updater, "find_steam_api_path", return_value=None), \
-                patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
+                patch.object(updater, "helper_available", return_value="C:/game/steam_api.dll"), \
                 patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
             result = updater.try_update_tags("301650", "123", [" CRA ", "", "Pilot"])
 
@@ -1082,7 +1082,7 @@ class TestWorkshopUploader(unittest.TestCase):
         with patch.object(steamworks_tags.os, "name", "nt"), \
                 patch.object(steamworks_tags, "steam_client_running", return_value=True), \
                 patch.object(updater, "find_steam_api_path", return_value=None), \
-                patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
+                patch.object(updater, "helper_available", return_value="C:/game/steam_api.dll"), \
                 patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
             updater.try_update_item("301650", "123", preview_path=__file__, init_app_id="450970")
         self.assertEqual(helper.call_args.kwargs["init_app_id"], "450970")
