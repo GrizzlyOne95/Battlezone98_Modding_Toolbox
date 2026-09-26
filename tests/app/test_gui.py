@@ -194,6 +194,14 @@ class ShellSmokeTests(unittest.TestCase):
                 zfs_page.open(str(archive))
                 self.assertEqual(len(zfs_page.tree.get_children()), 1)
 
+                from battlezone.archives.pak import write_pak
+
+                pak = Path(tmp) / "test.pak"
+                write_pak(pak, [("ISDF Buildings", "a.pic", b"x" * 500), ("", "b.tga", b"y")])
+                pak_page = shell._pages["archives.pak"].widget
+                pak_page.open(str(pak))
+                self.assertEqual(len(pak_page.tree.get_children()), 2)
+
                 # The update banner offers the right action and goes away again.
                 from bztoolbox.updates import Update
 

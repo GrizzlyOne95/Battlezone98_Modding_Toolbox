@@ -117,7 +117,7 @@ PAGES: Sequence[PageSpec] = (
     # --- Assets -----------------------------------------------------------
     PageSpec("assets.textures", "assets", "Textures & Images",
              "ACT palettes, texture conversion, MAP/MakeMAP, LGT, DXTBZ2 and channel packing.",
-             f"{_L}:textures", kind="legacy", package="bztoolbox.modules.textures", origin="TextureManager", keywords=("dds", "map", "act", "lgt")),
+             f"{_L}:textures", kind="legacy", package="bztoolbox.modules.textures", origin="TextureManager", keywords=("dds", "map", "act", "lgt", "pic", "softimage")),
     PageSpec("assets.fonts", "assets", "Fonts",
              "Generate bzfont.dds font sheets.",
              f"{_L}:fonts", kind="legacy", package="bztoolbox.modules.fonts", origin="Font Generator"),
@@ -134,7 +134,10 @@ PAGES: Sequence[PageSpec] = (
     # --- Archives ---------------------------------------------------------
     PageSpec("archives.zfs", "archives", "ZFS Archives",
              "Browse, extract, verify and pack ZFS archives (LZO1X/LZO1Y, encrypted).",
-             "bztoolbox.modules.archives.zfs_page:ZFSPage", origin="ZFS Specialist", keywords=("zfs", "lzo", "pak")),
+             "bztoolbox.modules.archives.zfs_page:ZFSPage", origin="ZFS Specialist", keywords=("zfs", "lzo")),
+    PageSpec("archives.pak", "archives", "BZ2 PAK Archives",
+             "Browse, extract, verify and pack Battlezone II PAKs: BZ2/BZ2R texture packs and the demo's data.pak.",
+             "bztoolbox.modules.archives.pak_page:PAKPage", keywords=("pak", "docp", "bz2", "bz2r")),
 
     # --- Tools ------------------------------------------------------------
     PageSpec("tools.tasks", "tools", "Background Tasks", "Everything running in the background.",
