@@ -177,12 +177,21 @@ class PAKArchive:
 
     def extract(self, entries: Optional[Iterable[Union[PAKEntry, str]]], out_dir: Union[str, os.PathLike],
                 progress: Optional[Callable[[int, int, str], None]] = None,
-                cancel: Optional[Callable[[], bool]] = None, use_groups: bool = False) -> List[Path]:
+                cancel: Optional[Callable[[], bool]] = None, use_groups: bool = False,
+                pic_to: Optional[str] = None) -> List[Path]:
         """Extract ``entries`` (all when None) into ``out_dir``; with ``use_groups``
-        grouped members go into their group's (possibly nested) folder."""
+        grouped members go into their group's (possibly nested) folder. With
+        ``pic_to`` ("png", "tga" or "bmp") Softimage ``.pic`` textures are
+        written converted to that format instead of as-is."""
         chosen = list(self.entries if entries is None else entries)
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
+        if pic_to:
+            from battlezone.images import softpic
+            pic_to = pic_to.lower().lstrip(".")
+            if pic_to not in softpic.CONVERT_FORMATS:
+                raise PAKError(f"Cannot convert .pic to {pic_to!r}.")
+        taken = {e.name.lower() for e in self.entries}
         written = []
         for i, entry in enumerate(chosen, 1):
             if cancel and cancel():
@@ -197,7 +206,17 @@ class PAKArchive:
                 folder = out.joinpath(*_safe_parts(entry.group_name))
                 folder.mkdir(parents=True, exist_ok=True)
             target = folder / _safe_component(entry.name)  # never escape out_dir
-            target.write_bytes(self.read(entry))
+            data = self.read(entry)
+            if pic_to and entry.extension == ".pic":
+                converted = target.with_suffix("." + pic_to)
+                if converted.name.lower() in taken:
+                    self.warnings.append(f"{entry.name}: kept as .pic ({converted.name} is also in the archive)")
+                else:
+                    try:
+                        data, target = softpic.convert(data, pic_to), converted
+                    except softpic.PICError as exc:
+                        self.warnings.append(f"{entry.name}: kept as .pic ({exc})")
+            target.write_bytes(data)
             written.append(target)
             if progress:
                 progress(i, len(chosen), entry.name)

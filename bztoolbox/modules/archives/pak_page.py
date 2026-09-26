@@ -55,6 +55,13 @@ class PAKPage(ttk.Frame):
         self.groups_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(actions, text="Extract groups into subfolders", variable=self.groups_var,
                         style="Toolbox.TCheckbutton").pack(side="right")
+        # BZ2's original textures are Softimage .pic; most tools cannot open them
+        self.pic_format_var = tk.StringVar(value="PNG")
+        ttk.Combobox(actions, textvariable=self.pic_format_var, values=("PNG", "TGA", "BMP"), width=5,
+                     state="readonly", style="Toolbox.TCombobox").pack(side="right", padx=(2, 14))
+        self.convert_pic_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(actions, text="Convert .pic textures to", variable=self.convert_pic_var,
+                        style="Toolbox.TCheckbutton").pack(side="right")
 
         stats = ttk.Frame(parent, style="Toolbox.TFrame")
         stats.pack(fill="x", pady=8)
@@ -152,15 +159,24 @@ class PAKPage(ttk.Frame):
             return
         archive = self.archive
         use_groups = self.groups_var.get()
+        pic_to = self.pic_format_var.get().lower() if self.convert_pic_var.get() else None
+        warnings_before = len(archive.warnings)
 
         def work(job):
             def progress(i, total, name):
                 job.check_cancelled()
                 job.report(i / total, name)
-            return archive.extract(entries, out_dir, progress=progress, use_groups=use_groups)
+            return archive.extract(entries, out_dir, progress=progress, use_groups=use_groups, pic_to=pic_to)
 
         def done(paths):
-            self.shell.status(f"Extracted {len(paths)} file(s) to {out_dir}")
+            message = f"Extracted {len(paths)} file(s) to {out_dir}"
+            if pic_to:
+                converted = sum(1 for p in paths if p.suffix.lower() == "." + pic_to)
+                message += f", {converted} .pic converted to {pic_to.upper()}"
+            self.shell.status(message)
+            kept = archive.warnings[warnings_before:]
+            if kept:
+                messagebox.showwarning("Extract", f"{len(kept)} file(s) were not converted:\n\n" + "\n".join(kept[:20]))
             open_in_file_manager(out_dir)
 
         self.shell.jobs.submit(f"Extract {len(entries)} file(s) from {archive.path.name}", work,

@@ -156,7 +156,7 @@ Support includes the normal ZFS format, legacy MakeZFS/LZO archives, compression
 
 The PAK page does the same for Battlezone II PAKs: the BZ2 / BZ2R texture packs (`bumps.pak`, `smtex.pak`, ...) and the BZ2 demo's `data.pak` (an older, uncompressed version of the format). Browse and filter members, extract with or without their group folders (e.g. "ISDF Buildings" or `effects\chunks`), verify that every member decodes, and pack a folder back into a PAK, with each subfolder becoming a group. New PAKs use the BZ2R format; members are zlib-compressed when that saves space.
 
-The original BZ2 textures inside these PAKs are Softimage `.pic` files. The Texture Manager opens them like any other image, so they preview and convert to DDS, PNG or TGA (and back to `.pic`), one at a time or in a batch. From the command line, `bztoolbox pic` converts files or whole folders.
+The original BZ2 textures inside these PAKs are Softimage `.pic` files. Tick "Convert .pic textures to" on the PAK page to extract them straight to PNG, TGA or BMP. The Texture Manager also opens them like any other image, so they preview and convert to DDS, PNG or TGA (and back to `.pic`), one at a time or in a batch. From the command line, `bztoolbox pic` converts files or whole folders.
 
 ## Steam Workshop publishing
 
@@ -247,6 +247,7 @@ bztoolbox zfs verify archive.zfs
 
 bztoolbox pak list bumps.pak
 bztoolbox pak extract bumps.pak -g -o out
+bztoolbox pak extract data.pak -g --pic-to png -o out
 bztoolbox pak pack new.pak folder
 
 bztoolbox pic old_textures -o png
