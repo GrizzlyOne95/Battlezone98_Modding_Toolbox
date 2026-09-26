@@ -106,6 +106,33 @@ mesa rims and ridge lines. `smoothing=False` omits it; nothing else changes.
 - Zone dimensions agree across three independent sources (the 1.5 `.trn` from
   `bzone.zfs`, Redux's extracted `.trn`, and the shipped `.hg2` headers) on
   every stock map.
+- All 94 HGT/HG2 pairs Redux ships in `addon/bz64port` (1x1 to 4x4 zones) are
+  reproduced byte for byte by the unsmoothed cook with `--rounding half-up`,
+  header included (structure 1, zone bits 8, map version 10); `engine`
+  rounding differs from them by one raw unit at some half-sample positions.
+
+## HG2 back to HGT
+
+`HGTMap.from_hg2` (and `bztoolbox terrain heightmap file.hg2`) takes the legacy
+vertices back out: every `2**(zone_bits - 7)`-th sample, i.e. the even/even
+samples of a 256-per-zone HG2. The cook reproduces those samples unchanged, so
+an HG2 cooked from an HGT gives that HGT's heights back exactly; on all 94
+`bz64port` pairs the heights match and, with `--flags-from original.hgt`, the
+files match byte for byte.
+
+What cannot round-trip:
+
+- **Samples between legacy vertices.** A Redux-authored HG2 has detail at 5 m
+  spacing; the legacy grid is 10 m. The converter re-cooks its HGT and reports
+  how many HG2 samples differ and by how much (`legacy_residual`).
+- **The flag nibble (bits 12-15).** HG2 has no place for it. 1.5 recomputes
+  bits 14-15 (coplanar-cell flags) when a terrain loads (`Terrain_Create` ->
+  `PrecomputeCoplanarFlags` -> `ComputeCoplanarFlags`, which rewrites
+  `& 0x3FFF | flags`), and its height reads mask with `& 0xFFF` (`GetTerY`,
+  `GetTerrainHeight`); no 1.5 terrain code inspected reads bits 12-13. Flags
+  are written as zero unless `--flags-from` supplies the original HGT.
+- **Heights above 4095.** HG2 samples are 13-bit, HGT heights 12-bit: the
+  converter refuses them unless `--clamp` is given.
 
 ## Usage
 
@@ -118,6 +145,15 @@ python scripts/convert_legacy_hgt.py compare ours.hg2 shipped.hg2
 
 `--smoothed` reproduces Redux's default cook instead, for parity checking.
 `scan` never writes terrain.
+
+The toolbox itself exposes both directions as **World & Terrain › Heightmap
+Convert** and on the command line (the extension picks the direction):
+
+```
+bztoolbox terrain heightmap misn01.hgt                       # -> misn01.hg2, sizes from misn01.trn
+bztoolbox terrain heightmap misn01.hg2 -o misn01_15.hgt      # -> legacy HGT
+bztoolbox terrain heightmap misn01.hg2 --flags-from misn01.hgt -o same.hgt
+```
 
 ## Known bad inputs
 
