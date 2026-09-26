@@ -136,7 +136,7 @@ PAGES: Sequence[PageSpec] = (
              "Browse, extract, verify and pack ZFS archives (LZO1X/LZO1Y, encrypted).",
              "bztoolbox.modules.archives.zfs_page:ZFSPage", origin="ZFS Specialist", keywords=("zfs", "lzo")),
     PageSpec("archives.pak", "archives", "BZ2 PAK Archives",
-             "Browse, extract, verify and pack Battlezone II texture PAKs (DOCP, zlib, groups).",
+             "Browse, extract, verify and pack Battlezone II PAKs: BZ2/BZ2R texture packs and the demo's data.pak.",
              "bztoolbox.modules.archives.pak_page:PAKPage", keywords=("pak", "docp", "bz2", "bz2r")),
 
     # --- Tools ------------------------------------------------------------

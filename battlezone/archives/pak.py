@@ -1,20 +1,23 @@
-"""Battlezone II PAK archives ("DOCP"): read, extract, verify and write.
+r"""Battlezone II PAK archives ("DOCP"): read, extract, verify and write.
 
 The BZ2 / BZ2R texture packs (``bumps.pak``, ``smtex.pak``, ...) use this
 format. Layout (all little-endian)::
 
-    header     "DOCP" version:uint32 (2) group_count group_names_offset
+    header     "DOCP" version:uint32 group_count group_names_offset
                file_count directory_offset, then 8 uint32s the original
                packer left behind (always the same values; kept verbatim)
     data       member payloads, starting at 0x38
     directory  file_count records of
-               group:uint32 name_len:uint8 name[name_len]
-               offset:uint32 packed_size:uint32 size:uint32
+               group:uint32 name_len:uint8 name[name_len] offset:uint32
+               then version 2: packed_size:uint32 size:uint32
+                    version 1: size:uint32 (members are never compressed)
     groups     group_count records of name_len:uint8 name[name_len]
 
+Version 1 is the BZ2 demo's ``data.pak``; version 2 is BZ2 / BZ2R.
 A member is zlib-compressed when ``packed_size < size``, otherwise stored.
 ``group`` is 0 for ungrouped members, or a 1-based index into the group
-names (the packer's folders, e.g. "ISDF Buildings").
+names: the packer's folders, flat ("ISDF Buildings") or nested with
+backslashes ("effects\chunks").
 """
 
 from __future__ import annotations
@@ -29,7 +32,8 @@ from typing import BinaryIO, Callable, Iterable, List, Optional, Tuple, Union
 __all__ = ["PAKError", "PAKEntry", "PAKArchive", "PAKHeader", "write_pak", "files_in_folder", "MAGIC"]
 
 MAGIC = b"DOCP"
-VERSION = 2
+VERSION = 2          # what write_pak produces
+VERSIONS = (1, 2)
 HEADER = struct.Struct("<4s5I8I")
 # the trailing header words every stock pak carries (addresses from the tool that made them)
 RESERVED = (0x00406D22, 0, 0x008D4240, 0x23, 1, 0x00417168, 0x23, 0x0040578D)
@@ -78,7 +82,8 @@ class PAKEntry:
     @property
     def path(self) -> str:
         """``group/name`` for grouped members, else just the name."""
-        return f"{self.group_name}/{self.name}" if self.group_name else self.name
+        group = self.group_name.replace("\\", "/")
+        return f"{group}/{self.name}" if group else self.name
 
 
 def _read_exact(f: BinaryIO, n: int, what: str) -> bytes:
@@ -106,7 +111,7 @@ class PAKArchive:
                 raise PAKError(f"Not a Battlezone II PAK archive (signature {raw[:4].hex(' ')}).")
             fields = HEADER.unpack(raw)
             h = self.header = PAKHeader(*fields[1:6], tuple(fields[6:]))
-            if h.version != VERSION:
+            if h.version not in VERSIONS:
                 self.warnings.append(f"Unexpected PAK version {h.version}; reading as version {VERSION}.")
             if h.directory_offset > file_size or h.groups_offset > file_size:
                 raise PAKError("PAK directory lies outside the file.")
@@ -121,7 +126,11 @@ class PAKArchive:
             for i in range(h.file_count):
                 group = struct.unpack("<I", _read_exact(f, 4, "directory"))[0]
                 name = _read_name(f, "directory")
-                offset, packed, size = struct.unpack("<3I", _read_exact(f, 12, "directory"))
+                if h.version == 1:
+                    offset, size = struct.unpack("<2I", _read_exact(f, 8, "directory"))
+                    packed = size
+                else:
+                    offset, packed, size = struct.unpack("<3I", _read_exact(f, 12, "directory"))
                 group_name = ""
                 if group:
                     if group <= len(self.groups):
@@ -170,7 +179,7 @@ class PAKArchive:
                 progress: Optional[Callable[[int, int, str], None]] = None,
                 cancel: Optional[Callable[[], bool]] = None, use_groups: bool = False) -> List[Path]:
         """Extract ``entries`` (all when None) into ``out_dir``; with ``use_groups``
-        grouped members go into a subfolder named after their group."""
+        grouped members go into their group's (possibly nested) folder."""
         chosen = list(self.entries if entries is None else entries)
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -185,8 +194,8 @@ class PAKArchive:
                 entry = found
             folder = out
             if use_groups and entry.group_name:
-                folder = out / _safe_component(entry.group_name)
-                folder.mkdir(exist_ok=True)
+                folder = out.joinpath(*_safe_parts(entry.group_name))
+                folder.mkdir(parents=True, exist_ok=True)
             target = folder / _safe_component(entry.name)  # never escape out_dir
             target.write_bytes(self.read(entry))
             written.append(target)
@@ -207,6 +216,12 @@ class PAKArchive:
         return problems
 
 
+def _safe_parts(path: str) -> List[str]:
+    """The folders of a group name, without anything that could leave out_dir."""
+    parts = [p.strip() for p in path.replace("\\", "/").split("/")]
+    return [p for p in parts if p not in ("", ".", "..") and ":" not in p]
+
+
 def _safe_component(name: str) -> str:
     part = Path(name.replace("\\", "/")).name
     return part if part not in ("", ".", "..") else "_"
@@ -220,14 +235,15 @@ Source = Union[str, os.PathLike, Tuple[str, bytes], Tuple[str, str, bytes]]
 
 
 def files_in_folder(folder: Union[str, os.PathLike]) -> List[Tuple[str, Path]]:
-    """``(group, path)`` for every file in ``folder``: files directly inside are
-    ungrouped, files in a first-level subfolder belong to that folder's group."""
+    r"""``(group, path)`` for every file in ``folder``: files directly inside are
+    ungrouped, files in a subfolder belong to a group named after its path
+    (``effects\chunks``, as the demo's data.pak names them)."""
     root = Path(folder)
     found = []
     for path in root.rglob("*"):
         if path.is_file():
             rel = path.relative_to(root).parts
-            found.append(("" if len(rel) == 1 else rel[0], path))
+            found.append(("\\".join(rel[:-1]), path))
     return sorted(found, key=lambda item: (item[0].lower(), item[1].name.lower()))
 
 

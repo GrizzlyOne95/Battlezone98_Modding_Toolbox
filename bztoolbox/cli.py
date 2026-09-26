@@ -476,9 +476,9 @@ def build_parser() -> argparse.ArgumentParser:
     pak_sub.choices["extract"].add_argument("names", nargs="*", help="members to extract (default: all)")
     pak_sub.choices["extract"].add_argument("-o", "--output", default=".", help="output folder")
     pak_sub.choices["extract"].add_argument("-g", "--groups", action="store_true",
-                                            help="put grouped members in a subfolder per group")
+                                            help="put grouped members in their group's folder")
     pak_sub.choices["pack"].add_argument("inputs", nargs="+",
-                                         help="files and/or folders (a folder's subfolders become groups)")
+                                         help="files and/or folders (subfolders become groups)")
     pak_sub.choices["pack"].add_argument("--store", action="store_true", help="do not compress")
     return parser
 
