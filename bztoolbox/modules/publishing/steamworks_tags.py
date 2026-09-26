@@ -144,7 +144,8 @@ class SteamworksTagUpdater:
                 return os.path.normpath(path)
         return None
 
-    def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds):
+    def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds,
+                                preview_path=None):
         powershell = _powershell_32()
         if not powershell:
             raise RuntimeError("32-bit Windows PowerShell (SysWOW64) was not found.")
@@ -165,16 +166,21 @@ class SteamworksTagUpdater:
             "-DllPath", dll_path,
             "-AppId", str(appid),
             "-ItemId", str(publishedfileid),
-            "-TagsB64", b64("\n".join(tags)),
             "-UgcVersion", ugc_version,
             "-UtilsVersion", utils_version,
             "-TimeoutSeconds", str(int(timeout_seconds)),
         ]
+        # Only non-empty values: Windows PowerShell's -File drops an empty
+        # argument, and the flag before it would then swallow the next flag.
+        if tags:
+            cmd += ["-TagsB64", b64("\n".join(tags))]
         if change_note:
             cmd += ["-NoteB64", b64(change_note)]
+        if preview_path:
+            cmd += ["-PreviewB64", b64(os.path.abspath(preview_path))]
         env = dict(os.environ, SteamAppId=str(appid), SteamGameId=str(appid))
 
-        self.log(f"Attempting Steamworks tag update via 32-bit helper and {dll_path} ({ugc_version})")
+        self.log(f"Attempting Steamworks item update via 32-bit helper and {dll_path} ({ugc_version})")
         completed = subprocess.run(
             cmd,
             capture_output=True,
@@ -259,6 +265,13 @@ class SteamworksTagUpdater:
             ctypes.POINTER(SteamParamStringArray),
         ]
         dll.SteamAPI_ISteamUGC_SetItemTags.restype = ctypes.c_bool
+
+        dll.SteamAPI_ISteamUGC_SetItemPreview.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+            ctypes.c_char_p,
+        ]
+        dll.SteamAPI_ISteamUGC_SetItemPreview.restype = ctypes.c_bool
 
         dll.SteamAPI_ISteamUGC_SubmitItemUpdate.argtypes = [
             ctypes.c_void_p,
@@ -388,12 +401,34 @@ class SteamworksTagUpdater:
         timeout_seconds=20.0,
         create_appid_file=False,
     ):
-        if os.name != "nt":
-            raise RuntimeError("Steamworks tag update is only supported on Windows.")
-
         clean_tags = [tag.strip() for tag in tags if str(tag).strip()]
         if not clean_tags:
             raise ValueError("No tags were provided.")
+        return self.try_update_item(
+            appid, publishedfileid, tags=clean_tags, change_note=change_note, dll_path=dll_path,
+            base_dir=base_dir, timeout_seconds=timeout_seconds, create_appid_file=create_appid_file)
+
+    def try_update_item(
+        self,
+        appid,
+        publishedfileid,
+        tags=None,
+        preview_path=None,
+        change_note="",
+        dll_path=None,
+        base_dir=None,
+        timeout_seconds=20.0,
+        create_appid_file=False,
+    ):
+        """Set an item's tags and/or preview image through Steamworks, as the signed-in Steam user."""
+        if os.name != "nt":
+            raise RuntimeError("Steamworks item updates are only supported on Windows.")
+
+        clean_tags = [tag.strip() for tag in (tags or []) if str(tag).strip()]
+        if preview_path and not os.path.isfile(preview_path):
+            raise FileNotFoundError(f"Preview image not found: {preview_path}")
+        if not clean_tags and not preview_path:
+            raise ValueError("Nothing to update: no tags and no preview image.")
 
         target_dll = dll_path or self.find_steam_api_path(base_dir=base_dir)
         if not target_dll:
@@ -402,7 +437,8 @@ class SteamworksTagUpdater:
             game_dll = self.find_32bit_steam_api_path(base_dir=base_dir)
             if game_dll:
                 return self._update_tags_via_helper(
-                    game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds)
+                    game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds,
+                    preview_path=preview_path)
             raise FileNotFoundError(
                 f"Neither {STEAM_API_DLL} nor the game's steam_api.dll was found in known Battlezone locations."
             )
@@ -413,7 +449,7 @@ class SteamworksTagUpdater:
             if created_appid_path:
                 self.log(f"Created temporary steam_appid.txt for native Steamworks tags: {created_appid_path}")
 
-        self.log(f"Attempting Steamworks tag update via {target_dll}")
+        self.log(f"Attempting Steamworks item update via {target_dll}")
         # Outside a Steam launch the API reads the AppID from SteamAppId (or a
         # steam_appid.txt in the working directory, which is rarely ours).
         saved_env = {key: os.environ.get(key) for key in ("SteamAppId", "SteamGameId")}
@@ -445,12 +481,17 @@ class SteamworksTagUpdater:
             if not update_handle:
                 raise RuntimeError("Steamworks StartItemUpdate returned an invalid handle.")
 
-            encoded_tags = [tag.encode("utf-8") for tag in clean_tags]
-            tag_array = (ctypes.c_char_p * len(encoded_tags))(*encoded_tags)
-            steam_tags = SteamParamStringArray(strings=tag_array, num_strings=len(encoded_tags))
+            if clean_tags:
+                encoded_tags = [tag.encode("utf-8") for tag in clean_tags]
+                tag_array = (ctypes.c_char_p * len(encoded_tags))(*encoded_tags)
+                steam_tags = SteamParamStringArray(strings=tag_array, num_strings=len(encoded_tags))
+                if not dll.SteamAPI_ISteamUGC_SetItemTags(ugc, update_handle, ctypes.byref(steam_tags)):
+                    raise RuntimeError("Steamworks SetItemTags returned failure.")
 
-            if not dll.SteamAPI_ISteamUGC_SetItemTags(ugc, update_handle, ctypes.byref(steam_tags)):
-                raise RuntimeError("Steamworks SetItemTags returned failure.")
+            if preview_path:
+                if not dll.SteamAPI_ISteamUGC_SetItemPreview(
+                        ugc, update_handle, os.path.abspath(preview_path).encode("utf-8")):
+                    raise RuntimeError("Steamworks SetItemPreview returned failure.")
 
             submit_call = dll.SteamAPI_ISteamUGC_SubmitItemUpdate(
                 ugc,

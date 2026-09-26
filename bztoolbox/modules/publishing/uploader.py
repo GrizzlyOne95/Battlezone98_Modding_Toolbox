@@ -358,6 +358,7 @@ class WorkshopUploader:
         self.current_project_signature = None
         self.pending_publish_signature = None
         self.pending_publish_inventory = None
+        self.pending_publish_preview = ""
         self.readiness_items = []
         self.readiness_item_by_id = {}
         self.project_autosave_token = None
@@ -396,6 +397,9 @@ class WorkshopUploader:
         # Set by the toolbox shell: called with a folder the user picked here,
         # so the whole toolbox (Overview, Validation, ...) follows this page.
         self.on_folder_selected = None
+        # Set by the toolbox shell: called after this page saved the shared
+        # project profile, so other pages (Overview) show the new values.
+        self.on_profile_saved = None
         # Set by the toolbox shell: opens another toolbox page by id.
         self.open_toolbox_page = None
         self.access_advanced_expanded = False
@@ -619,6 +623,13 @@ class WorkshopUploader:
         self.refresh_recent_projects()
         if not quiet:
             self.log(f"Saved local upload profile: {os.path.basename(profile_path)}")
+        callback = self.on_profile_saved
+        if callback is not None:
+            # Saves also come from worker threads; the shell is Tk, so hop over.
+            try:
+                self.root.after(0, lambda path=profile_path: callback(path))
+            except Exception:
+                pass
         return profile_path
 
     def refresh_recent_projects(self):
@@ -2974,12 +2985,14 @@ class WorkshopUploader:
         try:
             appid = self.games[self.game_var.get()]["appid"]
             vis = self._visibility_code()
+            staged_preview = self._stage_preview_for_upload(preview) if preview else ""
+            self.pending_publish_preview = staged_preview
             vdf_path = self._get_upload_preflight().write_upload_vdf(
                 base_dir=self.base_dir,
                 appid=appid,
                 publishedfileid=self.item_id_var.get(),
                 contentfolder=content,
-                previewfile=self._stage_preview_for_upload(preview) if preview else "",
+                previewfile=staged_preview,
                 visibility=vis,
                 title=self.title_var.get(),
                 description=desc,
@@ -3068,9 +3081,9 @@ class WorkshopUploader:
                 self._update_project_status(self.current_inventory)
                 self.save_current_project_state(quiet=True)
                 
-                # Apply Tags if present
-                if self.tags_var.get().strip():
-                    self.update_workshop_tags(item_id_override=updated_item_id)
+                # Tags, then the preview: SteamCMD cannot set tags, and it
+                # sometimes reports a preview upload that Steam never applies.
+                self._finish_publish_on_steam(uploaded_item_id, self.pending_publish_preview)
                 
                 self.root.after(0, self.refresh_current_project_readiness)
                 self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD finished.\nUpload profile and publish snapshot were updated."))
@@ -3095,6 +3108,7 @@ class WorkshopUploader:
         finally:
             self.pending_publish_signature = None
             self.pending_publish_inventory = None
+            self.pending_publish_preview = ""
             self._set_busy("Upload", False)
 
     def _on_manage_selection(self, _event=None):
@@ -3423,44 +3437,84 @@ class WorkshopUploader:
         finally:
             self._set_busy("Refresh", False)
 
-    def update_workshop_tags(self, item_id_override=None):
-        """Uses the Steam Web API to set tags on the workshop item."""
-        api_key = self.api_key_var.get()
-        item_id = item_id_override or self.item_id_var.get()
-        tags_str = self.tags_var.get()
-        change_note = self.note_var.get()
-        
-        if not item_id or item_id == "0" or not tags_str:
-            return
-            
-        tags = [t.strip() for t in tags_str.split(',') if t.strip()]
-        if not tags: return
-        
+    def _current_tags(self):
+        return [t.strip() for t in self.tags_var.get().split(",") if t.strip()]
+
+    def _apply_workshop_tags(self, item_id, tags, api_key, appid, change_note):
+        """Set ``tags`` on ``item_id`` (blocking); logs the outcome."""
         self.log(f"Updating Workshop tags: {', '.join(tags)}...")
-        
+        try:
+            result = self._get_workshop_backend().update_workshop_tags(
+                api_key=api_key,
+                item_id=item_id,
+                appid=appid,
+                tags=tags,
+                change_note=change_note,
+                steamworks_updater=self._get_steamworks_tag_updater(),
+                base_dir=self.base_dir,
+            )
+            if result.get("method") == "steamworks":
+                self.log("Workshop tags updated successfully via Steamworks.")
+                if result.get("needs_legal_agreement"):
+                    self.log("Steamworks reported that a Workshop legal agreement may need acceptance.")
+            else:
+                if result.get("native_error"):
+                    self.log(f"Steamworks tag update failed; falling back to Web API: {result['native_error']}")
+                self.log("Workshop tags updated successfully via Web API.")
+        except Exception as e:
+            self.log(f"Tag Update Error: {self._friendly_api_error(e)}")
+
+    def _ensure_steam_preview(self, item_id, preview_path, api_key, appid):
+        """Push ``preview_path`` through Steamworks when Steam still shows another image."""
+        backend = self._get_workshop_backend()
+        try:
+            details = backend.fetch_workshop_item_details(api_key=api_key, item_id=item_id)
+        except Exception as e:
+            self.log(f"Could not check the Workshop preview: {self._friendly_api_error(e)}")
+            return
+        matches = backend.preview_matches(details, preview_path)
+        if matches is None or matches:
+            return
+        self.log("Steam kept the previous preview image; setting it through Steamworks...")
+        try:
+            self._get_steamworks_tag_updater().try_update_item(
+                appid=appid, publishedfileid=item_id, preview_path=preview_path, base_dir=self.base_dir)
+            self.log("Workshop preview updated via Steamworks.")
+        except Exception as e:
+            self.log(f"Preview Update Error: {e}")
+
+    def _finish_publish_on_steam(self, item_id, preview_path):
+        from bztoolbox.modules.publishing import publish_guard
+
+        if not publish_guard.is_item_id(item_id):
+            return
+        tags = self._current_tags()
+        if not tags and not preview_path:
+            return
+        api_key = self._steam_api_key()
+        appid = self.games[self.game_var.get()]["appid"]
+        change_note = self.note_var.get()
+
         def _worker():
-            try:
-                result = self._get_workshop_backend().update_workshop_tags(
-                    api_key=api_key,
-                    item_id=item_id,
-                    appid=self.games[self.game_var.get()]["appid"],
-                    tags=tags,
-                    change_note=change_note,
-                    steamworks_updater=self._get_steamworks_tag_updater(),
-                    base_dir=self.base_dir,
-                )
-                if result.get("method") == "steamworks":
-                    self.log("Workshop tags updated successfully via Steamworks.")
-                    if result.get("needs_legal_agreement"):
-                        self.log("Steamworks reported that a Workshop legal agreement may need acceptance.")
-                else:
-                    if result.get("native_error"):
-                        self.log(f"Steamworks tag update failed; falling back to Web API: {result['native_error']}")
-                    self.log("Workshop tags updated successfully via Web API.")
-            except Exception as e:
-                self.log(f"Tag Update Error: {self._friendly_api_error(e)}")
-                
+            # One after the other: two Steamworks sessions must not overlap.
+            if tags:
+                self._apply_workshop_tags(item_id, tags, api_key, appid, change_note)
+            if preview_path:
+                self._ensure_steam_preview(item_id, preview_path, api_key, appid)
+
         threading.Thread(target=_worker, daemon=True).start()
+
+    def update_workshop_tags(self, item_id_override=None):
+        """Set the editor's tags on the Workshop item (Steamworks, then the Web API)."""
+        item_id = item_id_override or self.item_id_var.get()
+        tags = self._current_tags()
+        if not item_id or item_id == "0" or not tags:
+            return
+        threading.Thread(
+            target=self._apply_workshop_tags,
+            args=(item_id, tags, self.api_key_var.get(), self.games[self.game_var.get()]["appid"], self.note_var.get()),
+            daemon=True,
+        ).start()
 
     def prepare_update(self):
         selected = self.tree.selection()

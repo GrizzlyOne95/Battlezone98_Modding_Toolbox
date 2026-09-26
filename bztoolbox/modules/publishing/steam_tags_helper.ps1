@@ -1,4 +1,4 @@
-# Sets a Workshop item's tags through the 32-bit steam_api.dll that ships
+# Sets a Workshop item's tags and/or preview image through the 32-bit steam_api.dll that ships
 # with Battlezone 98 Redux. The toolbox runs 64-bit and cannot load that DLL
 # itself, so it runs this script under the 32-bit Windows PowerShell
 # (SysWOW64). Prints one JSON line: {"ok": true, ...} or {"ok": false, "error": ...}.
@@ -6,8 +6,9 @@ param(
     [Parameter(Mandatory = $true)][string]$DllPath,
     [Parameter(Mandatory = $true)][uint32]$AppId,
     [Parameter(Mandatory = $true)][uint64]$ItemId,
-    [Parameter(Mandatory = $true)][string]$TagsB64,
+    [string]$TagsB64 = "",
     [string]$NoteB64 = "",
+    [string]$PreviewB64 = "",
     [string]$UgcVersion = "STEAMUGC_INTERFACE_VERSION009",
     [string]$UtilsVersion = "SteamUtils008",
     [int]$TimeoutSeconds = 20
@@ -66,6 +67,8 @@ public static class BzSteamTags
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)] delegate bool SetTagsFn(IntPtr ugc, ulong handle, ref ParamStringArray tags);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)] delegate bool SetPreviewFn(IntPtr ugc, ulong handle, IntPtr path);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     delegate ulong SubmitFn(IntPtr ugc, ulong handle, IntPtr note);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)] delegate bool IsDoneFn(IntPtr utils, ulong call, [MarshalAs(UnmanagedType.I1)] out bool failed);
@@ -93,8 +96,8 @@ public static class BzSteamTags
         return ptr;
     }
 
-    public static string[] SetTags(string dllPath, uint appId, ulong itemId, string[] tags, string note,
-                                   string ugcVersion, string utilsVersion, int timeoutSeconds)
+    public static string[] Update(string dllPath, uint appId, ulong itemId, string[] tags, string previewPath,
+                                  string note, string ugcVersion, string utilsVersion, int timeoutSeconds)
     {
         module = LoadLibraryW(dllPath);
         if (module == IntPtr.Zero)
@@ -120,13 +123,21 @@ public static class BzSteamTags
             ulong handle = Fn<StartUpdateFn>("SteamAPI_ISteamUGC_StartItemUpdate")(ugc, appId, itemId);
             if (handle == 0) throw new Exception("StartItemUpdate returned an invalid handle.");
 
-            IntPtr array = Marshal.AllocHGlobal(IntPtr.Size * Math.Max(tags.Length, 1));
-            owned.Add(array);
-            for (int i = 0; i < tags.Length; i++)
-                Marshal.WriteIntPtr(array, i * IntPtr.Size, Utf8(tags[i], owned));
-            ParamStringArray tagArray = new ParamStringArray { Strings = array, Count = tags.Length };
-            if (!Fn<SetTagsFn>("SteamAPI_ISteamUGC_SetItemTags")(ugc, handle, ref tagArray))
-                throw new Exception("SetItemTags returned failure.");
+            if (tags.Length > 0)
+            {
+                IntPtr array = Marshal.AllocHGlobal(IntPtr.Size * tags.Length);
+                owned.Add(array);
+                for (int i = 0; i < tags.Length; i++)
+                    Marshal.WriteIntPtr(array, i * IntPtr.Size, Utf8(tags[i], owned));
+                ParamStringArray tagArray = new ParamStringArray { Strings = array, Count = tags.Length };
+                if (!Fn<SetTagsFn>("SteamAPI_ISteamUGC_SetItemTags")(ugc, handle, ref tagArray))
+                    throw new Exception("SetItemTags returned failure.");
+            }
+            if (!String.IsNullOrEmpty(previewPath))
+            {
+                if (!Fn<SetPreviewFn>("SteamAPI_ISteamUGC_SetItemPreview")(ugc, handle, Utf8(previewPath, owned)))
+                    throw new Exception("SetItemPreview returned failure.");
+            }
 
             ulong call = Fn<SubmitFn>("SteamAPI_ISteamUGC_SubmitItemUpdate")(ugc, handle, Utf8(note, owned));
             if (call == 0) throw new Exception("SubmitItemUpdate returned an invalid call handle.");
@@ -174,16 +185,21 @@ try {
     $env:SteamGameId = [string]$AppId
     # One tag per line. (Not JSON: Windows PowerShell 5 hands a JSON array
     # back as one object, which [string[]] would join into a single tag.)
-    $tagText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TagsB64))
-    [string[]]$tags = @($tagText -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    if ($tags.Count -eq 0) { throw "No tags were provided." }
+    [string[]]$tags = @()
+    if ($TagsB64) {
+        $tagText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TagsB64))
+        $tags = @($tagText -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+    $preview = ""
+    if ($PreviewB64) { $preview = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($PreviewB64)) }
+    if ($tags.Count -eq 0 -and -not $preview) { throw "Nothing to update: no tags and no preview image." }
     $note = ""
     if ($NoteB64) { $note = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($NoteB64)) }
     Add-Type -TypeDefinition $source -Language CSharp
-    $r = [BzSteamTags]::SetTags($DllPath, $AppId, $ItemId, $tags, $note, $UgcVersion, $UtilsVersion, $TimeoutSeconds)
+    $r = [BzSteamTags]::Update($DllPath, $AppId, $ItemId, $tags, $preview, $note, $UgcVersion, $UtilsVersion, $TimeoutSeconds)
     $eresult = [int]$r[0]
     if ($eresult -ne 1) {
-        Write-Result @{ ok = $false; error = "Steam rejected the tag update (EResult $eresult)."; eresult = $eresult }
+        Write-Result @{ ok = $false; error = "Steam rejected the item update (EResult $eresult)."; eresult = $eresult }
         exit 1
     }
     Write-Result @{ ok = $true; eresult = $eresult; needs_legal_agreement = ($r[1] -eq "1"); publishedfileid = $r[2] }

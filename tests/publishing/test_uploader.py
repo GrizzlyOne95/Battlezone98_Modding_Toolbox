@@ -1068,7 +1068,8 @@ class TestWorkshopUploader(unittest.TestCase):
             result = updater.try_update_tags("301650", "123", [" CRA ", "", "Pilot"])
 
         self.assertEqual(result["method"], "steamworks")
-        helper.assert_called_once_with("C:/game/steam_api.dll", "301650", "123", ["CRA", "Pilot"], "", 20.0)
+        helper.assert_called_once_with("C:/game/steam_api.dll", "301650", "123", ["CRA", "Pilot"], "", 20.0,
+                                       preview_path=None)
 
     def test_tag_helper_passes_tags_one_per_line_and_reads_its_json_result(self):
         from bztoolbox.modules.publishing import steamworks_tags

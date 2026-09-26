@@ -223,6 +223,22 @@ class Shell:
         if self.project:
             self.projects.save(self.project)
 
+    def project_saved_elsewhere(self, profile_path: str, source=None) -> None:
+        """A module saved the open project's profile itself: show its new values everywhere else."""
+        current = self.project
+        if current is None:
+            return
+        same = os.path.normcase(os.path.abspath(profile_path)) == os.path.normcase(
+            os.path.abspath(current.profile_path or str(self.projects.profile_path_for(current.mod_path))))
+        if not same:
+            return
+        fresh = self.projects.reload(current)
+        self.project = fresh
+        self.project_label.configure(text=f"PROJECT:  {fresh.name}   ·   {fresh.mod_path}")
+        for page in self._pages.values():
+            if page is not source:
+                page.project_reloaded(fresh)
+
     def _restore_last_project(self) -> None:
         last = self.settings.get("last_project", "")
         if last and os.path.isdir(last):
@@ -433,6 +449,8 @@ class PageFrame(ttk.Frame):
                     self.app.on_folder_selected = self._tool_folder_selected
                 if hasattr(self.app, "set_toolbox_page_opener"):
                     self.app.set_toolbox_page_opener(self.shell.navigate)
+                if hasattr(self.app, "on_profile_saved"):
+                    self.app.on_profile_saved = self._tool_profile_saved
             else:
                 self.widget = factory(self.content, self.shell)
                 self.widget.pack(fill="both", expand=True)
@@ -453,12 +471,23 @@ class PageFrame(ttk.Frame):
         text.configure(state="disabled")
         text.pack(fill="both", expand=True)
 
+    def _tool_profile_saved(self, profile_path: str) -> None:
+        self.shell.project_saved_elsewhere(profile_path, source=self)
+
     def _tool_folder_selected(self, folder: str) -> None:
         current = self.shell.project
         if current is not None and os.path.normcase(os.path.abspath(current.mod_path)) == \
                 os.path.normcase(os.path.abspath(folder)):
             return
         self.shell.open_project(folder)
+
+    def project_reloaded(self, project: Project) -> None:
+        """Same project, newer values on disk: only native pages that ask for it follow."""
+        if self._built and self.widget is not None and hasattr(self.widget, "project_reloaded"):
+            try:
+                self.widget.project_reloaded(project)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
 
     def project_changed(self, project: Optional[Project]) -> None:
         if not self._built:
