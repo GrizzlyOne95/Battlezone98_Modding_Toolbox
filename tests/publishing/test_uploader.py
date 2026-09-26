@@ -1024,6 +1024,47 @@ class TestWorkshopUploader(unittest.TestCase):
         created_again = updater._ensure_appid_file(self.test_dir, "301650")
         self.assertIsNone(created_again)
 
+    def test_steamworks_finds_the_dll_matching_the_process_bitness(self):
+        from bztoolbox.modules.publishing import steamworks_tags
+
+        updater = SteamworksTagUpdater()
+        game_dir = os.path.join(self.test_dir, "game")
+        os.makedirs(game_dir)
+        open(os.path.join(game_dir, "steam_api.dll"), "wb").close()
+        with patch.object(steamworks_tags, "IS_64BIT", True), \
+                patch.object(steamworks_tags, "STEAM_API_DLL", "steam_api64.dll"), \
+                patch.object(updater, "_candidate_dirs", return_value=[game_dir]):
+            # The game's 32-bit DLL is useless to a 64-bit process, and named as the reason.
+            self.assertIsNone(updater.find_steam_api_path())
+            self.assertEqual(updater._wrong_architecture_dll(), os.path.join(game_dir, "steam_api.dll"))
+            open(os.path.join(game_dir, "steam_api64.dll"), "wb").close()
+            self.assertEqual(updater.find_steam_api_path(), os.path.join(game_dir, "steam_api64.dll"))
+
+    def test_steamworks_init_uses_the_entry_point_the_dll_exports(self):
+        updater = SteamworksTagUpdater()
+        flat = MagicMock(spec=["SteamAPI_InitFlat"])
+        flat.SteamAPI_InitFlat.return_value = 0
+        updater._init_steam_api(flat)
+        flat.SteamAPI_InitFlat.assert_called_once()
+
+        legacy = MagicMock(spec=["SteamAPI_Init"])
+        legacy.SteamAPI_Init.return_value = False
+        with self.assertRaises(RuntimeError):
+            updater._init_steam_api(legacy)
+
+    def test_tag_update_reports_the_native_failure_when_the_web_api_refuses(self):
+        updater = MagicMock()
+        updater.try_update_tags.side_effect = FileNotFoundError("needs steam_api64.dll")
+        service = self.uploader.workshop_backend.steam_service
+        service.request_with_retry = MagicMock(side_effect=RuntimeError("HTTP 403"))
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self.uploader.workshop_backend.update_workshop_tags(
+                api_key="key", item_id="123", appid="301650", tags=["Pilot"], steamworks_updater=updater)
+
+        self.assertIn("needs steam_api64.dll", str(ctx.exception))
+        self.assertIn("publisher key", str(ctx.exception))
+
     def test_scan_mod_safety_does_not_require_every_allowed_param(self):
         self.uploader.resource_dir = self.test_dir
 
