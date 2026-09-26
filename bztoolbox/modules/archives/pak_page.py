@@ -1,7 +1,7 @@
 """BZ2 PAK Archives page: browse, extract, verify and pack Battlezone II PAKs.
 
-The ZFS page's twin for the "DOCP" texture packs BZ2 / BZ2R ship
-(``bumps.pak``, ``smtex.pak``, ...). All archive work is done by the
+The ZFS page's twin for "DOCP" archives: the BZ2 / BZ2R texture packs
+(``bumps.pak``, ``smtex.pak``, ...) and the BZ2 demo's ``data.pak``. All archive work is done by the
 pure-Python :mod:`battlezone.archives.pak` on the shared job system.
 """
 
@@ -189,8 +189,9 @@ class PAKPage(ttk.Frame):
     # -------------------------------------------------------------------- pack
     def _build_packer(self, parent) -> None:
         card = Card(parent, "Pack a folder into a BZ2 PAK archive",
-                    "Files directly in the folder are ungrouped; each first-level subfolder becomes a "
-                    "group (e.g. \"ISDF Buildings\"). Names must be unique across the whole archive. "
+                    "Files directly in the folder are ungrouped; each subfolder becomes a group named "
+                    "after its path (e.g. \"ISDF Buildings\", \"effects\\chunks\"). Names must be unique "
+                    "across the whole archive. "
                     "Members are zlib-compressed when that makes them smaller.")
         card.pack(fill="x")
         self.pack_source = tk.StringVar()

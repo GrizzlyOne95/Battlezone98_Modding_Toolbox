@@ -33,6 +33,36 @@ def test_reads_stock_layout(tmp_path):
     assert archive.verify() == []
 
 
+def test_reads_demo_version_1(tmp_path):
+    """Version 1 (the BZ2 demo's data.pak): no packed size, nested group paths."""
+    odf = b"[GameObjectClass]\r\nclassLabel = \"plant\"\r\n"
+    wav = b"RIFF\x04\x00\x00\x00WAVE"
+    start = HEADER.size
+    directory = (struct.pack("<IB", 1, 12) + b"iochnk01.odf" + struct.pack("<2I", start, len(odf))
+                 + struct.pack("<IB", 0, 10) + b"abetty.wav" + struct.pack("<2I", start + len(odf), len(wav)))
+    groups = struct.pack("<B", 14) + b"effects\\chunks"
+    dir_offset = start + len(odf) + len(wav)
+    header = HEADER.pack(MAGIC, 1, 1, dir_offset + len(directory), 2, dir_offset, *([0] * 8))
+    path = tmp_path / "data.pak"
+    path.write_bytes(header + odf + wav + directory + groups)
+
+    archive = PAKArchive(path)
+    assert archive.header.format == "DOCP v1" and archive.warnings == []
+    a, b = archive.entries
+    assert (a.path, a.method, a.size) == ("effects/chunks/iochnk01.odf", "Raw", len(odf))
+    assert archive.read("effects/chunks/iochnk01.odf") == odf and archive.read(b) == wav
+    archive.extract(None, tmp_path / "out", use_groups=True)
+    assert (tmp_path / "out" / "effects" / "chunks" / "iochnk01.odf").read_bytes() == odf
+    assert (tmp_path / "out" / "abetty.wav").read_bytes() == wav
+
+
+def test_group_paths_cannot_escape(tmp_path):
+    out = tmp_path / "e.pak"
+    write_pak(out, [("..\\..\\C:\\evil", "x.odf", b"1")])
+    written = PAKArchive(out).extract(None, tmp_path / "out", use_groups=True)
+    assert written == [tmp_path / "out" / "evil" / "x.odf"]
+
+
 def test_empty_archive(tmp_path):
     out = tmp_path / "empty.pak"
     write_pak(out, [])
@@ -43,17 +73,20 @@ def test_empty_archive(tmp_path):
 def test_roundtrip_with_groups(tmp_path):
     src = tmp_path / "src"
     (src / "Fury Ships").mkdir(parents=True)
+    (src / "effects" / "chunks").mkdir(parents=True)
     (src / "loose.tga").write_bytes(bytes(range(256)))
     (src / "Fury Ships" / "fvtank.pic").write_bytes(b"texture " * 400)
+    (src / "effects" / "chunks" / "iochnk01.odf").write_bytes(b"[GameObjectClass]\r\n")
     out = tmp_path / "t.pak"
     write_pak(out, files_in_folder(src))
     archive = PAKArchive(out)
-    assert archive.groups == ["Fury Ships"]
+    assert archive.header.version == 2
+    assert archive.groups == ["effects\\chunks", "Fury Ships"]
     assert archive.get("Fury Ships/fvtank.pic").compressed
     assert not archive.get("loose.tga").compressed
     written = archive.extract(None, tmp_path / "out", use_groups=True)
     assert sorted(p.relative_to(tmp_path / "out").as_posix() for p in written) == [
-        "Fury Ships/fvtank.pic", "loose.tga"]
+        "Fury Ships/fvtank.pic", "effects/chunks/iochnk01.odf", "loose.tga"]
     assert (tmp_path / "out" / "Fury Ships" / "fvtank.pic").read_bytes() == b"texture " * 400
 
 

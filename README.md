@@ -154,7 +154,7 @@ Support includes the normal ZFS format, legacy MakeZFS/LZO archives, compression
 
 ## BZ2 PAK archives
 
-The PAK page does the same for the Battlezone II / BZ2R texture packs (`bumps.pak`, `smtex.pak`, ...): browse and filter members, extract with or without their group folders (e.g. "ISDF Buildings"), verify that every member decodes, and pack a folder back into a PAK, with each first-level subfolder becoming a group. Members are zlib-compressed when that saves space.
+The PAK page does the same for Battlezone II PAKs: the BZ2 / BZ2R texture packs (`bumps.pak`, `smtex.pak`, ...) and the BZ2 demo's `data.pak` (an older, uncompressed version of the format). Browse and filter members, extract with or without their group folders (e.g. "ISDF Buildings" or `effects\chunks`), verify that every member decodes, and pack a folder back into a PAK, with each subfolder becoming a group. New PAKs use the BZ2R format; members are zlib-compressed when that saves space.
 
 ## Steam Workshop publishing
 
