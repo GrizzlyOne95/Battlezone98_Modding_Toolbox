@@ -135,29 +135,24 @@ class SteamService:
         return text
 
     def build_upload_vdf_content(self, appid, publishedfileid, contentfolder, previewfile, visibility, title, description, changenote):
-        values = {
-            "appid": self.vdf_escape(appid),
-            "publishedfileid": self.vdf_escape(publishedfileid),
-            "contentfolder": self.vdf_escape(os.path.abspath(contentfolder)),
-            "previewfile": self.vdf_escape(os.path.abspath(previewfile)),
-            "visibility": self.vdf_escape(visibility),
-            "title": self.vdf_escape(title),
-            "description": self.vdf_escape(description),
-            "changenote": self.vdf_escape(changenote),
-        }
-        return (
-            "\"workshopitem\"\n"
-            "{\n"
-            f"    \"appid\" \"{values['appid']}\"\n"
-            f"    \"publishedfileid\" \"{values['publishedfileid']}\"\n"
-            f"    \"contentfolder\" \"{values['contentfolder']}\"\n"
-            f"    \"previewfile\" \"{values['previewfile']}\"\n"
-            f"    \"visibility\" \"{values['visibility']}\"\n"
-            f"    \"title\" \"{values['title']}\"\n"
-            f"    \"description\" \"{values['description']}\"\n"
-            f"    \"changenote\" \"{values['changenote']}\"\n"
-            "}\n"
-        )
+        # SteamCMD applies every key present in the VDF, so an empty
+        # description or preview would wipe the item's current one on Steam.
+        # Blank optional fields are left out and Steam keeps what it has.
+        lines = [
+            ("appid", appid),
+            ("publishedfileid", publishedfileid),
+            ("contentfolder", os.path.abspath(contentfolder)),
+        ]
+        if str(previewfile or "").strip():
+            lines.append(("previewfile", os.path.abspath(previewfile)))
+        lines.append(("visibility", visibility))
+        lines.append(("title", title))
+        if str(description or "").strip():
+            lines.append(("description", description))
+        if str(changenote or "").strip():
+            lines.append(("changenote", changenote))
+        body = "".join(f"    \"{key}\" \"{self.vdf_escape(value)}\"\n" for key, value in lines)
+        return "\"workshopitem\"\n{\n" + body + "}\n"
 
     def tokenize_vdf(self, text):
         tokens = []
