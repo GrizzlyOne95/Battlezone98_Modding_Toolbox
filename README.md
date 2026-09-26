@@ -21,7 +21,7 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **Models & Meshes** | Inspect Ogre meshes, recalculate normals, preview models, and export static meshes to OBJ. |
 | **Audio** | Prepare Battlezone-style radio voiceovers, engine/turbo WAVs, soundtrack OGGs, and timing manifests. |
 | **Localization** | Scan mod ODFs for player-visible names and build Battlezone-compatible localization table entries. |
-| **Archives** | Browse, search, extract, verify, and build ZFS archives, including supported legacy and encrypted formats. |
+| **Archives** | Browse, search, extract, verify, and build ZFS archives (including supported legacy and encrypted formats) and Battlezone II / BZ2R PAK texture packs. |
 | **Workshop Publishing** | Check a mod before release, review changed files, fix common problems, and upload through your Steam client (or SteamCMD). |
 
 ## A unified modding workflow
@@ -152,6 +152,10 @@ The built-in ZFS tools can browse an archive without extracting it, search its c
 
 Support includes the normal ZFS format, legacy MakeZFS/LZO archives, compression, directories, and supported encrypted members. ZFS and LZO handling is implemented inside the toolbox and does not require a separate native DLL.
 
+## BZ2 PAK archives
+
+The PAK page does the same for the Battlezone II / BZ2R texture packs (`bumps.pak`, `smtex.pak`, ...): browse and filter members, extract with or without their group folders (e.g. "ISDF Buildings"), verify that every member decodes, and pack a folder back into a PAK, with each first-level subfolder becoming a group. Members are zlib-compressed when that saves space.
+
 ## Steam Workshop publishing
 
 The Workshop page is intended to take a project from "looks ready" to uploaded without needing the old Battlezone uploader.
@@ -238,6 +242,10 @@ bztoolbox gui --project MyMod
 bztoolbox zfs list archive.zfs
 bztoolbox zfs extract archive.zfs
 bztoolbox zfs verify archive.zfs
+
+bztoolbox pak list bumps.pak
+bztoolbox pak extract bumps.pak -g -o out
+bztoolbox pak pack new.pak folder
 
 bztoolbox terrain ...
 bztoolbox textures ...

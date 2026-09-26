@@ -322,6 +322,49 @@ def _cmd_zfs(args) -> int:
     return 0
 
 
+def _cmd_pak(args) -> int:
+    from pathlib import Path
+
+    from battlezone.archives.pak import PAKArchive, PAKError, files_in_folder, write_pak
+
+    try:
+        if args.pak_command == "pack":
+            sources = []
+            for item in args.inputs:
+                path = Path(item)
+                sources += files_in_folder(path) if path.is_dir() else [path]
+            entries = write_pak(args.archive, sources, compress=not args.store)
+            packed = sum(e.packed_size for e in entries)
+            print(f"wrote {args.archive}: {len(entries)} files, {packed} bytes of data")
+            return 0
+        archive = PAKArchive(args.archive)
+        if args.pak_command == "list":
+            if args.json:
+                print(json.dumps([{"name": e.name, "group": e.group_name, "size": e.size,
+                                   "packed": e.packed_size, "method": e.method, "offset": e.offset}
+                                  for e in archive.entries], indent=2))
+            else:
+                h = archive.header
+                print(f"{archive.path.name}: {h.format}, {len(archive)} files, {len(archive.groups)} groups")
+                for e in archive.entries:
+                    print(f"{e.size:>10} {e.packed_size:>10} {e.method:5} {e.path}")
+        elif args.pak_command == "extract":
+            written = archive.extract(args.names or None, args.output, use_groups=args.groups)
+            print(f"extracted {len(written)} file(s) to {args.output}")
+        elif args.pak_command == "verify":
+            problems = archive.verify()
+            for problem in problems:
+                print(f"problem: {problem}")
+            print(f"{len(archive)} files, {len(problems)} problem(s)")
+            return 1 if problems else 0
+        for warning in archive.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+    except (OSError, PAKError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_projects(args) -> int:
     from battlezone.project import ProjectStore
     from bztoolbox import paths
@@ -421,6 +464,22 @@ def build_parser() -> argparse.ArgumentParser:
     zfs_sub.choices["pack"].add_argument("inputs", nargs="+", help="files and/or folders to pack")
     zfs_sub.choices["pack"].add_argument("-r", "--recursive", action="store_true", help="include subfolders")
     zfs_sub.choices["pack"].add_argument("--store", action="store_true", help="do not compress")
+
+    pak = sub.add_parser("pak", help="list, extract, verify or pack Battlezone II PAK archives")
+    pak_sub = pak.add_subparsers(dest="pak_command", required=True)
+    for name, text in (("list", "list members"), ("extract", "extract members"),
+                       ("verify", "decode every member and report problems"), ("pack", "build an archive")):
+        cmd = pak_sub.add_parser(name, help=text)
+        cmd.add_argument("archive")
+        cmd.set_defaults(func=_cmd_pak)
+    pak_sub.choices["list"].add_argument("--json", action="store_true")
+    pak_sub.choices["extract"].add_argument("names", nargs="*", help="members to extract (default: all)")
+    pak_sub.choices["extract"].add_argument("-o", "--output", default=".", help="output folder")
+    pak_sub.choices["extract"].add_argument("-g", "--groups", action="store_true",
+                                            help="put grouped members in a subfolder per group")
+    pak_sub.choices["pack"].add_argument("inputs", nargs="+",
+                                         help="files and/or folders (a folder's subfolders become groups)")
+    pak_sub.choices["pack"].add_argument("--store", action="store_true", help="do not compress")
     return parser
 
 
