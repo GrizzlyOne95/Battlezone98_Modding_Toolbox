@@ -349,7 +349,7 @@ def _cmd_pak(args) -> int:
                 for e in archive.entries:
                     print(f"{e.size:>10} {e.packed_size:>10} {e.method:5} {e.path}")
         elif args.pak_command == "extract":
-            written = archive.extract(args.names or None, args.output, use_groups=args.groups)
+            written = archive.extract(args.names or None, args.output, use_groups=args.groups, pic_to=args.pic_to)
             print(f"extracted {len(written)} file(s) to {args.output}")
         elif args.pak_command == "verify":
             problems = archive.verify()
@@ -520,6 +520,8 @@ def build_parser() -> argparse.ArgumentParser:
     pak_sub.choices["list"].add_argument("--json", action="store_true")
     pak_sub.choices["extract"].add_argument("names", nargs="*", help="members to extract (default: all)")
     pak_sub.choices["extract"].add_argument("-o", "--output", default=".", help="output folder")
+    pak_sub.choices["extract"].add_argument("--pic-to", choices=("png", "tga", "bmp"),
+                                            help="convert Softimage .pic textures to this format")
     pak_sub.choices["extract"].add_argument("-g", "--groups", action="store_true",
                                             help="put grouped members in their group's folder")
     pak_sub.choices["pack"].add_argument("inputs", nargs="+",

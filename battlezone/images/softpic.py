@@ -27,7 +27,7 @@ from __future__ import annotations
 import struct
 from typing import BinaryIO, List, Tuple
 
-__all__ = ["MAGIC", "PICError", "PICHeader", "read_header", "decode", "encode", "register", "is_pic"]
+__all__ = ["MAGIC", "PICError", "PICHeader", "read_header", "decode", "encode", "convert", "register", "is_pic"]
 
 MAGIC = 0x5380F634
 HEADER = struct.Struct(">If80s4sHHfHH")
@@ -197,6 +197,24 @@ def encode(width: int, height: int, mode: str, pixels: bytes, comment: bytes = C
         for _, plane in packets:
             out += _encode_run(plane[y].tobytes(), plane.shape[2])
     return bytes(out)
+
+
+CONVERT_FORMATS = {"png": "PNG", "tga": "TGA", "bmp": "BMP"}
+
+
+def convert(data: bytes, to: str = "png") -> bytes:
+    """A PIC's bytes re-encoded as PNG, TGA or BMP (alpha kept when present)."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    fmt = CONVERT_FORMATS.get(to.lower().lstrip("."))
+    if fmt is None:
+        raise PICError(f"Cannot convert PIC to {to!r}; choose one of {', '.join(CONVERT_FORMATS)}.")
+    width, height, mode, pixels = decode(data)
+    out = BytesIO()
+    Image.frombytes(mode, (width, height), pixels).save(out, format=fmt)
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------------------

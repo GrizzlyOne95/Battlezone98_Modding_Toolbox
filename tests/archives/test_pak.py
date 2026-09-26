@@ -121,3 +121,43 @@ def test_cli(tmp_path, capsys):
     assert main(["pak", "verify", str(out)]) == 0
     assert main(["pak", "extract", str(out), "-g", "-o", str(tmp_path / "x")]) == 0
     assert (tmp_path / "x" / "G" / "a.pic").read_bytes() == b"a" * 300
+
+
+def test_extract_converts_pic(tmp_path):
+    from PIL import Image
+
+    from battlezone.images.softpic import encode
+
+    pic = encode(4, 2, "RGBA", bytes([9, 8, 7, 100]) * 8)
+    out = tmp_path / "t.pak"
+    write_pak(out, [("Fury Ships", "fvtank.pic", pic), ("", "unit.odf", b"[GameObjectClass]\r\n")])
+    archive = PAKArchive(out)
+    written = archive.extract(None, tmp_path / "x", use_groups=True, pic_to="png")
+    assert sorted(p.relative_to(tmp_path / "x").as_posix() for p in written) == [
+        "Fury Ships/fvtank.png", "unit.odf"]
+    with Image.open(tmp_path / "x" / "Fury Ships" / "fvtank.png") as im:
+        assert (im.format, im.mode, im.size, im.getpixel((3, 1))) == ("PNG", "RGBA", (4, 2), (9, 8, 7, 100))
+    assert archive.warnings == []
+    with pytest.raises(PAKError):
+        archive.extract(None, tmp_path / "y", pic_to="jpg")
+
+
+def test_extract_keeps_pic_when_converted_name_is_taken(tmp_path):
+    from battlezone.images.softpic import encode
+
+    out = tmp_path / "t.pak"
+    write_pak(out, [("", "sky.pic", encode(2, 2, "RGB", bytes(12))), ("", "sky.png", b"real png")])
+    archive = PAKArchive(out)
+    archive.extract(None, tmp_path / "x", pic_to="png")
+    assert (tmp_path / "x" / "sky.png").read_bytes() == b"real png"
+    assert (tmp_path / "x" / "sky.pic").exists()
+    assert "sky.pic: kept as .pic" in archive.warnings[0]
+
+
+def test_cli_extract_pic_to(tmp_path):
+    from battlezone.images.softpic import encode
+
+    out = tmp_path / "t.pak"
+    write_pak(out, [("", "sky.pic", encode(2, 2, "RGB", bytes(12)))])
+    assert main(["pak", "extract", str(out), "--pic-to", "tga", "-o", str(tmp_path / "x")]) == 0
+    assert (tmp_path / "x" / "sky.tga").exists() and not (tmp_path / "x" / "sky.pic").exists()
