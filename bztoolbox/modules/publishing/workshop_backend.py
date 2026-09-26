@@ -327,6 +327,8 @@ class WorkshopBackend:
         """
         details = {}
         try:
+            if not api_key:
+                raise ValueError("no Steam Web API key")   # GetDetails needs one; the legacy endpoint does not
             response = self.steam_service.request_with_retry(
                 "GET",
                 "https://api.steampowered.com/IPublishedFileService/GetDetails/v1/",
@@ -340,6 +342,8 @@ class WorkshopBackend:
                 timeout=10,
             )
             details = (response.json().get("response", {}).get("publishedfiledetails") or [{}])[0] or {}
+        except ValueError:
+            details = {}
         except Exception as e:
             self.log(f"Workshop details lookup failed, retrying with the legacy endpoint: {e}")
             details = {}
@@ -356,6 +360,35 @@ class WorkshopBackend:
         if "description" not in details and "file_description" in details:
             details["description"] = details.get("file_description") or ""
         return details
+
+    @staticmethod
+    def creator_app_id(details, default=None):
+        """The app that created the item: Steamworks changes must run as that app."""
+        try:
+            value = int((details or {}).get("creator_app_id") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        return str(value) if value else default
+
+    @staticmethod
+    def preview_matches(details, preview_path):
+        """True when Steam's current preview is ``preview_path``, byte for byte.
+
+        A Workshop preview URL ends in the SHA-1 of the image Steam stores.
+        None when that cannot be told (no URL, unreadable file).
+        """
+        import hashlib
+
+        url = (details or {}).get("preview_url") or ""
+        steam_hash = url.rstrip("/").rsplit("/", 1)[-1].lower()
+        if len(steam_hash) != 40:
+            return None
+        try:
+            with open(preview_path, "rb") as f:
+                local_hash = hashlib.sha1(f.read()).hexdigest()
+        except OSError:
+            return None
+        return steam_hash == local_hash
 
     @staticmethod
     def _details_found(details):
@@ -390,6 +423,7 @@ class WorkshopBackend:
         steamworks_updater=None,
         base_dir=None,
         create_appid_file=False,
+        creator_app_id=None,
     ):
         native_error = None
         if steamworks_updater is not None:
@@ -401,6 +435,7 @@ class WorkshopBackend:
                     change_note=change_note,
                     base_dir=base_dir,
                     create_appid_file=create_appid_file,
+                    init_app_id=creator_app_id,
                 )
             except Exception as e:
                 native_error = e
@@ -419,13 +454,24 @@ class WorkshopBackend:
         for i, tag in enumerate(tags):
             data[f"tags[{i}]"] = tag
 
-        self.steam_service.request_with_retry(
-            "POST",
-            url,
-            operation_name="Update Workshop tags",
-            data=data,
-            timeout=10,
-        )
+        try:
+            self.steam_service.request_with_retry(
+                "POST",
+                url,
+                operation_name="Update Workshop tags",
+                data=data,
+                timeout=10,
+            )
+        except Exception as e:
+            if native_error is None:
+                raise
+            # The Web API only accepts publisher keys for this call, so its
+            # refusal hides the real problem: say why the native path failed.
+            raise RuntimeError(
+                f"Steamworks tag update failed: {native_error}. "
+                f"The Web API fallback was also refused ({self.steam_service.friendly_api_error(e)}); "
+                "it needs a publisher key, so fix the Steamworks path."
+            ) from e
         return {
             "method": "web_api",
             "native_error": str(native_error) if native_error else "",
