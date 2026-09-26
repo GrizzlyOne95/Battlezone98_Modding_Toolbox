@@ -18,7 +18,7 @@ from bztoolbox.modules.publishing.content_fixes import ContentFixer
 from bztoolbox.modules.publishing.app_file_manager import AppFileManager
 from bztoolbox.modules.publishing.project_store import ProjectStore
 from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
-from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
+from bztoolbox.modules.publishing.steamworks_tags import UPDATE_STATUS, SteamworksTagUpdater, steam_client_running
 from bztoolbox.app.fonts import bz_font
 from bztoolbox.system import open_in_file_manager
 
@@ -956,8 +956,13 @@ class WorkshopUploader:
         self._update_project_status(inventory)
         return findings
 
+    def _publish_auth_label(self, use_cached_creds):
+        if getattr(self, "_publish_via_steamworks", False):
+            return "Steam client (Steamworks, no SteamCMD login)"
+        return "Cached credentials" if use_cached_creds else f"Manual login ({self.username_var.get().strip()})"
+
     def _build_publish_plan(self, content, preview, use_cached_creds, findings, inventory):
-        auth_mode = "Cached credentials" if use_cached_creds else f"Manual login ({self.username_var.get().strip()})"
+        auth_mode = self._publish_auth_label(use_cached_creds)
         item_id = self.item_id_var.get().strip()
         mode = f"UPDATE ({item_id})" if item_id.isdigit() and item_id != "0" else "CREATE NEW"
         blockers = list(findings["validation_errors"])
@@ -2127,7 +2132,7 @@ class WorkshopUploader:
 
     def _confirm_upload_plan(self, content, preview, use_cached_creds):
         item_id = self.item_id_var.get().strip()
-        auth_mode = "Cached credentials" if use_cached_creds else f"Manual login ({self.username_var.get().strip()})"
+        auth_mode = self._publish_auth_label(use_cached_creds)
         prompt = self._get_content_fixer().build_upload_plan_prompt(
             item_id=item_id,
             game_name=self.game_var.get(),
@@ -2935,6 +2940,10 @@ class WorkshopUploader:
         pwd = self.password_var.get()
         use_cached = self.use_cached_creds_var.get()
         item_id = self.item_id_var.get().strip()
+        # Through the running Steam client when possible: SteamCMD's login
+        # signs that client out ("Session Replaced") and needs its own
+        # password / Steam Guard. SteamCMD remains the fallback.
+        self._publish_via_steamworks = self._steamworks_publish_available()
 
         validation_error = self._get_upload_preflight().validate_inputs(
             title=title,
@@ -2947,6 +2956,7 @@ class WorkshopUploader:
             title_limit=STEAM_TITLE_LIMIT,
             description_limit=STEAM_DESC_LIMIT,
             is_update=item_id.isdigit() and item_id != "0",
+            via_steamworks=self._publish_via_steamworks,
         )
         if validation_error:
             messagebox.showerror(validation_error[0], validation_error[1])
@@ -2980,7 +2990,30 @@ class WorkshopUploader:
 
         self.save_config()
         self.save_current_project_state(quiet=True)
-        
+
+        if self._publish_via_steamworks:
+            staged_preview = self._stage_preview_for_upload(preview) if preview else ""
+            self.pending_publish_preview = staged_preview
+            self.pending_publish_signature = self._fingerprint_inventory(inventory)
+            self.pending_publish_inventory = self._build_inventory_snapshot(inventory)
+            self._set_busy("Upload", True)
+            threading.Thread(
+                target=self.run_steamworks_publish,
+                kwargs=dict(
+                    item_id=self.item_id_var.get().strip(),
+                    appid=self.games[self.game_var.get()]["appid"],
+                    content=content,
+                    preview=staged_preview,
+                    title=title,
+                    description=desc,
+                    visibility=self._visibility_code(),
+                    tags=self._current_tags(),
+                    change_note=self.note_var.get(),
+                ),
+                daemon=True,
+            ).start()
+            return
+
         # Create VDF
         try:
             appid = self.games[self.game_var.get()]["appid"]
@@ -3040,6 +3073,102 @@ class WorkshopUploader:
             shutil.copyfile(preview, staged)
         return staged
 
+    def _steamworks_publish_available(self):
+        """True when Publish can go through the running Steam client instead of SteamCMD."""
+        if not IS_WINDOWS or not steam_client_running():
+            return False
+        try:
+            return bool(self._get_steamworks_tag_updater().helper_available(base_dir=self.base_dir))
+        except Exception:
+            return False
+
+    def _record_successful_publish(self, uploaded_item_id):
+        self.current_project_data.update({
+            "last_upload_signature": self.pending_publish_signature,
+            "last_upload_inventory": self.pending_publish_inventory or {},
+            "last_upload_at": datetime.now(timezone.utc).isoformat(),
+            "last_uploaded_item_id": uploaded_item_id,
+            "item_id": uploaded_item_id or self.item_id_var.get(),
+        })
+        self._update_project_status(self.current_inventory)
+        self.save_current_project_state(quiet=True)
+
+    def _publish_progress_logger(self):
+        """Logs Steamworks upload progress when the stage changes or every 10%."""
+        state = {"status": None, "decile": -1}
+
+        def report(progress):
+            status = int(progress.get("status") or 0)
+            done, total = int(progress.get("processed") or 0), int(progress.get("total") or 0)
+            decile = (done * 10 // total) if total else -1
+            if status == state["status"] and decile == state["decile"]:
+                return
+            state.update(status=status, decile=decile)
+            label = UPDATE_STATUS.get(status, "Working")
+            if total:
+                self.log(f"{label}: {done * 100 // total}% ({done:,} of {total:,} bytes)")
+            elif status:
+                self.log(f"{label}...")
+
+        return report
+
+    def run_steamworks_publish(self, item_id, appid, content, preview, title, description, visibility, tags,
+                               change_note):
+        """Publish through the running Steam client (worker thread)."""
+        from bztoolbox.modules.publishing import publish_guard
+
+        is_update = publish_guard.is_item_id(item_id)
+        api_key = self._steam_api_key()
+        self.log(("Updating Workshop item " + item_id if is_update else "Creating a new Workshop item")
+                 + " through the Steam client...")
+
+        def on_created(new_id, needs_legal):
+            # Link the new item at once, so a failed upload is retried as an update.
+            self.log(f"Created Workshop item {new_id}.")
+            self.root.after(0, lambda: self.item_id_var.set(new_id))
+
+        try:
+            creator = self._item_creator_app(item_id, api_key, appid) if is_update else str(appid)
+            result = self._get_steamworks_tag_updater().publish_item(
+                appid, item_id if is_update else "0",
+                title=title,
+                description=description,
+                content_folder=content,
+                preview_path=preview,
+                tags=tags,
+                visibility=visibility,
+                change_note=change_note,
+                init_app_id=creator,
+                base_dir=self.base_dir,
+                on_progress=self._publish_progress_logger(),
+                on_created=on_created,
+            )
+            uploaded_item_id = result["publishedfileid"]
+            self.log(f"Published Workshop item {uploaded_item_id} through Steamworks.")
+            self.root.after(0, lambda: self.item_id_var.set(uploaded_item_id))
+            self._record_successful_publish(uploaded_item_id)
+            if preview:
+                self._ensure_steam_preview(uploaded_item_id, preview, api_key, appid, creator_app_id=creator)
+            self.root.after(0, self.refresh_current_project_readiness)
+            message = "Published to the Steam Workshop.\nUpload profile and publish snapshot were updated."
+            if result.get("needs_legal_agreement"):
+                self.log("Steam reports the Workshop legal agreement is not accepted yet; the item stays hidden until it is.")
+                message += ("\n\nSteam says you have not accepted the Workshop legal agreement yet, so the item "
+                            "stays hidden. Accept it at steamcommunity.com/sharedfiles/workshoplegalagreement")
+            self.root.after(0, lambda: messagebox.showinfo("Published", message))
+        except Exception as e:
+            created_id = getattr(e, "created_item_id", None)
+            if created_id:
+                self.root.after(0, lambda: self.item_id_var.set(created_id))
+                self.root.after(0, lambda: self.save_current_project_state(quiet=True))
+            self.log(f"Steamworks publish failed: {e}")
+            self.root.after(0, lambda e=e: messagebox.showerror("Publish failed", str(e)))
+        finally:
+            self.pending_publish_signature = None
+            self.pending_publish_inventory = None
+            self.pending_publish_preview = ""
+            self._set_busy("Upload", False)
+
     def run_steamcmd(self, exe, user, pwd, vdf):
         self.log("Starting SteamCMD...")
         
@@ -3071,20 +3200,12 @@ class WorkshopUploader:
                 if updated_item_id:
                     self.item_id_var.set(updated_item_id)
                 uploaded_item_id = updated_item_id or self.item_id_var.get().strip()
-                self.current_project_data.update({
-                    "last_upload_signature": self.pending_publish_signature,
-                    "last_upload_inventory": self.pending_publish_inventory or {},
-                    "last_upload_at": datetime.now(timezone.utc).isoformat(),
-                    "last_uploaded_item_id": uploaded_item_id,
-                    "item_id": uploaded_item_id or self.item_id_var.get(),
-                })
-                self._update_project_status(self.current_inventory)
-                self.save_current_project_state(quiet=True)
-                
+                self._record_successful_publish(uploaded_item_id)
+
                 # Tags, then the preview: SteamCMD cannot set tags, and it
                 # sometimes reports a preview upload that Steam never applies.
                 self._finish_publish_on_steam(uploaded_item_id, self.pending_publish_preview)
-                
+
                 self.root.after(0, self.refresh_current_project_readiness)
                 self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD finished.\nUpload profile and publish snapshot were updated."))
             else:
