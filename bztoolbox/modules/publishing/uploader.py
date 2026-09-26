@@ -368,7 +368,9 @@ class WorkshopUploader:
         self.qr_request_id = None
         self.qr_poll_timer = None
         
-        self.watch_mode_var = tk.BooleanVar(value=False)
+        # Watch is always on: a cheap stat-only poll that rescans readiness
+        # when files in the content folder change. Started once the UI is up.
+        self.watch_mode_var = tk.BooleanVar(value=True)
         self.watch_thread = None
         self.last_watch_signature = None
         self.last_watch_summary = None
@@ -387,6 +389,15 @@ class WorkshopUploader:
         self.library_status_var = tk.StringVar(value="Workshop library not loaded.")
         self.activity_summary_var = tk.StringVar(value="Ready.")
         self.project_filter_var = tk.StringVar()
+        self.library_items = []
+        self.library_sort = ("Updated", True)   # (column, descending)
+        self.library_preview_cache = {}          # item id -> preview image bytes
+        self.library_detail_var = tk.StringVar(value="Select an item to see its preview and Steam tags.")
+        self._library_thumb = None
+        self._editor_thumb = None
+        # Set by the toolbox shell: called with a folder the user picked here,
+        # so the whole toolbox (Overview, Validation, ...) follows this page.
+        self.on_folder_selected = None
         self.access_advanced_expanded = False
         self.readiness_expanded = False
         self.activity_log_expanded = False
@@ -408,6 +419,7 @@ class WorkshopUploader:
         self._refresh_steamcmd_status()
         self._on_api_key_changed()
         self.root.after(0, self._bootstrap_steam_environment)
+        self.root.after(1500, self._start_watch)
 
         # Apply theme
         self.root.configure(bg=self.colors["bg"])
@@ -676,6 +688,7 @@ class WorkshopUploader:
         self._load_project_from_path(tags[0])
         self.refresh_current_project_readiness()
         self.log(f"Opened local upload profile: {os.path.basename(tags[0])}")
+        self._notify_folder_selected(self.mod_path.get())
         return True
 
     def _activate_content_folder(self, folder, quiet=False):
@@ -724,7 +737,8 @@ class WorkshopUploader:
         return "created" if profile_path else None
 
     def _handle_new_project_created(self, project_path):
-        self._activate_content_folder(project_path, quiet=True)
+        if self._activate_content_folder(project_path, quiet=True):
+            self._notify_folder_selected(self.mod_path.get())
 
     def _on_mod_path_changed(self, *args):
         mod_path = self.mod_path.get().strip()
@@ -954,6 +968,9 @@ class WorkshopUploader:
             fixups.append(("legacy_files", f"Move {len(findings['legacy_files'])} legacy .map files out of the mod "
                                            "(kept in a backup folder)"))
 
+        if mode.startswith("UPDATE"):
+            warnings.extend(self._steam_overwrite_warnings(item_id))
+
         changed = self._count_changed_files(inventory, self.current_project_data.get("last_upload_inventory"))
         diff = self._build_inventory_diff(inventory, self.current_project_data.get("last_upload_inventory"))
         changed_preview = []
@@ -969,7 +986,7 @@ class WorkshopUploader:
             "item_id": item_id or "0",
             "auth_mode": auth_mode,
             "content": os.path.abspath(content),
-            "preview": os.path.abspath(preview),
+            "preview": os.path.abspath(preview) if preview else "(unchanged: Steam keeps its current preview)",
             "title": self.title_var.get(),
             "visibility": self._normalize_visibility_value(self.visibility_var.get()),
             "change_note": self.note_var.get().strip(),
@@ -979,6 +996,22 @@ class WorkshopUploader:
             "warnings": warnings,
             "fixups": fixups,
         }
+
+    def _steam_overwrite_warnings(self, item_id):
+        """What an update would change on Steam besides the content, from the loaded library."""
+        warnings = []
+        if not self._get_desc_text_value().strip():
+            warnings.append("Description is blank: Steam keeps the item's current description.")
+        steam = next((i for i in self.library_items if str(i.get("publishedfileid")) == str(item_id)), None)
+        if steam is None:
+            return warnings
+        title = self.title_var.get()
+        if steam.get("title") and title != steam["title"]:
+            warnings.append(f'Title will change on Steam: "{steam["title"]}" -> "{title}".')
+        visibility = self._normalize_visibility_value(self.visibility_var.get()).split(" ", 1)[-1].strip("()")
+        if steam.get("visibility_label") not in ("", "Unknown", visibility):
+            warnings.append(f"Visibility will change on Steam: {steam['visibility_label']} -> {visibility}.")
+        return warnings
 
     def _apply_publish_fixups(self, findings, selected_fixup_keys):
         if "scanner" in selected_fixup_keys and findings["issues"]:
@@ -1516,6 +1549,7 @@ class WorkshopUploader:
             self.refresh_workshop_items(quiet=True)
 
     def on_close(self):
+        self.watch_mode_var.set(False)
         self.save_config()
         if self.project_autosave_token:
             try:
@@ -1678,10 +1712,9 @@ class WorkshopUploader:
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(tree_frame, columns=("Title", "ID", "Visibility", "Updated"), show="headings", height=10)
-        self.tree.heading("Title", text="Title")
-        self.tree.heading("ID", text="Workshop ID")
-        self.tree.heading("Visibility", text="Visibility")
-        self.tree.heading("Updated", text="Updated")
+        for column in ("Title", "ID", "Visibility", "Updated"):
+            self.tree.heading(column, command=lambda c=column: self.sort_library(c))
+        self._update_library_headings()
         self.tree.column("Title", width=220)
         self.tree.column("ID", width=110, anchor="center")
         self.tree.column("Visibility", width=90, anchor="center")
@@ -1691,6 +1724,14 @@ class WorkshopUploader:
         self.tree.pack(side="left", fill="both", expand=True)
         lib_scroll.pack(side="right", fill="y")
         self.tree.bind("<Double-1>", lambda _e: self.prepare_update())
+        self.tree.bind("<<TreeviewSelect>>", self._on_manage_selection)
+
+        detail = ttk.Frame(frame)
+        detail.pack(fill="x", pady=(8, 0))
+        self.library_thumb_label = ttk.Label(detail)
+        self.library_thumb_label.pack(side="left", anchor="n")
+        ttk.Label(detail, textvariable=self.library_detail_var, foreground=self.colors["accent"],
+                  wraplength=260, justify="left").pack(side="left", anchor="n", fill="x", expand=True, padx=(8, 0))
 
     def setup_access_panel(self, parent):
         frame = ttk.LabelFrame(parent, text=" STEAM CONNECTION ", padding=10)
@@ -1829,14 +1870,26 @@ class WorkshopUploader:
         path_btns.grid(row=2, column=1, columnspan=3, sticky="w", pady=(4, 8))
         ttk.Button(path_btns, text="SELECT FOLDER", command=self.browse_content).pack(side="left")
         ttk.Button(path_btns, text="NEW CONTENT", command=self.open_template_wizard).pack(side="left", padx=4)
-        ttk.Button(path_btns, text="ANALYZE", command=self.analyze_memory_usage).pack(side="left")
-        ttk.Button(path_btns, text="RESCAN", command=self.refresh_current_project_readiness).pack(side="left", padx=4)
-        watch_cb = ttk.Checkbutton(path_btns, text="WATCH", variable=self.watch_mode_var, command=self.toggle_watch_mode)
-        watch_cb.pack(side="left", padx=(8, 0))
+        size_btn = ttk.Button(path_btns, text="SIZE / MEMORY", command=self.analyze_memory_usage)
+        size_btn.pack(side="left")
+        ToolTip(size_btn, "Estimate the folder's download size and the texture memory it\n"
+                          "uses in game, and list files nothing appears to reference.\n"
+                          "Read-only: nothing is changed.")
+        rescan_btn = ttk.Button(path_btns, text="RESCAN", command=self.refresh_current_project_readiness)
+        rescan_btn.pack(side="left", padx=4)
+        ToolTip(rescan_btn, "Re-run the readiness checks now. The folder is also watched\n"
+                            "and rescanned automatically when its files change.")
 
-        ttk.Label(frame, text="Preview Image:").grid(row=3, column=0, sticky="w", pady=5)
-        ttk.Entry(frame, textvariable=self.preview_path).grid(row=3, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
-        ttk.Button(frame, text="BROWSE", command=self.browse_preview).grid(row=3, column=3, sticky="e", pady=5)
+        ttk.Label(frame, text="Preview Image:").grid(row=3, column=0, sticky="nw", pady=5)
+        preview_row = ttk.Frame(frame)
+        preview_row.grid(row=3, column=1, columnspan=3, sticky="ew", pady=5)
+        preview_row.columnconfigure(0, weight=1)
+        ttk.Entry(preview_row, textvariable=self.preview_path).grid(row=0, column=0, sticky="ew", padx=5)
+        ttk.Button(preview_row, text="BROWSE", command=self.browse_preview).grid(row=0, column=1, sticky="e")
+        self.editor_thumb_label = ttk.Label(preview_row, text="", foreground="#888888")
+        self.editor_thumb_label.grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=(4, 0))
+        self.preview_path.trace_add("write", self._update_editor_thumbnail)
+        self.item_id_var.trace_add("write", self._update_editor_thumbnail)
 
         ttk.Label(frame, text="Title:").grid(row=4, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.title_var).grid(row=4, column=1, columnspan=2, sticky="ew", padx=5)
@@ -2302,23 +2355,32 @@ class WorkshopUploader:
     def open_template_wizard(self):
         TemplateWizard(self.root, self.colors, on_success=self._handle_new_project_created)
 
-    def toggle_watch_mode(self):
-        if self.watch_mode_var.get():
-            self.log("Watch Mode enabled.")
-            self.last_watch_signature = None
-            self.last_watch_summary = None
-            if not self.watch_thread or not self.watch_thread.is_alive():
-                self.watch_thread = threading.Thread(target=self._watch_loop, daemon=True)
-                self.watch_thread.start()
-        else:
-            self.log("Watch Mode disabled.")
-            self.last_watch_signature = None
-            self.last_watch_summary = None
+    def _start_watch(self):
+        if not self.watch_mode_var.get():
+            return
+        self.last_watch_signature = None
+        self.last_watch_summary = None
+        if not self.watch_thread or not self.watch_thread.is_alive():
+            self.watch_thread = threading.Thread(target=self._watch_loop, daemon=True)
+            self.watch_thread.start()
 
     def _watch_loop(self):
         import time
+        watched_dir = None
         while self.watch_mode_var.get():
             mod_dir = self.mod_path.get()
+            if mod_dir != watched_dir:
+                # a newly selected folder is scanned by its own activation
+                watched_dir = mod_dir
+                self.last_watch_signature = None
+                self.last_watch_summary = None
+                if mod_dir and os.path.exists(mod_dir):
+                    try:
+                        self.last_watch_signature = self._fingerprint_inventory(self._build_mod_inventory(mod_dir))
+                    except Exception:
+                        pass
+                time.sleep(3)
+                continue
             if mod_dir and os.path.exists(mod_dir):
                 try:
                     inventory = self._build_mod_inventory(mod_dir)
@@ -2364,7 +2426,19 @@ class WorkshopUploader:
         d = filedialog.askdirectory(title="Select Workshop Content Folder")
         if not d:
             return None
-        return self._activate_content_folder(d)
+        result = self._activate_content_folder(d)
+        if result:
+            self._notify_folder_selected(self.mod_path.get())
+        return result
+
+    def _notify_folder_selected(self, folder):
+        """Tell the toolbox the user picked ``folder`` here, so every page follows it."""
+        callback = self.on_folder_selected
+        if callable(callback) and folder and os.path.isdir(folder):
+            try:
+                callback(os.path.abspath(folder))
+            except Exception as e:
+                self.log(f"Could not open {folder} as the toolbox project: {e}")
 
     def browse_preview(self):
         f = filedialog.askopenfilename(filetypes=[("Images", "*.jpg;*.png;*.jpeg")])
@@ -2864,6 +2938,7 @@ class WorkshopUploader:
         user = self.username_var.get().strip()
         pwd = self.password_var.get()
         use_cached = self.use_cached_creds_var.get()
+        item_id = self.item_id_var.get().strip()
 
         validation_error = self._get_upload_preflight().validate_inputs(
             title=title,
@@ -2875,6 +2950,7 @@ class WorkshopUploader:
             use_cached_creds=use_cached,
             title_limit=STEAM_TITLE_LIMIT,
             description_limit=STEAM_DESC_LIMIT,
+            is_update=item_id.isdigit() and item_id != "0",
         )
         if validation_error:
             messagebox.showerror(validation_error[0], validation_error[1])
@@ -2918,7 +2994,7 @@ class WorkshopUploader:
                 appid=appid,
                 publishedfileid=self.item_id_var.get(),
                 contentfolder=content,
-                previewfile=preview,
+                previewfile=self._stage_preview_for_upload(preview) if preview else "",
                 visibility=vis,
                 title=self.title_var.get(),
                 description=desc,
@@ -2937,6 +3013,34 @@ class WorkshopUploader:
         self.pending_publish_inventory = self._build_inventory_snapshot(inventory)
         self._set_busy("Upload", True)
         threading.Thread(target=self.run_steamcmd, args=(sc, user, pwd, vdf_path), daemon=True).start()
+
+    def _stage_preview_for_upload(self, preview):
+        """Copy the preview to a name derived from its content.
+
+        Steam does not replace an item's preview when the new file has the same
+        name as the previous one, even if the image changed. A content-hashed
+        name makes every changed image a new file name (and an unchanged one
+        the same name), so the thumbnail updates without renaming anything.
+        """
+        import hashlib
+        import shutil
+
+        with open(preview, "rb") as f:
+            digest = hashlib.sha1(f.read()).hexdigest()[:12]
+        ext = os.path.splitext(preview)[1].lower() or ".jpg"
+        stage_dir = os.path.join(self.base_dir, "upload_previews")
+        os.makedirs(stage_dir, exist_ok=True)
+        staged = os.path.join(stage_dir, f"preview_{digest}{ext}")
+        for name in os.listdir(stage_dir):
+            old = os.path.join(stage_dir, name)
+            if old != staged:
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
+        if not os.path.exists(staged):
+            shutil.copyfile(preview, staged)
+        return staged
 
     def run_steamcmd(self, exe, user, pwd, vdf):
         self.log("Starting SteamCMD...")
@@ -3009,10 +3113,178 @@ class WorkshopUploader:
             self._set_busy("Upload", False)
 
     def _on_manage_selection(self, _event=None):
-        # Selecting an item only selects it. Linking it to the content folder
-        # (which decides what Publish overwrites) is the explicit button, with
-        # a confirmation; a stray click must never re-target an upload.
+        # Selecting an item only shows its preview and tags. Linking it to the
+        # content folder (which decides what Publish overwrites) is the explicit
+        # button, with a confirmation; a stray click must never re-target an upload.
+        item = self._selected_library_item()
+        if item is None:
+            self._show_library_detail(None)
+            return None
+        self._show_library_detail(item)
+        item_id = str(item["publishedfileid"])
+        if item_id in self.library_preview_cache:
+            return None
+        self.library_preview_cache[item_id] = None   # fetch once
+        threading.Thread(target=self._library_preview_worker, args=(dict(item),), daemon=True).start()
         return None
+
+    def _selected_library_item(self):
+        tree = getattr(self, "tree", None)
+        try:
+            selected = tree.selection()
+            if not selected:
+                return None
+            values = tree.item(selected[0]).get("values", [])
+        except Exception:
+            return None
+        if len(values) < 2:
+            return None
+        item_id = str(values[1])
+        for item in self.library_items:
+            if str(item.get("publishedfileid")) == item_id:
+                return item
+        return None
+
+    def _library_preview_worker(self, item):
+        item_id = str(item["publishedfileid"])
+        backend = self._get_workshop_backend()
+        try:
+            preview_url = item.get("preview_url", "")
+            if not preview_url or not item.get("tags"):
+                # GetUserFiles may leave these out; the item details have both
+                details = backend.fetch_workshop_item_details(api_key=self.api_key_var.get(), item_id=item_id)
+                preview_url = preview_url or details.get("preview_url", "") or ""
+                tags = item.get("tags") or backend.tag_names(details.get("tags"))
+                for known in self.library_items:
+                    if str(known.get("publishedfileid")) == item_id:
+                        known["preview_url"] = preview_url
+                        known["tags"] = tags
+            data = backend.download_preview_bytes(preview_url) if preview_url else b""
+        except Exception as e:
+            data = b""
+            self.log(f"Could not load preview for {item_id}: {self._friendly_api_error(e)}")
+        self.library_preview_cache[item_id] = data or b""
+
+        def show():
+            current = self._selected_library_item()
+            if current is not None and str(current.get("publishedfileid")) == item_id:
+                self._show_library_detail(current)
+        self.root.after(0, show)
+
+    def _show_library_detail(self, item):
+        label = getattr(self, "library_thumb_label", None)
+        if item is None:
+            self._library_thumb = None
+            if label is not None:
+                label.config(image="", text="")
+            self.library_detail_var.set("Select an item to see its preview and Steam tags.")
+            return
+        item_id = str(item.get("publishedfileid", ""))
+        tags = item.get("tags") or []
+        cached = self.library_preview_cache.get(item_id)
+        lines = [str(item.get("title", "")), f"#{item_id}  ·  {item.get('visibility_label', '')}"]
+        if tags:
+            lines.append("Steam tags: " + ", ".join(tags))
+        elif cached is not None:
+            lines.append("Steam tags: none")
+        else:
+            lines.append("Loading preview and tags...")
+        self.library_detail_var.set("\n".join(lines))
+        self._library_thumb = self._make_thumbnail(cached, 120) if cached else None
+        if label is not None:
+            if self._library_thumb is not None:
+                label.config(image=self._library_thumb, text="")
+            else:
+                label.config(image="", text="" if cached is None or HAS_PIL else "(install Pillow\nfor previews)")
+
+    def _make_thumbnail(self, source, max_size):
+        """A Tk image of ``source`` (a path or image bytes) at most ``max_size`` px, or None."""
+        if not HAS_PIL or not source:
+            return None
+        try:
+            import io
+            from PIL import ImageTk
+            img = Image.open(io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source)
+            img.thumbnail((max_size, max_size))
+            return ImageTk.PhotoImage(img)
+        except Exception:
+            return None
+
+    def _update_editor_thumbnail(self, *args):
+        label = getattr(self, "editor_thumb_label", None)
+        if label is None:
+            return
+        path = self.preview_path.get().strip()
+        if not path:
+            self._editor_thumb = None
+            item_id = self.item_id_var.get().strip()
+            note = ("(blank: Steam keeps the item's current preview)"
+                    if item_id.isdigit() and item_id != "0" else "")
+            label.config(image="", text=note)
+            return
+        if not os.path.isfile(path):
+            self._editor_thumb = None
+            label.config(image="", text="Preview image not found.")
+            return
+        self._editor_thumb = self._make_thumbnail(path, 72)
+        try:
+            info = f"{os.path.basename(path)}  ·  {os.path.getsize(path) // 1024} KB"
+        except OSError:
+            info = os.path.basename(path)
+        if self._editor_thumb is not None:
+            label.config(image=self._editor_thumb, text=info, compound="left")
+        else:
+            label.config(image="", text=info + ("" if HAS_PIL else "  (install Pillow for a thumbnail)"))
+
+    # ---- library sorting
+    LIBRARY_SORT_KEYS = {
+        "Title": lambda i: str(i.get("title", "")).lower(),
+        "ID": lambda i: int(i["publishedfileid"]) if str(i.get("publishedfileid", "")).isdigit() else 0,
+        "Visibility": lambda i: str(i.get("visibility_label", "")),
+        "Updated": lambda i: int(i.get("updated_ts") or 0),
+    }
+    LIBRARY_HEADINGS = {"Title": "Title", "ID": "Workshop ID", "Visibility": "Visibility", "Updated": "Updated"}
+
+    def sort_library(self, column):
+        current, descending = self.library_sort
+        # a new column starts ascending, except dates which read newest-first
+        self.library_sort = (column, not descending if column == current else column == "Updated")
+        self._update_library_headings()
+        self._render_library()
+
+    def _update_library_headings(self):
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        column, descending = self.library_sort
+        for name, text in self.LIBRARY_HEADINGS.items():
+            arrow = (" \u25bc" if descending else " \u25b2") if name == column else ""
+            try:
+                tree.heading(name, text=text + arrow)
+            except Exception:
+                pass
+
+    def _sorted_library_items(self):
+        column, descending = self.library_sort
+        key = self.LIBRARY_SORT_KEYS.get(column, self.LIBRARY_SORT_KEYS["Updated"])
+        # title breaks ties so equal keys keep a stable, readable order
+        items = sorted(self.library_items, key=self.LIBRARY_SORT_KEYS["Title"])
+        return sorted(items, key=key, reverse=descending)
+
+    def _render_library(self):
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        selected = self._selected_library_item()
+        tree.delete(*tree.get_children())
+        for item in self._sorted_library_items():
+            row = tree.insert("", "end", values=(item["title"], item["publishedfileid"],
+                                                 item["visibility_label"], item["updated_label"]))
+            if selected is not None and str(item["publishedfileid"]) == str(selected["publishedfileid"]):
+                tree.selection_set(row)
+                tree.see(row)
+        if not self.library_items:
+            tree.insert("", "end", values=("(No Workshop items returned)", "", "", ""))
 
     def use_selected_item_id_for_upload(self, switch_to_upload=True, quiet=False):
         mod_path = self.mod_path.get().strip()
@@ -3043,6 +3315,14 @@ class WorkshopUploader:
         if not self._confirm_link(item_id, title, mod_path):
             return False
         self.item_id_var.set(item_id)
+        # Publish sends visibility every time; keep the item's current one
+        # instead of the folder default (Public) so linking can't unhide it.
+        steam_visibility = {"Public": "0 (Public)", "Friends": "1 (Friends)", "Private": "2 (Private)"}.get(
+            str(values[2]) if len(values) > 2 else "")
+        if steam_visibility and steam_visibility != self._normalize_visibility_value(self.visibility_var.get()):
+            self.visibility_var.set(steam_visibility)
+            if not quiet:
+                self.log(f"Visibility set to {steam_visibility} to match the item on Steam.")
 
         if switch_to_upload and getattr(self, "notebook", None) is not None:
             self.notebook.select(self.upload_tab)
@@ -3139,15 +3419,11 @@ class WorkshopUploader:
             self.root.after(0, lambda: self.owner_status_var.set(f"Workshop owner: {steam_id}"))
             self.root.after(0, lambda: self.api_key_status_var.set("API key: accepted"))
             
-            self.root.after(0, lambda: self.tree.delete(*self.tree.get_children()))
-            
-            for item in items:
-                self.root.after(
-                    0,
-                    lambda i=item: self.tree.insert("", "end", values=(i["title"], i["publishedfileid"], i["visibility_label"], i["updated_label"]))
-                )
-            if not items:
-                self.root.after(0, lambda: self.tree.insert("", "end", values=("(No Workshop items returned)", "", "", "")))
+            def show_items():
+                self.library_items = list(items)
+                self.library_preview_cache = {}
+                self._render_library()
+            self.root.after(0, show_items)
             pages = meta.get("pages", 0)
             total = meta.get("total", len(items))
             self.root.after(0, lambda: self.library_status_var.set(f"Loaded {len(items)} of {total} Workshop items for {steam_id} across {pages} page(s)."))
@@ -3222,27 +3498,17 @@ class WorkshopUploader:
                 self.root.after(0, lambda: self.log(f"Could not fetch details for {item_id}"))
                 return
 
+            # Steam's own preview is only shown, never re-uploaded: a blank
+            # Preview Image on an update keeps the image already on Steam.
             preview_url = details.get("preview_url")
-            preview_local_path = ""
-            if preview_url:
+            if preview_url and not self.library_preview_cache.get(str(item_id)):
                 preview_bytes = self._get_workshop_backend().download_preview_bytes(preview_url)
                 if preview_bytes:
-                    preview_local_path = os.path.join(self.temp_dir, f"{item_id}.jpg")
-                    with open(preview_local_path, 'wb') as f:
-                        f.write(preview_bytes)
-            
+                    self.library_preview_cache[str(item_id)] = preview_bytes
+
             vis_map = {0: "0 (Public)", 1: "1 (Friends)", 2: "2 (Private)"}
             vis_str = vis_map.get(details.get("visibility"), "0 (Public)")
-            detail_tags = details.get("tags") or []
-            tag_names = []
-            for tag in detail_tags:
-                if isinstance(tag, dict):
-                    value = tag.get("tag") or tag.get("display_name") or ""
-                else:
-                    value = str(tag)
-                value = value.strip()
-                if value:
-                    tag_names.append(value)
+            tag_names = self._get_workshop_backend().tag_names(details.get("tags"))
 
             def do_populate():
                 self.autosave_suspended = True
@@ -3250,7 +3516,8 @@ class WorkshopUploader:
                     self.item_id_var.set(details.get("publishedfileid", "0"))
                     self.title_var.set(details.get("title", ""))
                     self._set_desc_text_value(details.get("description", ""))
-                    self.preview_path.set(preview_local_path)
+                    if not os.path.isfile(self.preview_path.get().strip()):
+                        self.preview_path.set("")
                     self.visibility_var.set(vis_str)
                     if tag_names:
                         self.tags_var.set(", ".join(tag_names))
