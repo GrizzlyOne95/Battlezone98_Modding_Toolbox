@@ -14,7 +14,6 @@ from battlezone.validation.mod_scanner import ModScanner
 from bztoolbox.paths import CREDENTIALS, module_data_dir, projects_dir
 from bztoolbox.modules.publishing.steam_service import SteamService
 from bztoolbox.modules.publishing.workshop_backend import WorkshopBackend
-from bztoolbox.modules.publishing.memory_analyzer import MemoryAnalyzer
 from bztoolbox.modules.publishing.content_fixes import ContentFixer
 from bztoolbox.modules.publishing.app_file_manager import AppFileManager
 from bztoolbox.modules.publishing.project_store import ProjectStore
@@ -377,7 +376,6 @@ class WorkshopUploader:
         self.mod_scanner = ModScanner(self.resource_dir, logger=self.log)
         self.steam_service = SteamService(logger=self.log)
         self.workshop_backend = WorkshopBackend(self.steam_service, logger=self.log)
-        self.memory_analyzer = MemoryAnalyzer(logger=self.log, has_pil=HAS_PIL, image_module=Image if HAS_PIL else None)
         self.content_fixer = ContentFixer(logger=self.log)
         self.project_name_var = tk.StringVar(value="NO UPLOAD PROFILE")
         self.project_hint_var = tk.StringVar(value="Select a content folder to begin.")
@@ -398,6 +396,8 @@ class WorkshopUploader:
         # Set by the toolbox shell: called with a folder the user picked here,
         # so the whole toolbox (Overview, Validation, ...) follows this page.
         self.on_folder_selected = None
+        # Set by the toolbox shell: opens another toolbox page by id.
+        self.open_toolbox_page = None
         self.access_advanced_expanded = False
         self.readiness_expanded = False
         self.activity_log_expanded = False
@@ -1285,12 +1285,6 @@ class WorkshopUploader:
         self.workshop_backend.steam_service = self._get_steam_service()
         return self.workshop_backend
 
-    def _get_memory_analyzer(self):
-        self.memory_analyzer.logger = self.log
-        self.memory_analyzer.has_pil = HAS_PIL
-        self.memory_analyzer.image_module = Image if HAS_PIL else None
-        return self.memory_analyzer
-
     def _get_content_fixer(self):
         self.content_fixer.logger = self.log
         return self.content_fixer
@@ -1870,14 +1864,13 @@ class WorkshopUploader:
         path_btns.grid(row=2, column=1, columnspan=3, sticky="w", pady=(4, 8))
         ttk.Button(path_btns, text="SELECT FOLDER", command=self.browse_content).pack(side="left")
         ttk.Button(path_btns, text="NEW CONTENT", command=self.open_template_wizard).pack(side="left", padx=4)
-        size_btn = ttk.Button(path_btns, text="SIZE / MEMORY", command=self.analyze_memory_usage)
-        size_btn.pack(side="left")
-        ToolTip(size_btn, "Estimate the folder's download size and the texture memory it\n"
-                          "uses in game, and list files nothing appears to reference.\n"
-                          "Read-only: nothing is changed.")
-        rescan_btn = ttk.Button(path_btns, text="RESCAN", command=self.refresh_current_project_readiness)
-        rescan_btn.pack(side="left", padx=4)
-        ToolTip(rescan_btn, "Re-run the readiness checks now. The folder is also watched\n"
+        # packed by set_toolbox_page_opener: it opens a toolbox page, so only inside the toolbox
+        self.dependencies_btn = ttk.Button(path_btns, text="SIZE / MEMORY \u203a", command=self.open_dependencies)
+        ToolTip(self.dependencies_btn, "Open Project > Dependencies: size on disk, texture memory per\n"
+                                       "mission, non-DDS textures and files nothing references.")
+        self.rescan_btn = ttk.Button(path_btns, text="RESCAN", command=self.refresh_current_project_readiness)
+        self.rescan_btn.pack(side="left", padx=4)
+        ToolTip(self.rescan_btn, "Re-run the readiness checks now. The folder is also watched\n"
                             "and rescanned automatically when its files change.")
 
         ttk.Label(frame, text="Preview Image:").grid(row=3, column=0, sticky="nw", pady=5)
@@ -2431,6 +2424,16 @@ class WorkshopUploader:
             self._notify_folder_selected(self.mod_path.get())
         return result
 
+    def open_dependencies(self):
+        if callable(self.open_toolbox_page):
+            self.open_toolbox_page("project.dependencies")
+
+    def set_toolbox_page_opener(self, opener):
+        """Called by the toolbox shell; the Dependencies shortcut only exists inside it."""
+        self.open_toolbox_page = opener
+        if callable(opener) and hasattr(self, "dependencies_btn"):
+            self.dependencies_btn.pack(side="left", before=self.rescan_btn)
+
     def _notify_folder_selected(self, folder):
         """Tell the toolbox the user picked ``folder`` here, so every page follows it."""
         callback = self.on_folder_selected
@@ -2693,22 +2696,6 @@ class WorkshopUploader:
             self.log(f"Validation engine could not scan {mod_dir}: {exc}")
             return []
         return [issue for issue in report.issues if issue.severity in ("error", "warning")]
-
-    def analyze_memory_usage(self):
-        mod_dir = self.mod_path.get()
-        if not mod_dir or not os.path.exists(mod_dir):
-            messagebox.showerror("Error", "Please select a valid content folder first.")
-            return
-
-        self.log("Analyzing memory footprint...")
-        analysis = self._get_memory_analyzer().analyze(mod_dir)
-        report = self._get_memory_analyzer().build_report(analysis)
-        messagebox.showinfo("Memory Analysis", report)
-        self.log(
-            f"Analysis: Disk={analysis['disk_mb']:.1f}MB, "
-            f"Est.Mem={analysis['vram_mb']:.1f}MB, "
-            f"Orphans={len(analysis['orphans'])}"
-        )
 
     def scan_mod_safety(self, mod_dir, inventory=None):
         return self._get_mod_scanner().scan_mod_safety(mod_dir, inventory=inventory)

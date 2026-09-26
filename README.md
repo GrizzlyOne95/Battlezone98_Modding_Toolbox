@@ -68,7 +68,8 @@ You can use it to answer questions like:
 - Which references are missing from the project?
 - Which files appear to be unused?
 - Is a reference probably stock content rather than a missing custom asset?
-- Roughly how much texture memory does the project use?
+- How big is the mod on disk, and roughly how much texture memory does each mission load?
+- Which textures are not DDS and cost several times the memory they need?
 
 This is especially useful when cleaning up old campaigns or consolidating large Workshop projects.
 
@@ -180,7 +181,7 @@ Run `BZModdingToolbox-<version>-windows-setup.exe`.
 - It installs for your account without an administrator prompt, or for all users if you choose.
 - It adds a Start menu entry and registers under **Settings -> Apps** with its version and publisher.
 - It can add an **Open in BZ Modding Toolbox** entry to the right-click menu of folders, and put the `bztoolbox` command line on `PATH`.
-- To upgrade, run a newer setup; it replaces the old version in place.
+- To upgrade, run a newer setup (or use the toolbox's update banner). Setup recognises the installed copy and updates it in place: same folder and options, no licence or options pages, and your settings and project profiles are kept. It asks before replacing a newer version with an older one.
 - Uninstall from **Settings -> Apps**. It asks whether to delete your settings too.
 
 Prefer not to install? `BZModdingToolbox-<version>-windows-portable.zip` is the same program: extract it and run `BZModdingToolbox.exe`. The command-line version is `bztoolbox.exe` in the same folder.
@@ -193,7 +194,7 @@ Current builds are unsigned, so macOS may require **right-click -> Open** the fi
 
 ### Linux
 
-Extract the Linux archive and run `BZModdingToolbox/install.sh`. It installs for your user under `~/.local` (or for everyone under `/opt` with `sudo`) and adds a menu entry and the `BZModdingToolbox` / `bztoolbox` commands. `install.sh --uninstall` removes it and `install.sh --purge` removes your settings too.
+Extract the Linux archive and run `BZModdingToolbox/install.sh`. It installs for your user under `~/.local` (or for everyone under `/opt` with `sudo`) and adds a menu entry and the `BZModdingToolbox` / `bztoolbox` commands. Running a newer release's `install.sh` updates the installed copy in place. `install.sh --uninstall` removes it and `install.sh --purge` removes your settings too.
 
 You can also run `BZModdingToolbox/BZModdingToolbox` straight from the extracted folder.
 

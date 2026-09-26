@@ -113,9 +113,8 @@ Then use the workspace like this:
 
 ### Analysis
 
-- **SIZE / MEMORY**: download size and in-game texture memory estimate (read-only)
-- Non-DDS texture warnings
-- Orphan-file detection
+- **SIZE / MEMORY ›** opens **Project › Dependencies**, which covers size on disk, texture memory
+  (per mission and for the whole mod), non-DDS texture warnings and files nothing references
 
 ## Requirements
 
@@ -135,7 +134,6 @@ pip install -r requirements.txt
 - `uploader.py`: main application
 - `project_store.py`: saved local upload-profile persistence
 - `mod_scanner.py`: content scanning and validation
-- `memory_analyzer.py`: texture/orphan analysis
 - `workshop_backend.py`: SteamCMD and Workshop API interactions
 - `upload_preflight.py`: upload validation and VDF writing
 - `profiles/`: saved local upload-profile state

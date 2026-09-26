@@ -431,6 +431,8 @@ class PageFrame(ttk.Frame):
                 if hasattr(self.app, "on_folder_selected"):
                     # the tool picked a folder itself: make it the toolbox project
                     self.app.on_folder_selected = self._tool_folder_selected
+                if hasattr(self.app, "set_toolbox_page_opener"):
+                    self.app.set_toolbox_page_opener(self.shell.navigate)
             else:
                 self.widget = factory(self.content, self.shell)
                 self.widget.pack(fill="both", expand=True)

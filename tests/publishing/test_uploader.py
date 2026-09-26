@@ -22,7 +22,6 @@ with patch.dict(sys.modules, _HEADLESS_STUBS):
     from bztoolbox.modules.publishing import uploader
     from bztoolbox.modules.publishing.app_file_manager import AppFileManager
     from bztoolbox.modules.publishing.content_fixes import ContentFixer
-    from bztoolbox.modules.publishing.memory_analyzer import MemoryAnalyzer
     from bztoolbox.modules.publishing.project_store import ProjectStore
     from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
     from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
@@ -182,39 +181,6 @@ class TestWorkshopUploader(unittest.TestCase):
         mat_issue = next(i for i in issues if i[0] == mat_file)
         self.assertEqual(mat_issue[1], "Missing Asset")
         self.assertTrue("missing_tex.tga" in mat_issue[2])
-
-    def test_memory_analyzer_detects_orphans_and_textures(self):
-        analyzer = MemoryAnalyzer()
-
-        with open(os.path.join(self.test_dir, "map.ini"), "w", encoding="utf-8") as f:
-            f.write("[WORKSHOP]\nmapType=\"mod\"\n")
-        with open(os.path.join(self.test_dir, "script.odf"), "w", encoding="utf-8") as f:
-            f.write('geometryName = "used_model.xsi"\n')
-        with open(os.path.join(self.test_dir, "used_model.xsi"), "w", encoding="utf-8") as f:
-            f.write("mesh")
-        with open(os.path.join(self.test_dir, "orphan.png"), "wb") as f:
-            f.write(b"pngdata")
-
-        analysis = analyzer.analyze(self.test_dir)
-
-        self.assertEqual(analysis["counts"]["Texture"], 1)
-        self.assertIn("orphan.png", analysis["non_dds_textures"])
-        self.assertIn("orphan.png", analysis["orphans"])
-        self.assertNotIn("used_model.xsi", analysis["orphans"])
-
-    def test_memory_analyzer_report_mentions_orphans(self):
-        analyzer = MemoryAnalyzer()
-        report = analyzer.build_report({
-            "disk_mb": 1.25,
-            "vram_mb": 12.5,
-            "counts": {"Texture": 1, "Model": 2, "Audio": 0, "Script": 3, "Other": 4},
-            "non_dds_textures": ["orphan.png"],
-            "orphans": ["orphan.png", "unused.wav"],
-        })
-        self.assertIn("MEMORY ANALYSIS REPORT", report)
-        self.assertIn("non-DDS textures", report)
-        self.assertIn("ORPHANS", report)
-        self.assertIn("orphan.png", report)
 
     def test_build_upload_vdf_content_escapes_special_chars(self):
         content = self.uploader._build_upload_vdf_content(

@@ -13,6 +13,11 @@ from battlezone.project import folder_fingerprint
 from bztoolbox.app import theme
 from bztoolbox.app.widgets import StatBox, add_scrollbars, humanize_bytes, open_in_file_manager
 
+# Texture memory one mission may load before the game risks running out on
+# lower-end hardware (the thresholds the Workshop memory report used).
+TEXTURE_MEMORY_HIGH = 1024 ** 3
+TEXTURE_MEMORY_CRITICAL = 2 * 1024 ** 3
+
 
 def _table(parent, columns):
     frame = ttk.Frame(parent, style="Toolbox.TFrame")
@@ -51,11 +56,14 @@ class DependenciesPage(ttk.Frame):
         stats = ttk.Frame(self, style="Toolbox.TFrame")
         stats.pack(fill="x", pady=8)
         self.stat_files = StatBox(stats, "Files", "–")
+        self.stat_disk = StatBox(stats, "Size on disk", "–")
         self.stat_refs = StatBox(stats, "References", "–")
         self.stat_missing = StatBox(stats, "Missing", "–", theme.ERROR)
         self.stat_unused = StatBox(stats, "Unreferenced", "–", theme.WARNING)
         self.stat_vram = StatBox(stats, "Textures, whole mod", "–")
-        for box in (self.stat_files, self.stat_refs, self.stat_missing, self.stat_unused, self.stat_vram):
+        self._stat_boxes = (self.stat_files, self.stat_disk, self.stat_refs, self.stat_missing,
+                            self.stat_unused, self.stat_vram)
+        for box in self._stat_boxes:
             box.pack(side="left", padx=(0, 8))
 
         tabs = ttk.Notebook(self, style="Toolbox.TNotebook")
@@ -115,13 +123,17 @@ class DependenciesPage(ttk.Frame):
                                 "a mission only loads what it uses, shown per mission below. Stock textures "
                                 "are not counted.",
                   style="Toolbox.Muted.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(0, 4))
+        self.texture_notice = ttk.Label(tex_tab, text="", style="Toolbox.Warning.TLabel", wraplength=900,
+                                        justify="left")
+        self.texture_notice.pack(anchor="w", pady=(0, 4))
         tex_panes = ttk.PanedWindow(tex_tab, orient="vertical")
         tex_panes.pack(fill="both", expand=True)
         frame, self.mission_textures = _table(tex_panes, (("mission", "Mission", 360),
                                                           ("vram", "Its textures", 120), ("count", "Textures", 80)))
         tex_panes.add(frame, weight=1)
         frame, self.textures = _table(tex_panes, (("file", "Texture", 360), ("vram", "Estimated memory", 120),
-                                                  ("used", "Used by", 60)))
+                                                  ("format", "Format", 110), ("used", "Used by", 60)))
+        self.textures.tag_configure("uncompressed", foreground=theme.WARNING)
         tex_panes.add(frame, weight=2)
 
         self.project_changed(shell.project)
@@ -154,8 +166,10 @@ class DependenciesPage(ttk.Frame):
         self.graph = None
         self._fingerprint = None
         self.export_button.configure(state="disabled")
-        for box in (self.stat_files, self.stat_refs, self.stat_missing, self.stat_unused, self.stat_vram):
+        for box in self._stat_boxes:
             box.set("–")
+        self.stat_vram.set("–", theme.FG)
+        self.texture_notice.configure(text="")
         for table in (self.files, self.used_by, self.needs, self.missing, self.unused, self.textures,
                       self.mission_textures):
             table.delete(*table.get_children())
@@ -203,6 +217,7 @@ class DependenciesPage(ttk.Frame):
         self.export_button.configure(state="normal")
         summary = graph.summary()
         self.stat_files.set(summary["files"])
+        self.stat_disk.set(humanize_bytes(summary["disk_bytes"]))
         self.stat_refs.set(summary["references"])
         self.stat_missing.set(summary["missing"])
         self.stat_unused.set(summary["unreferenced"])
@@ -221,11 +236,41 @@ class DependenciesPage(ttk.Frame):
         for node, size, count in graph.mission_texture_memory():
             self.mission_textures.insert("", "end", values=(node.key, humanize_bytes(size), count))
         self.textures.delete(*self.textures.get_children())
+        uncompressed = {node.key for node in graph.uncompressed_textures()}
         for node in graph.textures_by_memory():
+            compressed = node.key not in uncompressed
             self.textures.insert("", "end", values=(node.key, humanize_bytes(node.texture_bytes),
-                                                    len(graph.used_by(node.key))))
+                                                    "DDS" if compressed else "Uncompressed",
+                                                    len(graph.used_by(node.key))),
+                                 tags=() if compressed else ("uncompressed",))
+        self._show_texture_notice(graph, summary)
         self.shell.status(f"{summary['files']} files, {summary['missing']} missing reference(s), "
                           f"{summary['unreferenced']} unreferenced file(s).")
+
+    def _show_texture_notice(self, graph, summary) -> None:
+        """Warn about non-DDS textures and about texture memory high enough to risk a crash."""
+        lines = []
+        missions = graph.mission_texture_memory()
+        if missions:
+            heaviest = missions[0][1]
+            basis = f"The heaviest mission ({missions[0][0].key}) loads about {humanize_bytes(heaviest)} of textures."
+        else:
+            heaviest = summary["texture_bytes"]
+            basis = f"The mod's textures come to about {humanize_bytes(heaviest)}."
+        colour = theme.FG
+        if heaviest > TEXTURE_MEMORY_CRITICAL:
+            colour = theme.ERROR
+            lines.append(f"{basis} That is very high: Battlezone 98 Redux may crash on lower-end hardware.")
+        elif heaviest > TEXTURE_MEMORY_HIGH:
+            colour = theme.WARNING
+            lines.append(f"{basis} That is high; consider DDS (DXT) for the largest textures.")
+        self.stat_vram.set(humanize_bytes(summary["texture_bytes"]), colour)
+        count = summary["uncompressed_textures"]
+        if count:
+            lines.append(f"{count} texture(s) are not DDS (marked Uncompressed). The game loads them as "
+                         "uncompressed RGBA: saving them as DXT-compressed DDS uses 4 to 8 times less memory.")
+        self.texture_notice.configure(text="\n".join(lines),
+                                      foreground=theme.ERROR if colour == theme.ERROR else theme.WARNING)
 
     def _render_files(self) -> None:
         self.files.delete(*self.files.get_children())
