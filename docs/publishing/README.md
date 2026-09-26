@@ -70,13 +70,17 @@ Then use the workspace like this:
 - Automatic profile autosave while editing
 - Persistent Workshop-item association by local content folder
 - Last publish timestamp and changed-file tracking
+- Selecting a folder here also makes it the toolbox project, so Overview, Validation and the other pages follow
+- The content folder is watched automatically; readiness is rescanned when its files change
 
 ### Your Workshop Items
 
 - Automatically refresh the owner's Workshop library when identity/API access is available
 - Enumerate all owned items across Steam API pages instead of stopping at the first page
-- Explicitly link the current upload profile to a selected Workshop item
-- Load Workshop details such as title, description, visibility, preview, and tags into the editor
+- Sort by title, Workshop ID, visibility or last update (click a column heading)
+- Selecting an item shows its Steam preview thumbnail and current Steam tags
+- Explicitly link the current upload profile to a selected Workshop item (the item's visibility is kept)
+- Load Workshop details such as title, description, visibility and tags into the editor
 
 ### Safety And Validation
 
@@ -101,14 +105,16 @@ Then use the workspace like this:
 - Adaptive Steam Guard code and Steam mobile-approval states
 - QR account-verification helper
 - SteamCMD VDF generation
+- On an update, a blank description or preview image is left out of the upload, so Steam keeps the current one
+- The review lists what an update would change on Steam (title, visibility) from the loaded library
+- The preview is uploaded under a name derived from its content: Steam ignores a new preview that has the same file name as the last one, so this makes changed images update without renaming the file
 - Expandable Steam/upload diagnostics rather than an always-visible raw log
 - Experimental Workshop tag updates after successful publish
 
 ### Analysis
 
-- Memory and VRAM estimate report
-- Non-DDS texture warnings
-- Orphan-file detection
+- **SIZE / MEMORY ›** opens **Project › Dependencies**, which covers size on disk, texture memory
+  (per mission and for the whole mod), non-DDS texture warnings and files nothing references
 
 ## Requirements
 
@@ -128,7 +134,6 @@ pip install -r requirements.txt
 - `uploader.py`: main application
 - `project_store.py`: saved local upload-profile persistence
 - `mod_scanner.py`: content scanning and validation
-- `memory_analyzer.py`: texture/orphan analysis
 - `workshop_backend.py`: SteamCMD and Workshop API interactions
 - `upload_preflight.py`: upload validation and VDF writing
 - `profiles/`: saved local upload-profile state

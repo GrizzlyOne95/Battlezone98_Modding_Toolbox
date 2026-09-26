@@ -428,6 +428,11 @@ class PageFrame(ttk.Frame):
                 self.widget, self.app = factory(host)
                 self.widget.pack(fill="both", expand=True)
                 self._project_hook = self.spec.load_project_hook()
+                if hasattr(self.app, "on_folder_selected"):
+                    # the tool picked a folder itself: make it the toolbox project
+                    self.app.on_folder_selected = self._tool_folder_selected
+                if hasattr(self.app, "set_toolbox_page_opener"):
+                    self.app.set_toolbox_page_opener(self.shell.navigate)
             else:
                 self.widget = factory(self.content, self.shell)
                 self.widget.pack(fill="both", expand=True)
@@ -447,6 +452,13 @@ class PageFrame(ttk.Frame):
         text.insert("1.0", traceback.format_exc())
         text.configure(state="disabled")
         text.pack(fill="both", expand=True)
+
+    def _tool_folder_selected(self, folder: str) -> None:
+        current = self.shell.project
+        if current is not None and os.path.normcase(os.path.abspath(current.mod_path)) == \
+                os.path.normcase(os.path.abspath(folder)):
+            return
+        self.shell.open_project(folder)
 
     def project_changed(self, project: Optional[Project]) -> None:
         if not self._built:

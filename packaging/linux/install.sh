@@ -10,7 +10,8 @@
 # Installs the program folder, a menu entry with its icon, and the
 # BZModdingToolbox / bztoolbox commands. Settings live in
 # ${XDG_CONFIG_HOME:-~/.config}/BattlezoneModdingToolbox, never in the
-# program folder. Re-running the script upgrades in place.
+# program folder. Running a newer release's script over an installed copy
+# updates it in place (and says so); settings and project profiles are kept.
 set -eu
 
 APP=BZModdingToolbox
@@ -55,7 +56,7 @@ case "${1:-}" in
     --uninstall) uninstall; exit 0 ;;
     --purge) uninstall purge; exit 0 ;;
     "") ;;
-    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
 
 SRC=$(cd "$(dirname "$0")" && pwd)
@@ -63,6 +64,13 @@ SRC=$(cd "$(dirname "$0")" && pwd)
 if [ "$SRC" = "$PREFIX" ]; then
     echo "error: this is already the installed copy; run install.sh from a newly extracted release" >&2
     exit 1
+fi
+
+# the copy already installed here, if any, so the result can say "updated"
+PREVIOUS=""
+if [ -x "$PREFIX/bztoolbox" ]; then
+    PREVIOUS=$("$PREFIX/bztoolbox" --version 2>/dev/null | awk '{print $NF}') || PREVIOUS=""
+    [ -n "$PREVIOUS" ] || PREVIOUS=unknown
 fi
 
 rm -rf "$PREFIX.new"
@@ -79,7 +87,14 @@ sed "s|@EXEC@|$PREFIX/$APP|" "$PREFIX/$DESKTOP_ID.desktop" > "$DESKTOP_FILE"
 chmod 644 "$DESKTOP_FILE" "$ICON_FILE"
 refresh_menus
 
-echo "Installed $("$PREFIX/bztoolbox" --version 2>/dev/null || echo "the Battlezone Modding Toolbox") in $PREFIX."
+CURRENT=$("$PREFIX/bztoolbox" --version 2>/dev/null | awk '{print $NF}') || CURRENT=""
+if [ -z "$PREVIOUS" ]; then
+    echo "Installed the Battlezone Modding Toolbox${CURRENT:+ $CURRENT} in $PREFIX."
+elif [ "$PREVIOUS" = "$CURRENT" ]; then
+    echo "Reinstalled the Battlezone Modding Toolbox $CURRENT in $PREFIX (settings kept)."
+else
+    echo "Updated the Battlezone Modding Toolbox from $PREVIOUS to ${CURRENT:-the new version} in $PREFIX (settings kept)."
+fi
 case ":$PATH:" in
     *":$BIN:"*) ;;
     *) echo "Add $BIN to PATH to run BZModdingToolbox and bztoolbox from a terminal." ;;

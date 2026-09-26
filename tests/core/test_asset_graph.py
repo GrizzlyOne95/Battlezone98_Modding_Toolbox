@@ -117,3 +117,14 @@ def test_legacy_binary_models_reference_their_parts(tmp_path):
                      ("avtank10.geo", "avtank.map")}
     unreferenced = {n.key for n in graph.unreferenced()}
     assert "avtank10.geo" not in unreferenced and "orphan.geo" in unreferenced
+
+
+def test_disk_size_and_uncompressed_textures(mod):
+    Image = pytest.importorskip("PIL.Image")
+    Image.new("RGB", (64, 32)).save(mod / "textures" / "big.png")
+    g = build_graph(mod)
+    summary = g.summary()
+    assert summary["disk_bytes"] == sum(p.stat().st_size for p in mod.rglob("*") if p.is_file())
+    # DDS textures are never reported; the unreadable unused.tga has no size estimate
+    assert [n.key for n in g.uncompressed_textures()] == ["textures/big.png"]
+    assert summary["uncompressed_textures"] == 1
