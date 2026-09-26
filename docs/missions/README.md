@@ -137,6 +137,67 @@ Add `--source-odfs` and `--redux-odfs` to run the class check. It diffs each BZC
 records do not match. `class_labels.py` runs the same check on its own.
 See [`docs/BZCC_TO_BZR_PORT.md`](docs/BZCC_TO_BZR_PORT.md).
 
+## Battlezone 1.5 ↔ Redux BZN conversion
+
+**Missions › 1.5 ↔ Redux BZN** in the toolbox, or on the command line:
+
+```
+bztoolbox bzn convert mission.bzn --to 1.5            # -> mission_v1045.bzn
+bztoolbox bzn convert mission.bzn --to redux --binary # -> mission_v2016.bzn, binary
+bztoolbox bzn convert *.bzn --out-dir out/ --odf-dir mymod/ --report changes.json
+```
+
+Battlezone 1.5 writes BZN version 1045 (1037-1044 from older patches); Redux
+writes 2016. It is one format whose fields are gated on the version, so a
+conversion is a re-save at the other version. `battlezone/bzn/bz1.py` is a
+port of the Battlezone 1 half of BZNParser (BZNTools, MIT): every class schema
+there is one function walking its fields with the same `version` gates as
+BZNParser's `Hydrate`/`Dehydrate` pair, used by both the reader and the writer.
+It reads ASCII and binary files from version 1022 on and writes both.
+
+Between 1045 and 2016 the fields that differ are:
+
+| Field | Versions | Conversion |
+| --- | --- | --- |
+| `isCritical` (every object) | 1046-1999, >= 2010 | dropped / added as `false` |
+| `cloakState`, `cloakTransBeginTime`, `cloakTransEndTime` (craft) | >= 2000 | dropped / added as 0 |
+| `lastRecycled` (constructionrig) | >= 2001 | dropped / added as 0 |
+| `portalState`, `portalBeginTime`, `portalEndTime`, `isIn` (portal) | >= 2004 | dropped / added as 0 |
+| `AiCmdInfo.param` | LONG < 2012, 8-byte ID >= 2012 | BZNParser's UInt64: the ID bytes read little-endian; an ODF name has no LONG form |
+| `AiPath.old_ptr` | raw bytes <= 2011, pointer > 2011 | the pointer is the bytes read little-endian (`4075E100` <-> `00e17540`) |
+| pointers in binary files | 4 bytes < 2012, 8 bytes >= 2012 | value kept |
+| `undefbool` after a Lua mission name | 1044 maps only | play state, not map content |
+
+A value that is not the default and has no field at the target, an `ID`
+longer than the 8 bytes 1.5 (or any binary file) can store, or a `param` that
+names an ODF is a *loss*: the conversion is refused and the losses listed,
+unless `--allow-loss` is given. Everything else is listed as added, dropped
+or converted. The output is re-read and every field not in that list is
+compared with the source before anything is written.
+
+`missionSave` is written `true` for a mission map, as BZNParser does: the 1.5
+loader treats `false` as a shell save game.
+
+Object classes are not stored in BZNs. They come from BZNParser's stock table
+(`battlezone/bzn/data/bz1_class_labels.txt`), from the `classLabel` of the
+ODFs under `--odf-dir`, or, for unknown ODFs, from the editor's
+`<odf><n>_<classLabel>` object label; failing all of those every class is
+tried and the shortest parse that lets the next object parse wins
+(BZNParser's rule). When the remaining candidates would write differently at
+the target version the result warns and names the object.
+
+Formatting: a file rewritten at its own version is byte-identical to the
+source (spelling of numbers, pointer widths, garbage in binary type words and
+all). `--normalize` formats every value as BZNParser does instead. Binary to
+ASCII keeps six significant digits, as the games' own ASCII saves do.
+
+Verification: all 63 1.5 BZNs in a 1.5 install (1037-1045, 48 of them binary) and
+361 Redux BZNs (1022-2016) parse; with `--normalize` every conversion to 2016
+and to 1045 is byte-identical to BZNParser's output for the same file, and the
+converted 1.5 maps re-parse with BZNParser as 2016 with the same object
+classes. The ten `bz64port` missions go 2016 -> 1045 -> 2016 back to their
+original bytes.
+
 ## Rule policy
 
 ODF checks should be traceable to at least one of:

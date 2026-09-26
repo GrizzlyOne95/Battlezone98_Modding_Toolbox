@@ -23,6 +23,33 @@ distributed under the SIL Open Font License 1.1.
 Rebellion / Activision and are included for non-commercial fan use and modding
 of Battlezone 98 Redux. All rights remain with their owners.
 
+## BZNParser (BZNTools)
+
+`battlezone/bzn/bz1.py` is a Python port of the Battlezone 1 parts of
+BZNParser (the `BZNStreamReader`/`BZNStreamWriter` token layer and the
+version-gated `Hydrate`/`Dehydrate` code of `BZNFileBattlezone`,
+`EntityDescriptor`, `AiCmdInfo`, `AreaOfInterest`, `AiPath` and the BZ1
+`GameObject` classes), and `battlezone/bzn/data/bz1_class_labels.txt` is its
+`BZ1_ClassLabels.txt`. MIT License, Copyright (c) 2026 John "Nielk1" Klein:
+
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
+
 ## Python libraries
 
 NumPy, SciPy (BSD), Pillow (HPND), imageio (BSD), customtkinter (MIT),
