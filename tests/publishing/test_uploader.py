@@ -25,6 +25,8 @@ with patch.dict(sys.modules, _HEADLESS_STUBS):
     from bztoolbox.modules.publishing.project_store import ProjectStore
     from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
     from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
+    # the same module object the class above uses, so patches reach its globals
+    from bztoolbox.modules.publishing import steamworks_tags
 
 class DummyVar:
     def __init__(self, value=""):
@@ -1025,8 +1027,6 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertIsNone(created_again)
 
     def test_steamworks_finds_the_dll_matching_the_process_bitness(self):
-        from bztoolbox.modules.publishing import steamworks_tags
-
         updater = SteamworksTagUpdater()
         game_dir = os.path.join(self.test_dir, "game")
         os.makedirs(game_dir)
@@ -1041,8 +1041,6 @@ class TestWorkshopUploader(unittest.TestCase):
             self.assertEqual(updater.find_steam_api_path(), os.path.join(game_dir, "steam_api64.dll"))
 
     def test_interface_version_is_read_from_the_dll_or_the_game_beside_it(self):
-        from bztoolbox.modules.publishing import steamworks_tags
-
         game_dir = os.path.join(self.test_dir, "game")
         os.makedirs(game_dir)
         dll = os.path.join(game_dir, "steam_api.dll")
@@ -1058,10 +1056,9 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertIsNone(steamworks_tags.embedded_interface_version(dll, "SteamApps"))
 
     def test_64bit_toolbox_drives_the_games_32bit_dll_through_the_helper(self):
-        from bztoolbox.modules.publishing import steamworks_tags
-
         updater = SteamworksTagUpdater()
         with patch.object(steamworks_tags.os, "name", "nt"), \
+                patch.object(steamworks_tags, "steam_client_running", return_value=True), \
                 patch.object(updater, "find_steam_api_path", return_value=None), \
                 patch.object(updater, "find_32bit_steam_api_path", return_value="C:/game/steam_api.dll"), \
                 patch.object(updater, "_update_tags_via_helper", return_value={"method": "steamworks"}) as helper:
@@ -1071,8 +1068,14 @@ class TestWorkshopUploader(unittest.TestCase):
         helper.assert_called_once_with("C:/game/steam_api.dll", "301650", "123", ["CRA", "Pilot"], "", 20.0,
                                        preview_path=None)
 
+    def test_steamworks_update_says_so_when_steam_is_not_running(self):
+        updater = SteamworksTagUpdater()
+        with patch.object(steamworks_tags.os, "name", "nt"), \
+                patch.object(steamworks_tags, "steam_client_running", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "Steam is not running"):
+                updater.try_update_tags("301650", "123", ["CRA"])
+
     def test_tag_helper_passes_tags_one_per_line_and_reads_its_json_result(self):
-        from bztoolbox.modules.publishing import steamworks_tags
         import base64
 
         game_dir = os.path.join(self.test_dir, "game")

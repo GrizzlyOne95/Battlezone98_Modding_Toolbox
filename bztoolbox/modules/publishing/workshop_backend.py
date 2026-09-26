@@ -327,6 +327,8 @@ class WorkshopBackend:
         """
         details = {}
         try:
+            if not api_key:
+                raise ValueError("no Steam Web API key")   # GetDetails needs one; the legacy endpoint does not
             response = self.steam_service.request_with_retry(
                 "GET",
                 "https://api.steampowered.com/IPublishedFileService/GetDetails/v1/",
@@ -340,6 +342,8 @@ class WorkshopBackend:
                 timeout=10,
             )
             details = (response.json().get("response", {}).get("publishedfiledetails") or [{}])[0] or {}
+        except ValueError:
+            details = {}
         except Exception as e:
             self.log(f"Workshop details lookup failed, retrying with the legacy endpoint: {e}")
             details = {}
