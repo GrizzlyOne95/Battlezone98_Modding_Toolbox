@@ -24,7 +24,8 @@ Nodes are the files in the project, plus referenced names that are not in it
 Names resolve case-insensitively by file name anywhere in the project, like
 the game's resource lookup. The graph answers "what uses this" (what breaks if
 it is renamed), "what does this need", which references are not in the
-project, which files nothing references, and estimated texture memory.
+project, which files nothing references, the size on disk and estimated
+texture memory.
 """
 
 from __future__ import annotations
@@ -190,6 +191,15 @@ class AssetGraph:
         return sorted((n for n in self.nodes.values() if n.texture_bytes),
                       key=lambda n: n.texture_bytes, reverse=True)
 
+    def uncompressed_textures(self) -> List[AssetNode]:
+        """Project textures that are not DDS, heaviest first.
+
+        The game loads them as uncompressed RGBA: four to eight times the
+        memory of the same image saved as a DXT-compressed DDS.
+        """
+        return [n for n in self.textures_by_memory()
+                if n.in_project and os.path.splitext(n.name)[1].lower() != ".dds"]
+
     def mission_texture_memory(self) -> List[Tuple[AssetNode, int, int]]:
         """``(mission, bytes, texture count)`` for the project textures each mission pulls in.
 
@@ -222,6 +232,8 @@ class AssetGraph:
             "not_in_project": len(self.not_in_project()),
             "unreferenced": len(self.unreferenced()),
             "texture_bytes": sum(n.texture_bytes for n in self.nodes.values()),
+            "disk_bytes": sum(n.size for n in self.files),
+            "uncompressed_textures": len(self.uncompressed_textures()),
         }
 
     def to_dict(self) -> dict:

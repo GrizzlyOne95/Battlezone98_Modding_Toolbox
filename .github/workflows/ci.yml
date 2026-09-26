@@ -174,22 +174,36 @@ jobs:
           }
           & $iscc /Qp "/DAppVersion=$env:VERSION" packaging\windows\BZModdingToolbox.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # an "older release" for the update test below; it stays in dist\installer, unpublished
+          & $iscc /Qp "/DAppVersion=0.0.1" packaging\windows\BZModdingToolbox.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Move-Item "dist\installer\BZModdingToolbox-v$env:VERSION-windows-setup.exe" .
       - name: Test the installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Install for this user, check what Windows sees, then uninstall.
+          # Install an older release for this user, update it with this one,
+          # check what Windows sees, then uninstall.
           $ErrorActionPreference = 'Stop'
           $dir = Join-Path $env:RUNNER_TEMP 'BZ Toolbox Install'
+          $setup = Start-Process ".\dist\installer\BZModdingToolbox-v0.0.1-windows-setup.exe" -Wait -PassThru -ArgumentList `
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/TASKS=addtopath,contextmenu', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\setup-old.log`""
+          if ($setup.ExitCode) { Get-Content "$env:RUNNER_TEMP\setup-old.log"; throw "old setup exited with $($setup.ExitCode)" }
+          if (-not (Select-String -Quiet -SimpleMatch 'No previous install found' "$env:RUNNER_TEMP\setup-old.log")) { throw 'the first install was not a fresh install' }
+
+          # The update gets no folder and no tasks: it must reuse the installed copy's.
           $setup = Start-Process ".\BZModdingToolbox-v$env:VERSION-windows-setup.exe" -Wait -PassThru -ArgumentList `
-            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/TASKS=addtopath,contextmenu', "/DIR=`"$dir`"", "/LOG=`"$env:RUNNER_TEMP\setup.log`""
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$env:RUNNER_TEMP\setup.log`""
           if ($setup.ExitCode) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "setup exited with $($setup.ExitCode)" }
+          if (-not (Select-String -Quiet -SimpleMatch "Found installed version 0.0.1: updating to $env:VERSION." "$env:RUNNER_TEMP\setup.log")) {
+            Get-Content "$env:RUNNER_TEMP\setup.log"; throw 'setup did not recognise the installed copy as an update'
+          }
 
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{63CD0930-D3A1-4F9C-9DFE-251D48C601EF}_is1'
           $entry = Get-ItemProperty $key
           $entry | Format-List DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon, UninstallString, URLInfoAbout
           if ($entry.DisplayVersion -ne $env:VERSION) { throw "registered version $($entry.DisplayVersion), expected $env:VERSION" }
+          if ($entry.InstallLocation.TrimEnd('\') -ne $dir) { throw "the update moved the install to $($entry.InstallLocation)" }
           if ($entry.Publisher -ne 'GrizzlyOne95') { throw "publisher is '$($entry.Publisher)'" }
           $appPath = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\BZModdingToolbox.exe').'(default)'
           if (-not (Test-Path $appPath)) { throw "App Paths points at missing $appPath" }
@@ -248,7 +262,12 @@ jobs:
           home="$RUNNER_TEMP/home"; mkdir -p "$home/extract"
           tar -C "$home/extract" -xzf "BZModdingToolbox-v$VERSION-linux.tar.gz"
           export HOME="$home"; unset XDG_DATA_HOME
-          sh "$home/extract/BZModdingToolbox/install.sh"
+          sh "$home/extract/BZModdingToolbox/install.sh" | tee "$home/first.txt"
+          grep -q "^Installed the Battlezone Modding Toolbox $VERSION " "$home/first.txt"
+          # running it again finds the installed copy
+          sh "$home/extract/BZModdingToolbox/install.sh" | tee "$home/second.txt"
+          grep -q "^Reinstalled the Battlezone Modding Toolbox $VERSION " "$home/second.txt"
+          rm "$home/first.txt" "$home/second.txt"
           desktop="$home/.local/share/applications/io.github.grizzlyone95.bzmoddingtoolbox.desktop"
           desktop-file-validate "$desktop" 2>/dev/null || true
           grep -q "^Exec=\"$home/.local/share/BZModdingToolbox/BZModdingToolbox\" gui$" "$desktop"
