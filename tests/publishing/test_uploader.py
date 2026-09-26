@@ -304,16 +304,81 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertEqual(calls[0].kwargs["params"]["numperpage"], 100)
 
 
-    def test_workshop_backend_fetches_details_from_remote_storage_endpoint(self):
+    def test_workshop_backend_fetches_details_from_published_file_service(self):
         response = MagicMock()
-        response.json.return_value = {"response": {"publishedfiledetails": [{"publishedfileid": "123"}]}}
-        self.uploader.workshop_backend.steam_service.request_with_retry = MagicMock(return_value=response)
+        response.json.return_value = {"response": {"publishedfiledetails": [
+            {"publishedfileid": "123", "result": 1, "title": "Steam Title", "file_description": "From Steam"}]}}
+        request = MagicMock(return_value=response)
+        self.uploader.workshop_backend.steam_service.request_with_retry = request
 
         details = self.uploader.workshop_backend.fetch_workshop_item_details("key", "123")
 
-        self.assertEqual(details["publishedfileid"], "123")
-        args = self.uploader.workshop_backend.steam_service.request_with_retry.call_args.args
-        self.assertIn("ISteamRemoteStorage/GetPublishedFileDetails", args[1])
+        self.assertEqual(details["title"], "Steam Title")
+        self.assertEqual(details["description"], "From Steam")
+        self.assertEqual(request.call_count, 1)
+        self.assertIn("IPublishedFileService/GetDetails", request.call_args.args[1])
+
+    def test_workshop_backend_falls_back_to_remote_storage_endpoint(self):
+        missing = MagicMock()
+        missing.json.return_value = {"response": {"publishedfiledetails": [{"publishedfileid": "123", "result": 9}]}}
+        legacy = MagicMock()
+        legacy.json.return_value = {"response": {"publishedfiledetails": [
+            {"publishedfileid": "123", "title": "Old", "description": "Legacy"}]}}
+        request = MagicMock(side_effect=[missing, legacy])
+        self.uploader.workshop_backend.steam_service.request_with_retry = request
+
+        details = self.uploader.workshop_backend.fetch_workshop_item_details("key", "123")
+
+        self.assertEqual(details["description"], "Legacy")
+        self.assertIn("ISteamRemoteStorage/GetPublishedFileDetails", request.call_args.args[1])
+
+    def _sync_setup(self, details, project=None):
+        self.uploader.root.after = lambda _delay, fn: fn()
+        self.uploader.item_id_var = DummyVar("123")
+        self.uploader.title_var = DummyVar("Local Title")
+        self.uploader.visibility_var = DummyVar("0 (Public)")
+        self.uploader.tags_var = DummyVar("OldTag")
+        self.uploader.preview_path = DummyVar("")
+        self.uploader.temp_dir = self.test_dir
+        self.uploader.current_project_data = dict(project or {})
+        self.uploader._set_desc_text_value = MagicMock()
+        self.uploader.save_current_project_state = MagicMock()
+        backend = MagicMock()
+        backend.fetch_workshop_item_details.return_value = details
+        backend.download_preview_bytes.return_value = b"\x89PNG fake"
+        self.uploader._get_workshop_backend = MagicMock(return_value=backend)
+        return backend
+
+    def test_sync_from_steam_replaces_editor_fields(self):
+        self._sync_setup({"title": "Edited On Steam", "description": "New text", "visibility": 3,
+                          "tags": [], "time_updated": 200, "preview_url": "https://img/1"})
+
+        self.uploader._sync_from_steam_worker("123", "key")
+
+        self.assertEqual(self.uploader.title_var.get(), "Edited On Steam")
+        self.uploader._set_desc_text_value.assert_called_once_with("New text")
+        self.assertEqual(self.uploader.visibility_var.get(), "3 (Unlisted)")
+        self.assertEqual(self.uploader.tags_var.get(), "")   # tags removed on Steam are removed here
+        self.assertEqual(self.uploader.preview_path.get(), os.path.join(self.test_dir, "123.png"))
+        self.assertEqual(self.uploader.current_project_data["steam_time_updated"], "200")
+        self.uploader.save_current_project_state.assert_called_once_with(quiet=True)
+
+    def test_reopening_a_profile_keeps_local_edits_when_steam_is_unchanged(self):
+        self._sync_setup({"title": "Steam", "time_updated": 200}, project={"steam_time_updated": "200"})
+
+        self.uploader._sync_from_steam_worker("123", "key", only_if_newer=True, project={"steam_time_updated": "200"})
+
+        self.assertEqual(self.uploader.title_var.get(), "Local Title")
+
+    def test_sync_result_is_dropped_after_switching_items(self):
+        self._sync_setup({"title": "Steam", "time_updated": 200})
+        self.uploader.root.after = MagicMock()
+
+        self.uploader._sync_from_steam_worker("123", "key")
+        self.uploader.item_id_var.set("456")
+        self.uploader.root.after.call_args.args[1]()
+
+        self.assertEqual(self.uploader.title_var.get(), "Local Title")
 
     def test_workshop_backend_builds_login_test_command(self):
         cmd = self.uploader.workshop_backend.build_steamcmd_login_test_command(
