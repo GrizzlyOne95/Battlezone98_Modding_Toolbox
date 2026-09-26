@@ -24,6 +24,7 @@ class ProjectPage(ScrollableFrame):
         self.vars = {key: tk.StringVar() for key, _ in FIELDS}
         self.game_var = tk.StringVar()
         self._summary_job = None
+        self._loaded: dict = {}      # what the form showed when filled, to tell user edits apart
 
         self.empty = ttk.Frame(self.body, style="Toolbox.TFrame", padding=20)
         ttk.Label(self.empty, text="No project is open.", style="Toolbox.Heading.TLabel").pack(anchor="w")
@@ -97,28 +98,51 @@ class ProjectPage(ScrollableFrame):
         self.empty.pack_forget()
         self.content.pack(fill="both", expand=True)
         self.path_label.configure(text=project.mod_path)
+        self._fill_form(project)
+        self.saved_label.configure(text="")
+        self._refresh_summary(project)
+
+    def _form_values(self) -> dict:
+        values = {key: self.vars[key].get().strip() for key, _ in FIELDS}
+        values["game"] = self.game_var.get()
+        values["description"] = self.description.get("1.0", "end").strip()
+        return values
+
+    def _fill_form(self, project) -> None:
         self.game_var.set(project.game_name)
         for key, _ in FIELDS:
             self.vars[key].set(getattr(project, key) or "")
         self.description.delete("1.0", "end")
         self.description.insert("1.0", project.description or "")
-        self.saved_label.configure(text="")
-        self._refresh_summary(project)
+        self._loaded = self._form_values()
+
+    def project_reloaded(self, project) -> None:
+        """Another module (Publish) saved newer values; show them unless the user is editing here."""
+        if self._loaded and self._form_values() != self._loaded:
+            return
+        self._fill_form(project)
 
     def on_show(self) -> None:
         if self.shell.project:
             # Pick up edits other modules made to the shared profile.
             self.shell.project = self.shell.projects.reload(self.shell.project)
-            self.project_changed(self.shell.project)
+            self.project_reloaded(self.shell.project)
+            self._refresh_summary(self.shell.project)
 
     def save(self) -> None:
         project = self.shell.project
         if project is None:
             return
+        # Only what was edited here: a field left alone keeps whatever another
+        # module (Publish, Steam sync) saved since the form was filled.
+        values = self._form_values()
         for key, _ in FIELDS:
-            setattr(project, key, self.vars[key].get().strip())
-        project.game = next((k for k, v in GAMES.items() if v == self.game_var.get()), project.game)
-        project.description = self.description.get("1.0", "end").strip()
+            if values[key] != self._loaded.get(key):
+                setattr(project, key, values[key])
+        if values["game"] != self._loaded.get("game"):
+            project.game = next((k for k, v in GAMES.items() if v == values["game"]), project.game)
+        if values["description"] != self._loaded.get("description"):
+            project.description = values["description"]
         self.shell.save_project()
         self.shell.set_project(project)
         self.saved_label.configure(text="Saved.")

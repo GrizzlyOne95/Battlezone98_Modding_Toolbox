@@ -358,6 +358,26 @@ class WorkshopBackend:
         return details
 
     @staticmethod
+    def preview_matches(details, preview_path):
+        """True when Steam's current preview is ``preview_path``, byte for byte.
+
+        A Workshop preview URL ends in the SHA-1 of the image Steam stores.
+        None when that cannot be told (no URL, unreadable file).
+        """
+        import hashlib
+
+        url = (details or {}).get("preview_url") or ""
+        steam_hash = url.rstrip("/").rsplit("/", 1)[-1].lower()
+        if len(steam_hash) != 40:
+            return None
+        try:
+            with open(preview_path, "rb") as f:
+                local_hash = hashlib.sha1(f.read()).hexdigest()
+        except OSError:
+            return None
+        return steam_hash == local_hash
+
+    @staticmethod
     def _details_found(details):
         if not details or not details.get("title"):
             return False

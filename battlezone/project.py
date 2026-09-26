@@ -35,6 +35,13 @@ FILE_KINDS = {
 }
 
 
+# Profile fields a module may edit. Saving writes only the ones this Project
+# object changed since it was loaded: another module (Publish autosaves the
+# same profile) may have written newer values for the rest.
+_MERGED_FIELDS = ("title", "game", "description", "item_id", "preview_path", "tags", "visibility",
+                  "change_note", "author", "notes", "modules")
+
+
 @dataclass
 class Project:
     mod_path: str
@@ -86,7 +93,21 @@ class Project:
         extra = {k: v for k, v in data.items() if k not in known}
         project = cls(**kwargs)
         project.extra = extra
+        project.mark_clean()
         return project
+
+    def mark_clean(self) -> None:
+        """Remember the current field values as the ones on disk."""
+        self._baseline = {name: json.loads(json.dumps(getattr(self, name))) for name in _MERGED_FIELDS}
+
+    def merge_newer(self, on_disk: dict) -> None:
+        """Adopt values another writer saved for fields this object has not changed."""
+        baseline = getattr(self, "_baseline", None)
+        if not baseline or not isinstance(on_disk, dict):
+            return
+        for name in _MERGED_FIELDS:
+            if name in on_disk and getattr(self, name) == baseline.get(name) and on_disk[name] != baseline.get(name):
+                setattr(self, name, on_disk[name])
 
     def summarize(self) -> "ProjectSummary":
         return summarize_folder(self.root)
@@ -251,10 +272,12 @@ class ProjectStore:
             on_disk = {}
         if isinstance(on_disk, dict):
             project.extra.update({k: v for k, v in on_disk.items() if k not in known})
+            project.merge_newer(on_disk)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(project.to_profile(), indent=2), encoding="utf-8")
         os.replace(tmp, path)
+        project.mark_clean()
         return path
 
     def reload(self, project: Project) -> Project:

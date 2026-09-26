@@ -48,6 +48,34 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual(data["last_upload_signature"], "abc")
         self.assertEqual((data["title"], data["author"]), ("Title", "me"))
 
+    def test_a_stale_copy_never_overwrites_fields_another_module_saved(self):
+        project = self.store.open(self.mod)
+        # Publish links the folder and syncs the item from Steam behind this copy's back.
+        path = Path(project.profile_path)
+        data = json.loads(path.read_text())
+        data.update(item_id="3808504480", title="Unique CRA Pilot", tags="CRA,Pilot")
+        path.write_text(json.dumps(data))
+
+        project.author = "me"            # the only field this copy changed
+        self.store.save(project)
+
+        data = json.loads(path.read_text())
+        self.assertEqual((data["item_id"], data["title"], data["tags"]), ("3808504480", "Unique CRA Pilot", "CRA,Pilot"))
+        self.assertEqual(data["author"], "me")
+        self.assertEqual(project.item_id, "3808504480")   # the copy now shows what is on disk
+
+    def test_a_field_this_copy_changed_is_written_even_if_disk_changed_too(self):
+        project = self.store.open(self.mod)
+        path = Path(project.profile_path)
+        data = json.loads(path.read_text())
+        data["title"] = "From Steam"
+        path.write_text(json.dumps(data))
+
+        project.title = "Typed here"
+        self.store.save(project)
+
+        self.assertEqual(json.loads(path.read_text())["title"], "Typed here")
+
     def test_import_workshop_profile(self):
         profile = Path(self._tmp.name) / "old.json"
         profile.write_text(json.dumps({"mod_path": str(self.mod), "title": "Imported", "item_id": "123",
