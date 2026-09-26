@@ -20,6 +20,7 @@ class UploadPreflight:
         use_cached_creds,
         title_limit,
         description_limit,
+        is_update=False,
     ):
         if len(title) > title_limit:
             return ("Title Too Long", f"Your title is {len(title)} characters long. The maximum is {title_limit}.")
@@ -30,12 +31,17 @@ class UploadPreflight:
                 "Description Too Long",
                 f"Your description is {len(description)} characters long. The maximum is {description_limit}.",
             )
-        if not all([steamcmd_path, content_path, preview_path]):
-            return ("Error", "Missing required fields (SteamCMD, Content Folder, Preview Image).")
+        if not all([steamcmd_path, content_path]):
+            return ("Error", "Missing required fields (SteamCMD, Content Folder).")
+        # an update without a preview keeps the image already on Steam
+        if not preview_path and not is_update:
+            return ("Error", "A new Workshop item needs a Preview Image.")
         if not use_cached_creds and not username.strip():
             return ("Error", "Steam Username is required unless 'USE CACHED CREDENTIALS' is enabled.")
         if not os.path.exists(steamcmd_path):
             return ("Error", "SteamCMD executable not found.")
+        if preview_path and not os.path.isfile(preview_path):
+            return ("Error", f"Preview image not found:\n{preview_path}")
         return None
 
     def build_safety_rows(self, issues, mod_dir):
