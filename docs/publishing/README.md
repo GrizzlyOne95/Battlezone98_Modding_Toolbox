@@ -109,7 +109,7 @@ Then use the workspace like this:
 - The review lists what an update would change on Steam (title, visibility) from the loaded library
 - The preview is uploaded under a name derived from its content: Steam ignores a new preview that has the same file name as the last one, so this makes changed images update without renaming the file
 - Expandable Steam/upload diagnostics rather than an always-visible raw log
-- Experimental Workshop tag updates after successful publish
+- Workshop tags are set after a successful publish through Steamworks and your own Steam login (SteamCMD cannot set tags, and the Steam Web API only accepts tag changes from the game's publisher)
 
 ### Analysis
 
@@ -136,13 +136,15 @@ pip install -r requirements.txt
 - `mod_scanner.py`: content scanning and validation
 - `workshop_backend.py`: SteamCMD and Workshop API interactions
 - `upload_preflight.py`: upload validation and VDF writing
+- `steamworks_tags.py` / `steam_tags_helper.ps1`: Workshop tag updates through Steamworks
 - `profiles/`: saved local upload-profile state
 
 ## Notes
 
 - The app is primarily intended for Windows-based Battlezone modding workflows.
 - Steam Web API features require an API key from `https://steamcommunity.com/dev/apikey`.
-- Native tag submission remains experimental and may depend on Steam-side account state.
+- Tags are set through the game's own `steam_api.dll`. The toolbox is 64-bit and that DLL is 32-bit, so the update runs in the 32-bit Windows PowerShell (`steam_tags_helper.ps1`); a `steam_api64.dll` in the toolbox data folder, or the folder named by `BZ_STEAM_API_DIR`, is used in-process instead. Steam must be running and signed in to an account that owns Battlezone 98 Redux.
+- Steam applies preview changes only from the app that created the item. Items made with the official **Battlezone 98 Redux - Uploader Tool** were created by that tool (app 450970), so SteamCMD, which runs as the game, reports their preview upload as OK while Steam keeps the old image. After a publish the toolbox compares Steam's preview hash with the uploaded file and, if they differ, sets the preview through Steamworks as the item's creator app (tags too).
 
 ## License
 

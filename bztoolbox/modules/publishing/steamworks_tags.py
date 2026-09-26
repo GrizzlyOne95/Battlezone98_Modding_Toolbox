@@ -1,6 +1,63 @@
+import base64
 import ctypes
+import glob
+import json
 import os
+import re
+import struct
+import subprocess
 import time
+
+# The DLL has to match this process: 64-bit Python can only load
+# steam_api64.dll, and Battlezone 98 Redux ships just the 32-bit steam_api.dll.
+IS_64BIT = struct.calcsize("P") == 8
+STEAM_API_DLL = "steam_api64.dll" if IS_64BIT else "steam_api.dll"
+
+# Runs the 32-bit tag update for a 64-bit toolbox (see steam_tags_helper.ps1).
+HELPER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steam_tags_helper.ps1")
+UPLOADER_TOOL_FOLDER = "Battlezone 98 Redux - Uploader Tool"
+
+
+def _powershell_32():
+    """The 32-bit Windows PowerShell of a 64-bit Windows, or None."""
+    windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or r"C:\Windows"
+    path = os.path.join(windir, "SysWOW64", "WindowsPowerShell", "v1.0", "powershell.exe")
+    return path if os.path.exists(path) else None
+
+
+def steam_client_running():
+    """False when the Steam client is known not to be running and signed in, else True."""
+    if os.name != "nt":
+        return True
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as key:
+            user, _ = winreg.QueryValueEx(key, "ActiveUser")
+        return bool(user)
+    except OSError:
+        return True   # cannot tell: let SteamAPI_Init decide
+
+
+def embedded_interface_version(dll_path, prefix, default=None):
+    """The ``<prefix>NNN`` interface version compiled against ``dll_path``.
+
+    The flat API calls methods through the vtable of the SDK the DLL was
+    built from, so the interface must be requested at exactly that version.
+    Old SDKs compiled the ISteamUGC version into the game, not the DLL, so
+    executables beside it are searched too.
+    """
+    pattern = re.compile(re.escape(prefix.encode("ascii")) + rb"(\d{3})")
+    folder = os.path.dirname(dll_path)
+    for path in [dll_path] + sorted(glob.glob(os.path.join(folder, "*.exe"))):
+        try:
+            with open(path, "rb") as f:
+                versions = sorted(set(pattern.findall(f.read())))
+        except OSError:
+            continue
+        if versions:
+            return prefix + versions[-1].decode("ascii")
+    return default
 
 
 class SteamParamStringArray(ctypes.Structure):
@@ -25,6 +82,10 @@ class SteamworksTagUpdater:
     STEAM_CLIENT_VERSION = b"SteamClient017"
     STEAM_UTILS_VERSION = b"SteamUtils008"
     STEAM_UGC_VERSIONS = [f"STEAMUGC_INTERFACE_VERSION{i:03d}".encode("ascii") for i in range(30, 0, -1)]
+    # Flat-API accessors (SDK 1.48+); newer SDKs no longer hand ISteamUGC out
+    # through ISteamClient version strings.
+    UGC_ACCESSORS = [f"SteamAPI_SteamUGC_v{i:03d}" for i in range(30, 13, -1)]
+    UTILS_ACCESSORS = [f"SteamAPI_SteamUtils_v{i:03d}" for i in range(20, 8, -1)]
 
     def __init__(self, logger=None):
         self.logger = logger
@@ -43,29 +104,51 @@ class SteamworksTagUpdater:
             f.write(str(appid).strip() + "\n")
         return path
 
-    def find_steam_api_path(self, base_dir=None):
-        candidates = []
+    def _candidate_dirs(self, base_dir=None):
+        dirs = []
+        explicit = os.environ.get("BZ_STEAM_API_DIR", "").strip()
+        if explicit:
+            dirs.append(explicit)
         if base_dir:
-            candidates.append(os.path.join(base_dir, "steam_api.dll"))
+            dirs.append(base_dir)
+        dirs.append(os.path.dirname(os.path.abspath(__file__)))
 
-        for env_var in ("BZR_GAME_DIR",):
-            value = os.environ.get(env_var, "").strip()
-            if value:
-                candidates.append(os.path.join(value, "steam_api.dll"))
+        game_dir = os.environ.get("BZR_GAME_DIR", "").strip()
+        if game_dir:
+            dirs.append(game_dir)
+        try:
+            from bztoolbox.settings import Settings
+
+            configured = str(Settings().get("game_dir", "") or "").strip()   # Settings › Game folder
+            if configured:
+                dirs.append(configured)
+        except Exception:
+            pass
+        try:
+            from bztoolbox import external
+
+            for install in external.detect_game_installs():
+                dirs.append(str(install))
+                # The official uploader tool ships the same steam_api.dll.
+                dirs.append(os.path.join(os.path.dirname(str(install)), UPLOADER_TOOL_FOLDER))
+        except Exception:
+            pass
 
         user_profile = os.environ.get("USERPROFILE", "")
         if user_profile:
-            candidates.append(os.path.join(user_profile, "Documents", "Battlezone 98 Redux", "steam_api.dll"))
+            dirs.append(os.path.join(user_profile, "Documents", "Battlezone 98 Redux"))
 
         program_files_x86 = os.environ.get("PROGRAMFILES(X86)", "")
         if program_files_x86:
-            candidates.append(os.path.join(program_files_x86, "Steam", "steamapps", "common", "Battlezone 98 Redux", "steam_api.dll"))
+            dirs.append(os.path.join(program_files_x86, "Steam", "steamapps", "common", "Battlezone 98 Redux"))
 
-        candidates.append(os.path.join("C:\\steamcmd", "steamapps", "content", "app_450970", "depot_450971", "steam_api.dll"))
+        dirs.append(os.path.join("C:\\steamcmd", "steamapps", "content", "app_450970", "depot_450971"))
+        return dirs
 
+    def find_steam_api_path(self, base_dir=None):
         seen = set()
-        for path in candidates:
-            norm = os.path.normpath(path)
+        for directory in self._candidate_dirs(base_dir):
+            norm = os.path.normpath(os.path.join(directory, STEAM_API_DLL))
             if norm in seen:
                 continue
             seen.add(norm)
@@ -73,8 +156,104 @@ class SteamworksTagUpdater:
                 return norm
         return None
 
+    def find_32bit_steam_api_path(self, base_dir=None):
+        """The game's 32-bit steam_api.dll, which a 64-bit toolbox drives through the helper."""
+        if not IS_64BIT:
+            return None
+        for directory in self._candidate_dirs(base_dir):
+            path = os.path.join(directory, "steam_api.dll")
+            if os.path.exists(path):
+                return os.path.normpath(path)
+        return None
+
+    def _update_tags_via_helper(self, dll_path, appid, publishedfileid, tags, change_note, timeout_seconds,
+                                preview_path=None, init_app_id=None):
+        powershell = _powershell_32()
+        if not powershell:
+            raise RuntimeError("32-bit Windows PowerShell (SysWOW64) was not found.")
+        if not os.path.exists(HELPER_SCRIPT):
+            raise FileNotFoundError(f"Tag helper script is missing: {HELPER_SCRIPT}")
+
+        ugc_version = embedded_interface_version(dll_path, "STEAMUGC_INTERFACE_VERSION")
+        if not ugc_version:
+            raise RuntimeError(f"Could not tell which ISteamUGC version {dll_path} was built for.")
+        utils_version = embedded_interface_version(dll_path, "SteamUtils", default="SteamUtils008")
+
+        def b64(text):
+            return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+        cmd = [
+            powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", HELPER_SCRIPT,
+            "-DllPath", dll_path,
+            "-AppId", str(appid),
+            "-InitAppId", str(init_app_id or appid),
+            "-ItemId", str(publishedfileid),
+            "-UgcVersion", ugc_version,
+            "-UtilsVersion", utils_version,
+            "-TimeoutSeconds", str(int(timeout_seconds)),
+        ]
+        # Only non-empty values: Windows PowerShell's -File drops an empty
+        # argument, and the flag before it would then swallow the next flag.
+        if tags:
+            cmd += ["-TagsB64", b64("\n".join(tags))]
+        if change_note:
+            cmd += ["-NoteB64", b64(change_note)]
+        if preview_path:
+            cmd += ["-PreviewB64", b64(os.path.abspath(preview_path))]
+        env = dict(os.environ, SteamAppId=str(init_app_id or appid), SteamGameId=str(init_app_id or appid))
+
+        self.log(f"Attempting Steamworks item update via 32-bit helper and {dll_path} ({ugc_version})")
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds + 60,   # PowerShell start-up and the C# compile
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        payload = None
+        for line in reversed(completed.stdout.splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    payload = json.loads(line)
+                    break
+                except ValueError:
+                    continue
+        if payload is None:
+            detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+            raise RuntimeError(
+                f"Tag helper exited with code {completed.returncode}"
+                + (f": {detail[-1]}" if detail else "")
+            )
+        if not payload.get("ok"):
+            raise RuntimeError(payload.get("error") or "Tag helper reported a failure.")
+        return {
+            "publishedfileid": str(payload.get("publishedfileid") or publishedfileid),
+            "needs_legal_agreement": bool(payload.get("needs_legal_agreement")),
+            "method": "steamworks",
+            "dll_path": dll_path,
+            "ugc_version": ugc_version,
+            "via": "32-bit helper",
+        }
+
     def _configure_exports(self, dll):
-        dll.SteamAPI_Init.restype = ctypes.c_bool
+        # SDK 1.58+ dropped SteamAPI_Init for SteamAPI_InitFlat /
+        # SteamInternal_SteamAPI_Init, so each init entry point is optional.
+        if hasattr(dll, "SteamAPI_InitFlat"):
+            dll.SteamAPI_InitFlat.argtypes = [ctypes.c_char_p]
+            dll.SteamAPI_InitFlat.restype = ctypes.c_int
+        if hasattr(dll, "SteamAPI_Init"):
+            dll.SteamAPI_Init.restype = ctypes.c_bool
+        if hasattr(dll, "SteamInternal_SteamAPI_Init"):
+            dll.SteamInternal_SteamAPI_Init.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+            dll.SteamInternal_SteamAPI_Init.restype = ctypes.c_int
+        for name in self.UGC_ACCESSORS + self.UTILS_ACCESSORS:
+            if hasattr(dll, name):
+                getattr(dll, name).restype = ctypes.c_void_p
         dll.SteamAPI_Shutdown.restype = None
         dll.SteamAPI_RunCallbacks.restype = None
         dll.SteamAPI_GetHSteamUser.restype = ctypes.c_int
@@ -110,6 +289,13 @@ class SteamworksTagUpdater:
         ]
         dll.SteamAPI_ISteamUGC_SetItemTags.restype = ctypes.c_bool
 
+        dll.SteamAPI_ISteamUGC_SetItemPreview.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+            ctypes.c_char_p,
+        ]
+        dll.SteamAPI_ISteamUGC_SetItemPreview.restype = ctypes.c_bool
+
         dll.SteamAPI_ISteamUGC_SubmitItemUpdate.argtypes = [
             ctypes.c_void_p,
             ctypes.c_uint64,
@@ -142,14 +328,50 @@ class SteamworksTagUpdater:
         else:
             dll_cookie = None
         try:
-            dll = ctypes.WinDLL(dll_path)
+            # The flat API is cdecl; only 32-bit Python tells cdecl from stdcall.
+            dll = ctypes.CDLL(dll_path)
         finally:
             if dll_cookie is not None:
                 dll_cookie.close()
         self._configure_exports(dll)
         return dll
 
-    def _get_ugc_interface(self, dll, client, h_user, h_pipe):
+    def _init_steam_api(self, dll):
+        """Start the Steam API with whichever entry point this DLL exports; raises on failure."""
+        err = ctypes.create_string_buffer(1024)
+        if hasattr(dll, "SteamAPI_InitFlat"):
+            result = dll.SteamAPI_InitFlat(err)
+            ok = result == 0
+        elif hasattr(dll, "SteamAPI_Init"):
+            ok = bool(dll.SteamAPI_Init())
+        elif hasattr(dll, "SteamInternal_SteamAPI_Init"):
+            ok = dll.SteamInternal_SteamAPI_Init(b"\0", err) == 0
+        else:
+            raise RuntimeError("This steam_api DLL exports no known SteamAPI init function.")
+        if not ok:
+            detail = err.value.decode("utf-8", "replace").strip()
+            raise RuntimeError(
+                "SteamAPI init failed"
+                + (f": {detail}" if detail else "")
+                + ". Make sure Steam is running and signed in to an account that owns Battlezone 98 Redux."
+            )
+
+    def _get_accessor_interface(self, dll, names):
+        for name in names:
+            if hasattr(dll, name):
+                interface = getattr(dll, name)()
+                if interface:
+                    return interface, name
+        return None, None
+
+    def _get_ugc_interface(self, dll, client, h_user, h_pipe, dll_path=None):
+        ugc, name = self._get_accessor_interface(dll, self.UGC_ACCESSORS)
+        if ugc:
+            return ugc, name
+        built_for = embedded_interface_version(dll_path, "STEAMUGC_INTERFACE_VERSION") if dll_path else None
+        if built_for:
+            ugc = dll.SteamAPI_ISteamClient_GetISteamUGC(client, h_user, h_pipe, built_for.encode("ascii"))
+            return (ugc, built_for) if ugc else (None, None)
         for version in self.STEAM_UGC_VERSIONS:
             ugc = dll.SteamAPI_ISteamClient_GetISteamUGC(client, h_user, h_pipe, version)
             if ugc:
@@ -201,17 +423,60 @@ class SteamworksTagUpdater:
         base_dir=None,
         timeout_seconds=20.0,
         create_appid_file=False,
+        init_app_id=None,
     ):
-        if os.name != "nt":
-            raise RuntimeError("Steamworks tag update is only supported on Windows.")
-
         clean_tags = [tag.strip() for tag in tags if str(tag).strip()]
         if not clean_tags:
             raise ValueError("No tags were provided.")
+        return self.try_update_item(
+            appid, publishedfileid, tags=clean_tags, change_note=change_note, dll_path=dll_path,
+            base_dir=base_dir, timeout_seconds=timeout_seconds, create_appid_file=create_appid_file,
+            init_app_id=init_app_id)
+
+    def try_update_item(
+        self,
+        appid,
+        publishedfileid,
+        tags=None,
+        preview_path=None,
+        change_note="",
+        dll_path=None,
+        base_dir=None,
+        timeout_seconds=20.0,
+        create_appid_file=False,
+        init_app_id=None,
+    ):
+        """Set an item's tags and/or preview image through Steamworks, as the signed-in Steam user.
+
+        ``appid`` is the game the item belongs to (its consumer app).
+        ``init_app_id`` is the app Steamworks runs as: pass the item's
+        creator app. Steam silently ignores a preview change sent as any other
+        app, and items made with the official Battlezone 98 Redux Uploader
+        Tool were created by that tool (450970), not the game.
+        """
+        if os.name != "nt":
+            raise RuntimeError("Steamworks item updates are only supported on Windows.")
+
+        clean_tags = [tag.strip() for tag in (tags or []) if str(tag).strip()]
+        if preview_path and not os.path.isfile(preview_path):
+            raise FileNotFoundError(f"Preview image not found: {preview_path}")
+        if not clean_tags and not preview_path:
+            raise ValueError("Nothing to update: no tags and no preview image.")
+        if not steam_client_running():
+            raise RuntimeError("Steam is not running or not signed in. Start Steam, then try again.")
 
         target_dll = dll_path or self.find_steam_api_path(base_dir=base_dir)
         if not target_dll:
-            raise FileNotFoundError("steam_api.dll was not found in known Battlezone locations.")
+            # A 64-bit toolbox cannot load the game's 32-bit steam_api.dll,
+            # so a 32-bit PowerShell drives it instead.
+            game_dll = self.find_32bit_steam_api_path(base_dir=base_dir)
+            if game_dll:
+                return self._update_tags_via_helper(
+                    game_dll, appid, publishedfileid, clean_tags, change_note, timeout_seconds,
+                    preview_path=preview_path, init_app_id=init_app_id)
+            raise FileNotFoundError(
+                f"Neither {STEAM_API_DLL} nor the game's steam_api.dll was found in known Battlezone locations."
+            )
 
         created_appid_path = None
         if create_appid_file:
@@ -219,11 +484,16 @@ class SteamworksTagUpdater:
             if created_appid_path:
                 self.log(f"Created temporary steam_appid.txt for native Steamworks tags: {created_appid_path}")
 
-        self.log(f"Attempting Steamworks tag update via {target_dll}")
-        dll = self._load_dll(target_dll)
+        self.log(f"Attempting Steamworks item update via {target_dll}")
+        # Outside a Steam launch the API reads the AppID from SteamAppId (or a
+        # steam_appid.txt in the working directory, which is rarely ours).
+        saved_env = {key: os.environ.get(key) for key in ("SteamAppId", "SteamGameId")}
+        os.environ["SteamAppId"] = str(init_app_id or appid)
+        os.environ["SteamGameId"] = str(init_app_id or appid)
+        dll = None
         try:
-            if not dll.SteamAPI_Init():
-                raise RuntimeError("SteamAPI_Init failed. Make sure Steam is running and the game AppID is available.")
+            dll = self._load_dll(target_dll)
+            self._init_steam_api(dll)
 
             h_user = dll.SteamAPI_GetHSteamUser()
             h_pipe = dll.SteamAPI_GetHSteamPipe()
@@ -231,11 +501,14 @@ class SteamworksTagUpdater:
             if not client or not h_user or not h_pipe:
                 raise RuntimeError("Steamworks client handles were not available after SteamAPI_Init.")
 
-            ugc, ugc_version = self._get_ugc_interface(dll, client, h_user, h_pipe)
+            ugc, ugc_version = self._get_ugc_interface(dll, client, h_user, h_pipe, dll_path=target_dll)
             if not ugc:
                 raise RuntimeError("Failed to acquire ISteamUGC interface.")
 
-            steam_utils = dll.SteamAPI_ISteamClient_GetISteamUtils(client, h_pipe, self.STEAM_UTILS_VERSION)
+            steam_utils, _name = self._get_accessor_interface(dll, self.UTILS_ACCESSORS)
+            if not steam_utils:
+                utils_version = embedded_interface_version(target_dll, "SteamUtils", default="SteamUtils008")
+                steam_utils = dll.SteamAPI_ISteamClient_GetISteamUtils(client, h_pipe, utils_version.encode("ascii"))
             if not steam_utils:
                 raise RuntimeError("Failed to acquire ISteamUtils interface.")
 
@@ -243,12 +516,17 @@ class SteamworksTagUpdater:
             if not update_handle:
                 raise RuntimeError("Steamworks StartItemUpdate returned an invalid handle.")
 
-            encoded_tags = [tag.encode("utf-8") for tag in clean_tags]
-            tag_array = (ctypes.c_char_p * len(encoded_tags))(*encoded_tags)
-            steam_tags = SteamParamStringArray(strings=tag_array, num_strings=len(encoded_tags))
+            if clean_tags:
+                encoded_tags = [tag.encode("utf-8") for tag in clean_tags]
+                tag_array = (ctypes.c_char_p * len(encoded_tags))(*encoded_tags)
+                steam_tags = SteamParamStringArray(strings=tag_array, num_strings=len(encoded_tags))
+                if not dll.SteamAPI_ISteamUGC_SetItemTags(ugc, update_handle, ctypes.byref(steam_tags)):
+                    raise RuntimeError("Steamworks SetItemTags returned failure.")
 
-            if not dll.SteamAPI_ISteamUGC_SetItemTags(ugc, update_handle, ctypes.byref(steam_tags)):
-                raise RuntimeError("Steamworks SetItemTags returned failure.")
+            if preview_path:
+                if not dll.SteamAPI_ISteamUGC_SetItemPreview(
+                        ugc, update_handle, os.path.abspath(preview_path).encode("utf-8")):
+                    raise RuntimeError("Steamworks SetItemPreview returned failure.")
 
             submit_call = dll.SteamAPI_ISteamUGC_SubmitItemUpdate(
                 ugc,
@@ -264,10 +542,16 @@ class SteamworksTagUpdater:
             result["dll_path"] = target_dll
             return result
         finally:
-            try:
-                dll.SteamAPI_Shutdown()
-            except Exception:
-                pass
+            if dll is not None:
+                try:
+                    dll.SteamAPI_Shutdown()
+                except Exception:
+                    pass
+            for key, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
             if created_appid_path and os.path.exists(created_appid_path):
                 try:
                     os.remove(created_appid_path)

@@ -52,7 +52,7 @@ include = ["battlezone*", "bztoolbox*"]
 
 [tool.setuptools.package-data]
 "*" = ["**/*.txt", "**/*.ttf", "**/*.ico", "**/*.png", "**/*.wav", "**/*.material", "**/*.json",
-       "**/*.csv", "LICENSE", "VERSION"]
+       "**/*.csv", "**/*.ps1", "LICENSE", "VERSION"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
