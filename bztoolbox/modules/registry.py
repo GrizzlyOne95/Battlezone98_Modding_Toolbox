@@ -117,7 +117,7 @@ PAGES: Sequence[PageSpec] = (
     # --- Assets -----------------------------------------------------------
     PageSpec("assets.textures", "assets", "Textures & Images",
              "ACT palettes, texture conversion, MAP/MakeMAP, LGT, DXTBZ2 and channel packing.",
-             f"{_L}:textures", kind="legacy", package="bztoolbox.modules.textures", origin="TextureManager", keywords=("dds", "map", "act", "lgt")),
+             f"{_L}:textures", kind="legacy", package="bztoolbox.modules.textures", origin="TextureManager", keywords=("dds", "map", "act", "lgt", "pic", "softimage")),
     PageSpec("assets.fonts", "assets", "Fonts",
              "Generate bzfont.dds font sheets.",
              f"{_L}:fonts", kind="legacy", package="bztoolbox.modules.fonts", origin="Font Generator"),

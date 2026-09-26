@@ -365,6 +365,51 @@ def _cmd_pak(args) -> int:
     return 0
 
 
+def _cmd_pic(args) -> int:
+    from pathlib import Path
+
+    from PIL import Image
+
+    from battlezone.images import softpic
+
+    softpic.register()
+    target = "." + args.to.lower().lstrip(".")
+    sources = []
+    for item in args.inputs:
+        path = Path(item)
+        if path.is_dir():
+            wanted = (".pic",) if target != ".pic" else (".png", ".tga", ".bmp", ".jpg", ".dds")
+            sources += sorted(p for p in path.iterdir() if p.suffix.lower() in wanted)
+        else:
+            sources.append(path)
+    if not sources:
+        print("error: nothing to convert", file=sys.stderr)
+        return 1
+    failed = converted = 0
+    for source in sources:
+        out_dir = Path(args.output) if args.output else source.parent
+        out = out_dir / (source.stem + target)
+        if out.exists() and not args.overwrite:
+            print(f"skip {out} (exists; --overwrite to replace)")
+            continue
+        try:
+            with Image.open(source) as image:
+                image.load()
+                out_dir.mkdir(parents=True, exist_ok=True)
+                if target == ".pic":
+                    image.save(out, format="SOFTPIC")
+                else:
+                    keep_alpha = "A" in image.mode and target in (".png", ".tga")
+                    image.convert("RGBA" if keep_alpha else "RGB").save(out)
+                print(f"{source.name} -> {out} ({image.width}x{image.height} {image.mode})")
+                converted += 1
+        except (OSError, ValueError) as exc:
+            print(f"error: {source}: {exc}", file=sys.stderr)
+            failed += 1
+    print(f"converted {converted} file(s), {failed} failed")
+    return 1 if failed else 0
+
+
 def _cmd_projects(args) -> int:
     from battlezone.project import ProjectStore
     from bztoolbox import paths
@@ -480,6 +525,13 @@ def build_parser() -> argparse.ArgumentParser:
     pak_sub.choices["pack"].add_argument("inputs", nargs="+",
                                          help="files and/or folders (subfolders become groups)")
     pak_sub.choices["pack"].add_argument("--store", action="store_true", help="do not compress")
+
+    pic = sub.add_parser("pic", help="convert Battlezone II Softimage .pic textures to or from PNG/TGA/BMP")
+    pic.add_argument("inputs", nargs="+", help="files and/or folders (folders: every .pic, or every image for --to pic)")
+    pic.add_argument("--to", default="png", choices=("png", "tga", "bmp", "pic"), help="output format (default png)")
+    pic.add_argument("-o", "--output", help="output folder (default: next to each input)")
+    pic.add_argument("--overwrite", action="store_true", help="replace existing outputs")
+    pic.set_defaults(func=_cmd_pic)
     return parser
 
 
