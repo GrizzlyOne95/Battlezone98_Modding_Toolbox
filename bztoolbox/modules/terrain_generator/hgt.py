@@ -232,6 +232,70 @@ class HGTMap:
         )
 
 
+    @classmethod
+    def from_hg2(cls, hg2: HG2Map, *, flags: Optional[np.ndarray] = None,
+                 overflow: str = "error") -> "HGTMap":
+        """Legacy HGT from a Redux HG2: the inverse of :meth:`to_hg2`.
+
+        The legacy vertices are every ``2**(zone_bits - 7)``-th HG2 sample
+        (the even/even samples of a normal 256-per-zone HG2). :meth:`to_hg2`
+        reproduces those samples unchanged, so an HG2 cooked from an HGT gives
+        that HGT back exactly; the HG2 samples between legacy vertices have no
+        slot in the legacy grid (:func:`legacy_residual` measures them).
+
+        ``flags`` is the high nibble to store with each sample (e.g.
+        ``HGTMap.flags`` of the original HGT). HG2 does not carry it; 1.5
+        recomputes bits 14-15 (coplanar-cell flags) when it loads the terrain
+        (``Terrain_Create`` -> ``PrecomputeCoplanarFlags``) and masks every
+        height read with ``& 0xFFF`` (``GetTerY``/``GetTerrainHeight``), so zero
+        flags are the default.
+
+        HGT heights are 12-bit. ``overflow="error"`` refuses an HG2 that uses
+        its 13th bit; ``"clamp"`` clamps to 4095.
+        """
+        if hg2.zone_bits < LEGACY_ZONE_BITS:
+            raise HGTFormatError(f"HG2 zones of {1 << hg2.zone_bits} samples are coarser than the "
+                                 f"{LEGACY_ZONE_SIZE}-sample legacy zones")
+        step = 1 << (hg2.zone_bits - LEGACY_ZONE_BITS)
+        heights = np.asarray(hg2.heights)
+        expected = (hg2.zones_z << hg2.zone_bits, hg2.zones_x << hg2.zone_bits)
+        if heights.shape != expected:
+            raise HGTFormatError(f"HG2 height grid {heights.shape} does not match its header {expected}")
+        legacy = heights[::step, ::step].astype(np.int64)
+        if legacy.max(initial=0) > LEGACY_HEIGHT_MASK or legacy.min(initial=0) < 0:
+            if overflow != "clamp":
+                raise HGTFormatError(f"HG2 heights reach {int(legacy.max())}; legacy HGT stores 0..4095 "
+                                     f"(use overflow='clamp' to clamp)")
+            legacy = np.clip(legacy, 0, LEGACY_HEIGHT_MASK)
+        raw = legacy.astype(np.uint16)
+        if flags is not None:
+            nibble = np.asarray(flags).astype(np.uint16)
+            if nibble.shape != raw.shape:
+                raise HGTFormatError(f"flag grid {nibble.shape} does not match the legacy grid {raw.shape}")
+            raw = raw | ((nibble & 0xF) << 12)
+        return cls(np.ascontiguousarray(raw.astype(np.uint16)), hg2.zones_x, hg2.zones_z)
+
+
+def legacy_residual(hg2: HG2Map, hgt: "HGTMap", *, rounding: str = "half-up") -> dict:
+    """How much of an HG2 a legacy HGT cannot carry.
+
+    Re-cooks ``hgt`` (no smoothing) and compares it with ``hg2``: zero
+    ``differing`` means the HG2 is exactly what its legacy vertices produce,
+    i.e. HG2 -> HGT -> HG2 is lossless. Only defined for 256-per-zone HG2s.
+    """
+    if hg2.zone_bits != DEFAULT_ZONE_BITS:
+        return {"comparable": False}
+    cooked = hgt.to_hg2(rounding=rounding).heights.astype(np.int64)
+    diff = np.abs(cooked - np.asarray(hg2.heights).astype(np.int64))
+    return {
+        "comparable": True,
+        "differing": int(np.count_nonzero(diff)),
+        "samples": int(diff.size),
+        "max_difference": int(diff.max(initial=0)),
+        "max_difference_world": float(diff.max(initial=0)) * HEIGHT_UNIT_WORLD,
+    }
+
+
 # ---------------------------------------------------------------------------
 # the cook
 # ---------------------------------------------------------------------------
