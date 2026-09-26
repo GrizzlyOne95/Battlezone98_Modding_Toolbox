@@ -22,7 +22,6 @@ with patch.dict(sys.modules, _HEADLESS_STUBS):
     from bztoolbox.modules.publishing import uploader
     from bztoolbox.modules.publishing.app_file_manager import AppFileManager
     from bztoolbox.modules.publishing.content_fixes import ContentFixer
-    from bztoolbox.modules.publishing.memory_analyzer import MemoryAnalyzer
     from bztoolbox.modules.publishing.project_store import ProjectStore
     from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
     from bztoolbox.modules.publishing.steamworks_tags import SteamworksTagUpdater
@@ -183,39 +182,6 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertEqual(mat_issue[1], "Missing Asset")
         self.assertTrue("missing_tex.tga" in mat_issue[2])
 
-    def test_memory_analyzer_detects_orphans_and_textures(self):
-        analyzer = MemoryAnalyzer()
-
-        with open(os.path.join(self.test_dir, "map.ini"), "w", encoding="utf-8") as f:
-            f.write("[WORKSHOP]\nmapType=\"mod\"\n")
-        with open(os.path.join(self.test_dir, "script.odf"), "w", encoding="utf-8") as f:
-            f.write('geometryName = "used_model.xsi"\n')
-        with open(os.path.join(self.test_dir, "used_model.xsi"), "w", encoding="utf-8") as f:
-            f.write("mesh")
-        with open(os.path.join(self.test_dir, "orphan.png"), "wb") as f:
-            f.write(b"pngdata")
-
-        analysis = analyzer.analyze(self.test_dir)
-
-        self.assertEqual(analysis["counts"]["Texture"], 1)
-        self.assertIn("orphan.png", analysis["non_dds_textures"])
-        self.assertIn("orphan.png", analysis["orphans"])
-        self.assertNotIn("used_model.xsi", analysis["orphans"])
-
-    def test_memory_analyzer_report_mentions_orphans(self):
-        analyzer = MemoryAnalyzer()
-        report = analyzer.build_report({
-            "disk_mb": 1.25,
-            "vram_mb": 12.5,
-            "counts": {"Texture": 1, "Model": 2, "Audio": 0, "Script": 3, "Other": 4},
-            "non_dds_textures": ["orphan.png"],
-            "orphans": ["orphan.png", "unused.wav"],
-        })
-        self.assertIn("MEMORY ANALYSIS REPORT", report)
-        self.assertIn("non-DDS textures", report)
-        self.assertIn("ORPHANS", report)
-        self.assertIn("orphan.png", report)
-
     def test_build_upload_vdf_content_escapes_special_chars(self):
         content = self.uploader._build_upload_vdf_content(
             appid="301650",
@@ -230,6 +196,88 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertIn('\\"Quoted\\"', content)
         self.assertIn("Line1\\nLine2", content)
         self.assertIn("\\\\", content)
+
+    def test_build_upload_vdf_content_omits_blank_optional_fields(self):
+        # SteamCMD applies every key present: a blank description or preview
+        # would wipe the item's current one on Steam.
+        content = self.uploader._build_upload_vdf_content(
+            appid="301650", publishedfileid="123", contentfolder=r"C:\mods\test",
+            previewfile="", visibility="2", title="Title", description="  ", changenote="",
+        )
+        self.assertNotIn('"description"', content)
+        self.assertNotIn('"previewfile"', content)
+        self.assertNotIn('"changenote"', content)
+        self.assertIn('"title" "Title"', content)
+        self.assertIn('"visibility" "2"', content)
+
+    def test_upload_preflight_preview_required_only_for_new_items(self):
+        preflight = UploadPreflight()
+        steamcmd_path = os.path.join(self.test_dir, "steamcmd.exe")
+        with open(steamcmd_path, "w", encoding="utf-8") as f:
+            f.write("exe")
+        kwargs = dict(title="Test Mod", description="", steamcmd_path=steamcmd_path,
+                      content_path=self.test_dir, preview_path="", username="user",
+                      use_cached_creds=False, title_limit=128, description_limit=8000)
+
+        self.assertEqual(preflight.validate_inputs(**kwargs)[1], "A new Workshop item needs a Preview Image.")
+        self.assertIsNone(preflight.validate_inputs(is_update=True, **kwargs))
+        kwargs["preview_path"] = os.path.join(self.test_dir, "missing.jpg")
+        self.assertIn("Preview image not found", preflight.validate_inputs(is_update=True, **kwargs)[1])
+
+    def test_stage_preview_names_file_by_content(self):
+        self.uploader.base_dir = self.test_dir
+        preview = os.path.join(self.test_dir, "preview.jpg")
+        with open(preview, "wb") as f:
+            f.write(b"first image")
+        first = self.uploader._stage_preview_for_upload(preview)
+        self.assertEqual(first, self.uploader._stage_preview_for_upload(preview))
+
+        with open(preview, "wb") as f:
+            f.write(b"second image")
+        second = self.uploader._stage_preview_for_upload(preview)
+        self.assertNotEqual(os.path.basename(first), os.path.basename(second))
+        self.assertTrue(second.endswith(".jpg"))
+        self.assertFalse(os.path.exists(first))   # older staged copies are pruned
+        with open(second, "rb") as f:
+            self.assertEqual(f.read(), b"second image")
+
+    def test_library_sorts_by_each_column(self):
+        self.uploader.library_items = [
+            {"title": "beta", "publishedfileid": "300", "visibility_label": "Private", "updated_ts": 1, "updated_label": ""},
+            {"title": "Alpha", "publishedfileid": "20", "visibility_label": "Public", "updated_ts": 9, "updated_label": ""},
+            {"title": "gamma", "publishedfileid": "1000", "visibility_label": "Friends", "updated_ts": 5, "updated_label": ""},
+        ]
+
+        def order():
+            return [i["publishedfileid"] for i in self.uploader._sorted_library_items()]
+
+        self.assertEqual(order(), ["20", "1000", "300"])          # default: newest first
+        self.uploader.sort_library("Title")
+        self.assertEqual(order(), ["20", "300", "1000"])
+        self.uploader.sort_library("Title")
+        self.assertEqual(order(), ["1000", "300", "20"])
+        self.uploader.sort_library("ID")
+        self.assertEqual(order(), ["20", "300", "1000"])          # numeric, not text
+        self.uploader.sort_library("Visibility")
+        self.assertEqual(order(), ["1000", "300", "20"])
+
+    def test_workshop_backend_tag_names(self):
+        names = self.uploader.workshop_backend.tag_names(
+            [{"tag": "Map"}, {"display_name": "Multiplayer"}, "Map", {"tag": " "}, "Mod"])
+        self.assertEqual(names, ["Map", "Multiplayer", "Mod"])
+
+    def test_overwrite_warnings_compare_with_steam(self):
+        self.uploader.library_items = [
+            {"title": "Old", "publishedfileid": "55", "visibility_label": "Private"}]
+        self.uploader.title_var = DummyVar("New")
+        self.uploader.visibility_var = DummyVar("0 (Public)")
+        self.uploader.desc_text = MagicMock()
+        self.uploader.desc_text.get.return_value = ""
+
+        warnings = self.uploader._steam_overwrite_warnings("55")
+        self.assertTrue(any("description" in w for w in warnings))
+        self.assertTrue(any('"Old" -> "New"' in w for w in warnings))
+        self.assertTrue(any("Private -> Public" in w for w in warnings))
 
     def test_workshop_backend_builds_manual_steamcmd_command(self):
         cmd = self.uploader.workshop_backend.build_steamcmd_command(
@@ -346,6 +394,7 @@ class TestWorkshopUploader(unittest.TestCase):
         backend = MagicMock()
         backend.fetch_workshop_item_details.return_value = details
         backend.download_preview_bytes.return_value = b"\x89PNG fake"
+        backend.tag_names = uploader.WorkshopBackend.tag_names
         self.uploader._get_workshop_backend = MagicMock(return_value=backend)
         return backend
 
@@ -359,7 +408,8 @@ class TestWorkshopUploader(unittest.TestCase):
         self.uploader._set_desc_text_value.assert_called_once_with("New text")
         self.assertEqual(self.uploader.visibility_var.get(), "3 (Unlisted)")
         self.assertEqual(self.uploader.tags_var.get(), "")   # tags removed on Steam are removed here
-        self.assertEqual(self.uploader.preview_path.get(), os.path.join(self.test_dir, "123.png"))
+        self.assertEqual(self.uploader.preview_path.get(), "")   # Steam's preview is shown, not re-uploaded
+        self.assertEqual(self.uploader.library_preview_cache["123"], b"\x89PNG fake")
         self.assertEqual(self.uploader.current_project_data["steam_time_updated"], "200")
         self.uploader.save_current_project_state.assert_called_once_with(quiet=True)
 

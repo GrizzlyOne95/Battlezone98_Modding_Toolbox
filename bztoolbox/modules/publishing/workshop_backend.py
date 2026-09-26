@@ -246,6 +246,7 @@ class WorkshopBackend:
                     "appid": appid,
                     "page": page,
                     "numperpage": 100,
+                    "return_tags": True,
                 },
                 timeout=10,
             )
@@ -284,17 +285,38 @@ class WorkshopBackend:
                 visibility = int(item.get("visibility", -1))
             except Exception:
                 visibility = -1
+            try:
+                updated_ts = int(updated)
+            except Exception:
+                updated_ts = 0
             normalized.append({
                 "title": item.get("title", ""),
                 "publishedfileid": item.get("publishedfileid", ""),
                 "visibility_label": vis_map.get(visibility, "Unknown"),
                 "updated_label": updated_label,
+                "updated_ts": updated_ts,
+                "preview_url": item.get("preview_url", "") or "",
+                "tags": self.tag_names(item.get("tags")),
             })
         return steam_id, normalized, {
             "pages": page_count,
             "total": total or len(normalized),
             "next_page": page + 1 if total and len(normalized) < total else None,
         }
+
+    @staticmethod
+    def tag_names(tags):
+        """Tag strings from a Steam ``tags`` list (dicts or plain strings)."""
+        names = []
+        for tag in tags or []:
+            if isinstance(tag, dict):
+                value = tag.get("tag") or tag.get("display_name") or ""
+            else:
+                value = str(tag)
+            value = value.strip()
+            if value and value not in names:
+                names.append(value)
+        return names
 
     def fetch_workshop_item_details(self, api_key, item_id):
         """Current Steam-side metadata for one item: title, description, visibility, tags, preview.

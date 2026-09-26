@@ -12,6 +12,9 @@ in separate tools:
 * ``legacy``     - legacy ``.map`` textures left in the upload (Workshop Uploader)
 * ``odf-lint``   - list-based ODF header/field scan; particle/render sections
   (``renderBase``/``simulateBase``, or named as ``file.Section``) are accepted
+* ``models``     - legacy ``.geo``/``.vdf``/``.sdf`` and Ogre ``.mesh`` files
+  (BZ98R Blender ToolKit rules)
+* ``upload-rules`` - folder and file-name rules of the official Redux uploader
 
 Every check reports :class:`Issue` records with one shared severity scale.
 """
@@ -26,6 +29,8 @@ from typing import Callable, Iterable, Iterator, List, Optional, Sequence
 from battlezone.bzn.scan import STOCK_SET, BZNParser
 from battlezone.odf.validator import ODFIssue, parse_odf, validate_documents
 from battlezone.validation.mod_scanner import ModScanner
+from battlezone.validation.models import check_models
+from battlezone.validation.upload_rules import check_upload_rules
 
 SEVERITIES = ("error", "warning", "info")
 _SEVERITY_ORDER = {name: index for index, name in enumerate(SEVERITIES)}
@@ -242,6 +247,10 @@ CHECKS: dict[str, Check] = {check.id: check for check in (
     Check("trn", "TRN files", "Line endings and duplicate [Size] sections.", _check_trn),
     Check("legacy", "Legacy files", "Old .map textures left in the upload.", _check_legacy),
     Check("odf-lint", "ODF field lint", "Class headers, unknown and missing fields.", _check_odf_lint),
+    Check("models", "Models", "GEO/VDF/SDF parts and Ogre meshes: missing parts, materials and skeletons, "
+          "engine limits.", check_models),
+    Check("upload-rules", "Official uploader rules", "Subfolders, 8-character names, .hgt terrain and core "
+          "files the official uploader refuses.", check_upload_rules),
 )}
 
 DEFAULT_CHECKS: tuple = tuple(check.id for check in CHECKS.values() if check.default)

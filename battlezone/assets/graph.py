@@ -6,7 +6,7 @@ Nodes are the files in the project, plus referenced names that are not in it
 ======================  =====================================================
 ``ini-mission``         mission ``.ini`` ``missionName`` -> ``.bzn`` / ``.trn``
 ``bzn-odf``             objects a mission places (BZN, ASCII or binary)
-``bzn-trn``             a mission's same-named terrain
+``bzn-trn``             the terrain a mission loads (``TerrainName``)
 ``odf-odf``             weapons, ordnance, payloads, build items, ...
 ``odf-asset``           ``geometryName`` / ``cockpitName`` / ... files
 ``mesh-material``       Ogre submesh materials -> the ``.material`` defining them
@@ -24,7 +24,8 @@ Nodes are the files in the project, plus referenced names that are not in it
 Names resolve case-insensitively by file name anywhere in the project, like
 the game's resource lookup. The graph answers "what uses this" (what breaks if
 it is renamed), "what does this need", which references are not in the
-project, which files nothing references, and estimated texture memory.
+project, which files nothing references, the size on disk and estimated
+texture memory.
 """
 
 from __future__ import annotations
@@ -190,6 +191,15 @@ class AssetGraph:
         return sorted((n for n in self.nodes.values() if n.texture_bytes),
                       key=lambda n: n.texture_bytes, reverse=True)
 
+    def uncompressed_textures(self) -> List[AssetNode]:
+        """Project textures that are not DDS, heaviest first.
+
+        The game loads them as uncompressed RGBA: four to eight times the
+        memory of the same image saved as a DXT-compressed DDS.
+        """
+        return [n for n in self.textures_by_memory()
+                if n.in_project and os.path.splitext(n.name)[1].lower() != ".dds"]
+
     def mission_texture_memory(self) -> List[Tuple[AssetNode, int, int]]:
         """``(mission, bytes, texture count)`` for the project textures each mission pulls in.
 
@@ -222,6 +232,8 @@ class AssetGraph:
             "not_in_project": len(self.not_in_project()),
             "unreferenced": len(self.unreferenced()),
             "texture_bytes": sum(n.texture_bytes for n in self.nodes.values()),
+            "disk_bytes": sum(n.size for n in self.files),
+            "uncompressed_textures": len(self.uncompressed_textures()),
         }
 
     def to_dict(self) -> dict:
@@ -332,7 +344,7 @@ class _Builder:
         self.text_refs(key, text)
 
     def mission(self, key: str) -> None:
-        from battlezone.bzn.scan import STOCK_SET, BZNParser
+        from battlezone.bzn.scan import STOCK_SET, BZNParser, bzn_terrain_name
 
         try:
             names = BZNParser(str(self.full(key))).parse()
@@ -346,7 +358,11 @@ class _Builder:
                 target = self.external(filename, "odf", stock=filename.lower() in STOCK_SET)
             self.link(key, target, "bzn-odf")
         stem = os.path.splitext(os.path.basename(key))[0]
-        self.link(key, self.resolve(stem + ".trn"), "bzn-trn")
+        terrain = bzn_terrain_name(str(self.full(key))) or stem   # a mission can reuse another map's terrain
+        target = self.resolve(terrain + ".trn")
+        if target is None and terrain.lower() != stem.lower():
+            target = self.external(terrain + ".trn", "terrain")
+        self.link(key, target, "bzn-trn", "" if terrain.lower() == stem.lower() else "TerrainName")
 
     def odf(self, key: str) -> None:
         from battlezone.bzn.scan import STOCK_SET
