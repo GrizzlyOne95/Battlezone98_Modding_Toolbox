@@ -5,7 +5,8 @@ row-major, south-west origin). 0 is ambient only (25% brightness), 255 full.
 
 * Redux: ``(zones + 1) * zone_size**2`` bytes, where the first block is a
   border chunk filled with one value; 256 cells per zone side (5 m).
-* Classic/legacy: no border, 128 cells per zone side (10 m).
+* Battlezone 1.5: 128 cells per zone side (10 m), also after a border chunk
+  (stock misn05.lgt is (9 + 1) * 128**2 bytes). Older files may lack the border.
 
 Arrays are south-first (row 0 = south), the same orientation as
 :class:`battlezone.terrain.hg2.HG2Map` heights. :func:`lgt_to_image` and

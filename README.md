@@ -95,6 +95,7 @@ You can:
 - create custom and legacy texture atlases
 - auto-paint terrain using elevation and terrain rules
 - convert heightmaps, including legacy `.HGT` ↔ Redux `.HG2` (**World & Terrain › Heightmap Convert**, `bztoolbox terrain heightmap`)
+- port a Redux world or mission back to Battlezone 1.5: atlas to tile MAPs, a 1.5-safe palette with LUM/TBL/ALB, TRN, sky, HGT, LGT and BZN (**World & Terrain › Redux → 1.5 Port**, `bztoolbox terrain to-legacy`; see [docs/world/REDUX_TO_LEGACY.md](docs/world/REDUX_TO_LEGACY.md))
 - work with Battlezone sky assets
 - visualize mission terrain
 - use the evolving BZ2/BZCC terrain-port workflow where supported
