@@ -126,6 +126,10 @@ PAGES: Sequence[PageSpec] = (
              keywords=("atlas", "map", "act", "palette", "lum", "trn", "1.5", "legacy", "backport", "reverse")),
 
     # --- Assets -----------------------------------------------------------
+    PageSpec("assets.odf", "assets", "ODF Explorer",
+             "Effective value of every ODF field and where it comes from; craft and weapon stat tables.",
+             f"{_P}.odf_explorer:ODFExplorerPage",
+             keywords=("odf", "stats", "damage", "weapon", "unit", "balance", "csv", "classlabel")),
     PageSpec("assets.textures", "assets", "Textures & Images",
              "ACT palettes, texture conversion, MAP/MakeMAP, LGT, DXTBZ2 and channel packing.",
              f"{_L}:textures", kind="legacy", package="bztoolbox.modules.textures", origin="TextureManager", keywords=("dds", "map", "act", "lgt", "pic", "softimage")),

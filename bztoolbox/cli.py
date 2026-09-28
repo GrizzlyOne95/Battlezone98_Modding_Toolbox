@@ -66,6 +66,10 @@ def _argv(values: List[str]):
 DELEGATES: Sequence[Delegate] = (
     Delegate("odf", "validate", "battlezone.odf.validator:_cli_main",
              "Validate ODF files, a folder or a ZIP against Redux loader rules.", False, "BZN Toolbox"),
+    Delegate("odf", "stats", "bztoolbox.odf_explorer:stats_main",
+             "Craft and weapon stat tables (effective ODF values) of a project; CSV export.", True),
+    Delegate("odf", "show", "bztoolbox.odf_explorer:show_main",
+             "Effective fields of one ODF and where each value comes from.", True),
     Delegate("bzn", "port", "battlezone.bzn.bzcc_port:main",
              "Port a BZ2/BZCC mission onto a Redux ASCII template.", True, "BZN Toolbox"),
     Delegate("bzn", "classes", "battlezone.odf.class_labels:main",
