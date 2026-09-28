@@ -15,6 +15,10 @@ in separate tools:
 * ``models``     - legacy ``.geo``/``.vdf``/``.sdf`` and Ogre ``.mesh`` files
   (BZ98R Blender ToolKit rules)
 * ``upload-rules`` - folder and file-name rules of the official Redux uploader
+* ``lgt``, ``tiles``, ``sprites`` - terrain light maps, TRN tile coverage and sky sprites
+  (:mod:`battlezone.validation.terrain_checks`)
+* ``lua``, ``aip`` - mission scripts and AI plans
+  (:mod:`battlezone.validation.script_checks`)
 
 Every check reports :class:`Issue` records with one shared severity scale.
 """
@@ -30,6 +34,8 @@ from battlezone.bzn.scan import STOCK_SET, BZNParser
 from battlezone.odf.validator import ODFIssue, parse_odf, validate_documents
 from battlezone.validation.mod_scanner import ModScanner
 from battlezone.validation.models import check_models
+from battlezone.validation.script_checks import check_aip, check_lua
+from battlezone.validation.terrain_checks import check_lgt, check_sprites, check_tiles
 from battlezone.validation.upload_rules import check_upload_rules
 
 SEVERITIES = ("error", "warning", "info")
@@ -166,7 +172,10 @@ def _check_odf(ctx: _Context) -> Iterator[Issue]:
 
 def _from_odf_issue(ctx: _Context, odf_issue: ODFIssue, by_name: dict) -> Issue:
     matches = by_name.get(odf_issue.filename.lower(), [])
-    path = ctx.rel(matches[0]) if len(matches) == 1 else odf_issue.filename
+    source = next((m for m in matches if str(m) == odf_issue.path), None)
+    if source is None and len(matches) == 1:
+        source = matches[0]
+    path = ctx.rel(source) if source is not None else odf_issue.filename
     return Issue(
         severity=_odf_severity(odf_issue.severity),
         check="odf",
@@ -249,6 +258,14 @@ CHECKS: dict[str, Check] = {check.id: check for check in (
     Check("odf-lint", "ODF field lint", "Class headers, unknown and missing fields.", _check_odf_lint),
     Check("models", "Models", "GEO/VDF/SDF parts and Ogre meshes: missing parts, materials and skeletons, "
           "engine limits.", check_models),
+    Check("lgt", "Light maps", "LGT light maps that are missing, flat, shared between maps or baked from other "
+          "terrain.", check_lgt),
+    Check("tiles", "TRN tile coverage", "MAT cells asking for tile slots the TRN does not define (Redux: default "
+          "tile; 1.5: checkerboard).", check_tiles),
+    Check("sprites", "Sky sprites", "A TRN SunTexture that no stock or project sprite table defines.", check_sprites),
+    Check("lua", "Mission scripts", "Lua labels, paths, ODFs, AIPs and modules that the mission or project does "
+          "not have.", check_lua),
+    Check("aip", "AI plans", "AIP layout, the ODFs its rows name and the accounts it funds.", check_aip),
     Check("upload-rules", "Official uploader rules", "Subfolders, 8-character names, .hgt terrain and core "
           "files the official uploader refuses.", check_upload_rules),
 )}
