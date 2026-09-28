@@ -106,6 +106,7 @@ def compute_lgt_lightmap(
     sun_azimuth_deg: float = DEFAULT_SUN_AZIMUTH_DEG,
     sun_altitude_deg: float = DEFAULT_SUN_ALTITUDE_DEG,
     ambient: float = LGT_AMBIENT_FRACTION,
+    raw: bool = False,
 ) -> np.ndarray:
     """Compute a BZ LGT-style lighting field from HG2 heights.
 
@@ -188,6 +189,8 @@ def compute_lgt_lightmap(
         lambert_lgt = lambert.reshape(hh, factor, ww, factor).mean(axis=(1, 3))
     else:
         raise ValueError("lgt_zone_size larger than hg_zone_size not supported for preview")
+    if raw:
+        return lambert_lgt                      # 0..1 floats, for callers that apply their own mapping
 
     # Map lambert 0..1 to LGT 0..255 with ambient floor.
     # Spec: 0 = 25% ambient, 255 = 100% . So LGT value encodes brightness linearly
@@ -201,6 +204,26 @@ def compute_lgt_lightmap(
     # of zero means ambient-only, not black; lgt_to_brightness applies that
     # documented 25% floor for display/validation.
     return lgt
+
+
+# Redux's own bake, fitted to the stock LGT/HG2 pairs in bzone.zfs (misn02/05/10, misns1/4/7):
+# a sun due east 80 degrees up, no cast shadows, 256 cells per zone, and
+# value = clip(360 * lambert - 106, 56, 255) -- within 1-5 levels of every stock file
+# (misns4: 96% of cells exact). That is why stock LGTs never go below 56.
+REDUX_SUN_AZIMUTH_DEG = 90.0
+REDUX_SUN_ALTITUDE_DEG = 80.0
+REDUX_LGT_SCALE = 360.0
+REDUX_LGT_OFFSET = -106.0
+REDUX_LGT_FLOOR = 56
+
+
+def compute_redux_lgt(heights: np.ndarray, zones_x: int, zones_z: int, lgt_zone_size: int = 256) -> np.ndarray:
+    """An LGT lit the way Redux's stock maps are (see the REDUX_* constants)."""
+    lambert = compute_lgt_lightmap(heights, zones_x, zones_z, lgt_zone_size=lgt_zone_size,
+                                   sun_azimuth_deg=REDUX_SUN_AZIMUTH_DEG,
+                                   sun_altitude_deg=REDUX_SUN_ALTITUDE_DEG, raw=True).astype(np.float64)
+    value = np.rint(REDUX_LGT_SCALE * lambert + REDUX_LGT_OFFSET)
+    return np.clip(value, REDUX_LGT_FLOOR, 255).astype(np.uint8)
 
 
 def compute_lgt_for_hg2(hg2: HG2Map, lgt_zone_size: int = 128) -> np.ndarray:
