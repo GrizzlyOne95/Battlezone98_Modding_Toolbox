@@ -414,6 +414,56 @@ def _cmd_pic(args) -> int:
     return 1 if failed else 0
 
 
+def _cmd_launch(args) -> int:
+    import time
+
+    from bztoolbox import launch
+
+    installs = launch.detect_installs()
+    if args.list:
+        for install in installs:
+            print(install.label)
+            print("    options: " + ", ".join(f"{f.key} ({f.arg})" for f in install.flags))
+        return 0 if installs else 1
+    game = (args.game or "redux").lower()
+    if game in ("redux", "1.5", "steam", "gog"):
+        matches = [i for i in installs if (i.kind == game) or (game in ("steam", "gog") and i.store == game
+                                                                 and i.kind == "redux")]
+        install = matches[0] if matches else None
+    else:
+        install = launch.install_at(args.game)
+    if install is None:
+        print(f"error: no {args.game or 'redux'} install found (try --list, or pass the game folder)", file=sys.stderr)
+        return 2
+    try:
+        plan = launch.build_launch(install, args.mission or "", args.flag or [], args.extra or "",
+                                   via_steam=args.steam)
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.deploy:
+        result = launch.deploy_project(args.deploy, install, args.name)
+        print(f"deployed to {result.target}: {len(result.copied)} copied, {result.unchanged} unchanged")
+    print(plan.command_line())
+    if args.dry_run:
+        return 0
+    watch = launch.LogWatch(install)
+    process = launch.start(plan)
+    if not args.wait or plan.via_steam:
+        return 0
+    code = process.wait()
+    time.sleep(1.0)
+    print(f"game exited with code {code}")
+    problems = 0
+    for name, lines in watch.new_lines().items():
+        flagged = launch.flagged(lines)
+        problems += len(flagged)
+        print(f"{name}: {len(lines)} new line(s), {len(flagged)} problem(s)")
+        for line in flagged:
+            print(f"  {line}")
+    return 1 if problems else 0
+
+
 def _cmd_projects(args) -> int:
     from battlezone.project import ProjectStore
     from bztoolbox import paths
@@ -474,6 +524,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     selftest = sub.add_parser("selftest", help="open every page once and report failures")
     selftest.set_defaults(func=_cmd_selftest)
+
+    run = sub.add_parser("launch", help="deploy a mod to the addon folder and start a mission in Redux or 1.5")
+    run.add_argument("--game", help="redux (default), 1.5, steam, gog, or a game folder")
+    run.add_argument("--mission", help="mission to load, e.g. misn05.bzn (default: the menu)")
+    run.add_argument("--flag", action="append", metavar="KEY",
+                     help="launch option by key, repeatable (see --list): win, nointro, edit, develop, ...")
+    run.add_argument("--extra", help="extra command-line arguments passed as they are")
+    run.add_argument("--deploy", metavar="DIR", help="copy this mod folder into the game's addon folder first")
+    run.add_argument("--name", help="addon folder name for --deploy (default: the mod folder's name)")
+    run.add_argument("--steam", action="store_true", help="start the Steam copy through steam.exe -applaunch")
+    run.add_argument("--wait", action="store_true", help="wait for the game to close and print log problems")
+    run.add_argument("--dry-run", action="store_true", help="print the command without starting the game")
+    run.add_argument("--list", action="store_true", help="list installs and their options")
+    run.set_defaults(func=_cmd_launch)
 
     projects = sub.add_parser("projects", help="list known projects")
     projects.set_defaults(func=_cmd_projects)
