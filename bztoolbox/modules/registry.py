@@ -116,6 +116,11 @@ PAGES: Sequence[PageSpec] = (
              "Legacy Battlezone .HGT to Redux .HG2 and back, byte-exact for HG2s cooked from an HGT.",
              f"{_P}.heightmap_convert:HeightmapConvertPage", package="bztoolbox.modules.terrain_generator",
              keywords=("hgt", "hg2", "heightmap", "legacy", "1.5")),
+    PageSpec("world.to_legacy", "world", "Redux → 1.5 Port",
+             "Rebuild a Redux world or mission for Battlezone 1.5: atlas to MAP tiles, palette and colour tables, "
+             "TRN, sky, HGT, LGT and BZN.",
+             f"{_P}.redux_to_legacy:ReduxToLegacyPage", package="bztoolbox.modules.world",
+             keywords=("atlas", "map", "act", "palette", "lum", "trn", "1.5", "legacy", "backport", "reverse")),
 
     # --- Assets -----------------------------------------------------------
     PageSpec("assets.textures", "assets", "Textures & Images",
