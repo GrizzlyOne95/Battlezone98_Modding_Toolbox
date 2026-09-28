@@ -8,7 +8,11 @@ Replaces the Windows-only ``OgreXMLConverter.exe`` for the toolbox's needs:
   writes (geometry, submeshes, skeleton link, bone assignments, submesh
   names), so XML-based tools keep working unchanged;
 * :func:`patch_normals` writes recalculated normals back into the binary file
-  in place, leaving every other byte untouched.
+  in place, leaving every other byte untouched;
+* :func:`write_mesh` serializes an :class:`OgreMesh` as a little-endian
+  ``[MeshSerializer_v1.100]`` file with the chunk layout stock Redux meshes
+  use (submeshes with their own geometry, operation, bone assignments;
+  skeleton link, bounds, submesh name table).
 
 Level-of-detail, edge list, pose and animation chunks are skipped; they are
 not needed to export geometry or to fix normals.
@@ -16,6 +20,7 @@ not needed to export geometry or to fix normals.
 
 from __future__ import annotations
 
+import math
 import struct
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -23,7 +28,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 __all__ = ["MeshError", "OgreMesh", "SubMesh", "Geometry", "VertexElement", "read_mesh", "to_xml",
-           "write_xml", "mesh_to_xml_file", "patch_normals", "normals_from_xml"]
+           "write_xml", "mesh_to_xml_file", "patch_normals", "normals_from_xml", "write_mesh",
+           "VertexBuffer"]
 
 # --- chunk ids -------------------------------------------------------------------
 M_HEADER = 0x1000
@@ -491,3 +497,99 @@ def patch_normals(mesh_path: Union[str, Path], normals: Sequence[Optional[Sequen
             written += 1
     mesh_path.write_bytes(bytes(data))
     return written
+
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+MESH_SERIALIZER_VERSION = "[MeshSerializer_v1.100]"
+
+
+def _chunk(cid: int, body: bytes) -> bytes:
+    """A chunk: u16 id, u32 size counting the 6-byte header, then the body."""
+    return struct.pack("<HI", cid, len(body) + 6) + body
+
+
+def _string(text: str) -> bytes:
+    return text.encode("utf-8") + b"\n"
+
+
+def _geometry_bytes(geometry: Geometry) -> bytes:
+    elements = b"".join(_chunk(M_GEOMETRY_VERTEX_ELEMENT,
+                               struct.pack("<5H", e.source, e.type, e.semantic, e.offset, e.index))
+                        for e in geometry.elements)
+    body = struct.pack("<I", geometry.vertex_count) + _chunk(M_GEOMETRY_VERTEX_DECLARATION, elements)
+    for bind in sorted(geometry.buffers):
+        buffer = geometry.buffers[bind]
+        expected = geometry.vertex_count * buffer.vertex_size
+        if len(buffer.data) != expected:
+            raise MeshError(f"vertex buffer {bind} holds {len(buffer.data)} bytes, expected {expected}")
+        data = buffer.data if geometry._endian == "<" else _to_little(geometry, bind, buffer)
+        body += _chunk(M_GEOMETRY_VERTEX_BUFFER, struct.pack("<HH", bind, buffer.vertex_size)
+                       + _chunk(M_GEOMETRY_VERTEX_BUFFER_DATA, data))
+    return _chunk(M_GEOMETRY, body)
+
+
+def _to_little(geometry: Geometry, bind: int, buffer: VertexBuffer) -> bytes:
+    """A big-endian buffer byte-swapped element by element (bytes no element covers are kept)."""
+    data = bytearray(buffer.data)
+    for element in (e for e in geometry.elements if e.source == bind and e.type in TYPES):
+        code, count, _ = TYPES[element.type]
+        src, dst = struct.Struct(f">{count}{code}"), struct.Struct(f"<{count}{code}")
+        for i in range(geometry.vertex_count):
+            at = i * buffer.vertex_size + element.offset
+            dst.pack_into(data, at, *src.unpack_from(buffer.data, at))
+    return bytes(data)
+
+
+def _submesh_bytes(sub: SubMesh) -> bytes:
+    use32 = sub.use32bit or any(i > 0xFFFF for i in sub.indices)
+    body = _string(sub.material) + struct.pack("<?I?", sub.uses_shared_vertices, len(sub.indices), use32)
+    if sub.indices:
+        body += struct.pack(f"<{len(sub.indices)}{'I' if use32 else 'H'}", *sub.indices)
+    if not sub.uses_shared_vertices:
+        if sub.geometry is None:
+            raise MeshError(f"submesh {sub.name or sub.material!r} has no geometry")
+        body += _geometry_bytes(sub.geometry)
+    body += _chunk(M_SUBMESH_OPERATION, struct.pack("<H", sub.operation))
+    body += b"".join(_chunk(M_SUBMESH_BONE_ASSIGNMENT, struct.pack("<IHf", v, b, w))
+                     for v, b, w in sub.bone_assignments)
+    return _chunk(M_SUBMESH, body)
+
+
+def write_mesh(mesh: OgreMesh, path: Optional[Union[str, Path]] = None) -> bytes:
+    """Serialize ``mesh`` (little-endian, :data:`MESH_SERIALIZER_VERSION`).
+
+    Returns the bytes and also writes them to ``path`` when given. ``bounds``
+    is ``(min x, y, z, max x, y, z, radius)``; when None it is computed from
+    the vertex positions.
+    """
+    body = struct.pack("<?", mesh.skeletally_animated or bool(mesh.skeleton))
+    if mesh.shared_geometry is not None:
+        body += _geometry_bytes(mesh.shared_geometry)
+    body += b"".join(_submesh_bytes(sub) for sub in mesh.submeshes)
+    if mesh.skeleton:
+        body += _chunk(M_MESH_SKELETON_LINK, _string(mesh.skeleton))
+    body += b"".join(_chunk(M_MESH_BONE_ASSIGNMENT, struct.pack("<IHf", v, b, w))
+                     for v, b, w in mesh.bone_assignments)
+    body += _chunk(M_MESH_BOUNDS, struct.pack("<7f", *(mesh.bounds or _bounds(mesh))))
+    if any(sub.name for sub in mesh.submeshes):
+        names = b"".join(_chunk(M_SUBMESH_NAME_TABLE_ELEMENT, struct.pack("<H", i) + _string(sub.name))
+                         for i, sub in enumerate(mesh.submeshes) if sub.name)
+        body += _chunk(M_SUBMESH_NAME_TABLE, names)
+    data = struct.pack("<H", M_HEADER) + _string(MESH_SERIALIZER_VERSION) + _chunk(M_MESH, body)
+    if path is not None:
+        Path(path).write_bytes(data)
+    return data
+
+
+def _bounds(mesh: OgreMesh) -> Tuple[float, ...]:
+    geometries = [mesh.shared_geometry] + [s.geometry for s in mesh.submeshes]
+    points = [p for g in geometries if g is not None for p in (g.attribute(1) or [])]
+    if not points:
+        return (0.0,) * 7
+    lo = [min(p[k] for p in points) for k in range(3)]
+    hi = [max(p[k] for p in points) for k in range(3)]
+    radius = max(math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]) for p in points)
+    return (*lo, *hi, radius)
