@@ -47,6 +47,7 @@ class ReduxToLegacyPage(ScrollableFrame):
         self.world = tk.StringVar(value=WORLDS[0])
         self.tile_size = tk.StringVar(value="256")
         self.map_format = tk.StringVar(value="indexed")
+        self.missing_tiles = tk.StringVar(value="default")
         self.dither = tk.BooleanVar(value=False)
         self.tables = tk.BooleanVar(value=True)
         self.heightmaps = tk.BooleanVar(value=True)
@@ -89,7 +90,9 @@ class ReduxToLegacyPage(ScrollableFrame):
         rows = (("Base world", self.world, WORLDS, "shared palette entries and colour tables come from it"),
                 ("Tile size", self.tile_size, ("256", "128", "512"), "level 0; stock 1.5 tiles are 256"),
                 ("MAP format", self.map_format, ("indexed", "565"), "indexed works in every renderer; 565 is "
-                                                                     "hardware 16-bit only"))
+                                                                     "hardware 16-bit only"),
+                ("Undefined tiles", self.missing_tiles, ("default", "solid", "none"),
+                 "MAT slots the TRN lacks: Redux draws the atlas default tile, 1.5 a checkerboard"))
         for row, (label, var, values, hint) in enumerate(rows):
             ttk.Label(grid, text=label, style="Toolbox.Surface.TLabel", width=18).grid(row=row, column=0, sticky="w",
                                                                                      pady=2)
@@ -162,7 +165,8 @@ class ReduxToLegacyPage(ScrollableFrame):
             base_world=None if world == WORLDS[0] else world, dither=self.dither.get(),
             color_tables=self.tables.get(), game_dir=self.game_dir.get().strip() or None,
             search_dirs=tuple(d for d in (self.search_dir.get().strip(),) if d),
-            heightmaps=self.heightmaps.get(), bzn=self.bzn.get(), allow_bzn_loss=self.allow_loss.get())
+            heightmaps=self.heightmaps.get(), bzn=self.bzn.get(), allow_bzn_loss=self.allow_loss.get(),
+            missing_tiles=self.missing_tiles.get())
         self.convert_button.state(["disabled"])
         self.log.clear()
         self.log.write(f"Porting {Path(source).name}…", "info")
