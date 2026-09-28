@@ -43,6 +43,43 @@ The integrated GUI supports four entry points:
 - Checks whether required custom ODF files are present beside the BZN.
 - Handles local ODF filename matching case-insensitively, matching normal Windows mod-folder behavior.
 
+## Mission scripts and AI plans
+
+Two project validation checks (`bztoolbox validate --checks lua,aip`, `battlezone/validation/script_checks.py`)
+cover what a mission runs rather than what it places. Only string-literal arguments are checked; computed
+names (`"path_" .. i`, variables) are skipped. The call table is `battlezone/validation/data/lua_api.json`.
+
+`lua` (Mission scripts) reads every `.lua`, pairs it with the `.bzn` of the same name, and reports:
+
+| Rule | Severity | Finding |
+| --- | --- | --- |
+| `lua-syntax` | error | Unfinished string or long comment; the game cannot load the script. |
+| `lua-missing-label` | warning | `GetHandle("x")` where the BZN has no object labelled `x` (labels set with `SetLabel` in the script count). |
+| `lua-missing-path` | warning | A path/target argument (`Goto`, `Patrol`, `GetPosition`, `BuildObject`'s third argument, `IsInsideArea`, `SetPathLoop`, ...) naming neither a BZN path nor an object label. Info when the script probes it with `GetPathPointCount`. |
+| `lua-missing-odf` | warning | `BuildObject`, `BuildObjectAtPortal`, `MakeExplosion`, `GiveWeapon`, `Build`, `BuildAt`, `OpenODF` name an ODF that is neither stock nor in the project. Info in shared modules (scripts without a BZN), which often cover factions of other mods. |
+| `lua-unknown-odf` | info | Same for `IsOdf` and `SetPilotClass` (an unknown pilot class is a known trick). |
+| `lua-missing-aip` | warning | `SetAIP("x.aip")` names an AI plan that is neither stock nor in the project. |
+| `lua-missing-module` | warning | `require("x")` with no `x.lua`/`x.dll` in the project and no `package.preload["x"]`. |
+| `lua-external-module` | info | Same, but the module is a known library (`exu`), the script extends `package.path` / uses RequireFix, or the requiring script is a shared module. |
+| `lua-missing-script` | warning | A `LuaMission` BZN with no `.lua` of the same name. |
+
+Each name is reported once per script, at its first use. Redux ships no stock Lua modules, only the Lua
+standard libraries.
+
+`aip` (AI plans) parses `.aip` files the way the stock ones are laid out (`aipdef.h` structs, `#DATA` ...
+`#END_DATA` blocks, rows ending in `;`, possibly spanning lines):
+
+| Rule | Severity | Finding |
+| --- | --- | --- |
+| `aip-syntax` | error | Unclosed `/*` comment or `#DATA` block, or a line that is not a declaration, directive or row. |
+| `aip-syntax` | warning | A row or declaration the game probably misreads: missing `;`, wrong field count, an unquoted name, a non-number. |
+| `aip-orphan-data` | info | Rows outside any `#DATA` block, as in stock AIPs whose `BUILDING_MATCHING` declaration is commented out. |
+| `aip-missing-odf` | warning | A unit named in an `ACCOUNT`, `FORCE_MATCHING`, `MATCH_UPS` or `BUILDING_MATCHING` row that is neither stock nor in the project. |
+| `aip-missing-account` | warning | The construction program funds an account the file never declares. |
+
+AIPs are referenced by `SetAIP` in scripts (and by name in the stock C++ missions); no BZN, TRN or ODF key
+names one, so the reference check lives in `lua`.
+
 ## ODF Validation
 
 The **ODF Validation** tab is read-only: the validator reports findings and suggested fixes but never rewrites mission files. Findings include severity, file, line number where available, section/key, stable rule ID, suggested fix, and structured evidence IDs/source details.
