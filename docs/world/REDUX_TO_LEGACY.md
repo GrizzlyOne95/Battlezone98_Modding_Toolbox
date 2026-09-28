@@ -25,7 +25,7 @@ ready for 1.5's `addon` folder. A report, `redux_to_legacy_report.txt`, is writt
 | HG2 | HGT | The legacy vertices (`convert_hg2_to_hgt`). The report says how much detail between vertices had no place in the 10 m grid. Flags come from a same-named HGT when one is present. |
 | LGT (256 cells per zone) | LGT (128 cells per zone, with the border block) | Every other cell. Checked against stock misn05/misns1, where Redux's relit LGTs correlate 0.97 with 1.5's. |
 | BZN 2016 (or 1046–1047) | BZN 1045 | `battlezone.bzn.version_convert`. Losses are refused unless `--allow-bzn-loss` is given. |
-| MAT | MAT | Copied. The files are byte-identical between the games. MAT texture types missing from the TRN are reported. |
+| MAT | MAT | Copied. The files are byte-identical between the games. See **Undefined tiles** below. |
 | `.ini`, `.lua`, `.material`, `.dds`, `.csv`, meshes, PNG/TGA… | — | Left out. A `.lua` gets a warning: 1.5 has no Lua. |
 
 Tile orientation was checked against the stock data. The Redux Mars atlas cell `MA01DA0.MAP`, flipped vertically,
@@ -83,3 +83,22 @@ mean colour error:
 
 LUM carries each world's own lighting curve, so the transferred LUM keeps the base world's curve. Without a game folder
 the TRN keeps its old table names, and the report warns.
+
+## Undefined tiles
+
+1.5 builds a table of type × transition × variant from the TRN. For each `[TextureTypeN]` it reads
+`Solid<A-D>0` and `CapTo<M>_<A-D>0`/`DiagonalTo<M>_<A-D>0` for M = 0–7 (see `Load_Terrain_Texture_Info` in the 1.5
+decompilation). A variant that is not defined falls back to a lower letter. Any other slot the MAT uses but the TRN
+leaves out stays at entry 0, the built-in `badTexture`, and **1.5 draws a checkerboard there**.
+
+Redux instead draws the atlas's default tile: the CSV's nameless first row (`,0,0,0.25,0.25`). The stock Mars atlas
+reserves its own unnamed cell at (0, 0) for this.
+
+Auto-painted MAPs hit this often. Non-adjacent transitions (0→3, 1→4, …) and unused type numbers are common, and ROTBD
+mission 4 uses 20 such slots in 5,161 cells. `--missing-tiles` controls the fix:
+
+| Value | What it does |
+|---|---|
+| `default` (default) | Adds the missing `SolidA`, `CapToM_A` or `DiagonalToM_A` keys, levels 0–3, pointing at the default cell. When a TRN tile family already sits on that cell (Polar Mars: `PM11S`), it is reused. Otherwise the cell is written as `<prefix>DEF0-3.MAP`. |
+| `solid` | Fills each slot with its type's own `SolidA` tile, falling back to the default cell for types without one. |
+| `none` | Only reports the slots. |

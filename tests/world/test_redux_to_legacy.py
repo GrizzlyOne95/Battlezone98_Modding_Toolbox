@@ -12,8 +12,10 @@ from battlezone.terrain.hg2 import HG2Map
 from battlezone.terrain.lgt import write_lgt
 from battlezone.terrain.palettes import get_stock_act_bytes
 from bztoolbox.modules.textures.makemap_compat import decode_map_bytes
+from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world.redux_to_legacy import (
-    LegacyExportOptions, encode_indexed_map, encode_rgb_map, port_redux_to_legacy, rewrite_trn_for_legacy,
+    LegacyExportOptions, defined_slots, encode_indexed_map, encode_rgb_map, mat_slot_usage, port_redux_to_legacy,
+    rewrite_trn_for_legacy,
 )
 
 MARS = ct.palette_array(get_stock_act_bytes("mars.act"))
@@ -261,14 +263,56 @@ class PortTests(unittest.TestCase):
         finally:
             module.stock_color_tables = original
 
-    def test_mat_types_the_trn_does_not_define_are_reported(self):
+    @staticmethod
+    def _mat_with_undefined_slots(src: Path) -> None:
+        entries = np.zeros(64 * 64, dtype="<u2")
+        entries[:10] = (7 << 12) | (7 << 8)                  # type 7: no [TextureType7]
+        entries[10:15] = (1 << 12) | (0 << 8) | 0x80         # 1 -> 0 cap: TextureType1 only has CapTo0
+        entries[15:20] = (0 << 12) | (1 << 8) | 0x80         # 0 -> 1 cap: not defined
+        entries[20:25] = (1 << 12) | (1 << 8) | 3            # type 1 solid, variant D: covered by SolidA
+        entries.tofile(src / "ttworld.mat")
+
+    def test_undefined_mat_slots_get_redux_default_tile(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = _redux_folder(Path(tmp))
-            entries = np.zeros(64 * 64, dtype="<u2")
-            entries[:10] = 7 << 12
-            entries.tofile(src / "ttworld.mat")
-            report = port_redux_to_legacy(src, Path(tmp) / "legacy", LegacyExportOptions())
-            self.assertTrue(any("texture type 7 in 10 cell(s)" in w for w in report.warnings), report.warnings)
+            self._mat_with_undefined_slots(src)
+            out = Path(tmp) / "legacy"
+            report = port_redux_to_legacy(src, out, LegacyExportOptions())
+            self.assertTrue(report.ok, report.lines())
+            doc = TRNDocument.read(out / "ttworld.trn")
+            # The CSV's nameless row is cell (0,0), which is TT00S: reused, no new tiles.
+            self.assertEqual(doc.get("TextureType7", "SolidA0"), "TT00S0.MAP")
+            self.assertEqual(doc.get("TextureType7", "SolidA3"), "TT00S3.MAP")
+            self.assertEqual(doc.get("TextureType0", "CapTo1_A2"), "TT00S2.MAP")
+            self.assertIsNone(doc.get("TextureType1", "CapTo2_A0"))
+            slots = defined_slots(doc)
+            usage = mat_slot_usage(np.fromfile(out / "ttworld.mat", dtype="<u2"))
+            for (t, kind, other, variant) in usage:
+                self.assertTrue(any((t, kind, other, v) in slots for v in range(variant + 1)), (t, kind, other))
+            self.assertTrue(any("filled with the atlas default tile TT00S" in n for n in report.notes))
+
+    def test_undefined_mat_slots_solid_mode_and_new_default_tile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = _redux_folder(Path(tmp))
+            self._mat_with_undefined_slots(src)
+            # A default cell no tile uses: it becomes its own tile family.
+            csv = src / "tt_detail_atlas.csv"
+            csv.write_text(csv.read_text().replace(",0,0,0.5,0.5", ",0.5,0.5,0.5,0.5", 1))
+            out = Path(tmp) / "legacy"
+            report = port_redux_to_legacy(src, out, LegacyExportOptions(missing_tiles="solid"))
+            self.assertTrue(report.ok, report.lines())
+            doc = TRNDocument.read(out / "ttworld.trn")
+            self.assertEqual(doc.get("TextureType0", "CapTo1_A0"), "TT00S0.MAP")      # type 0's own solid
+            self.assertEqual(doc.get("TextureType7", "SolidA1"), "TTDEF1.MAP")        # no type 7 solid
+            for level, side in enumerate((256, 128, 64, 32)):
+                self.assertEqual(struct.unpack_from("<HHI", (out / f"TTDEF{level}.MAP").read_bytes()), (side, 0, side))
+
+    def test_undefined_mat_slots_can_be_left(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = _redux_folder(Path(tmp))
+            self._mat_with_undefined_slots(src)
+            report = port_redux_to_legacy(src, Path(tmp) / "legacy", LegacyExportOptions(missing_tiles="none"))
+            self.assertTrue(any("checkerboard" in w and "15 cell(s)" in w for w in report.warnings), report.warnings)
 
     def test_missing_atlas_texture_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:

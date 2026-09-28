@@ -42,13 +42,16 @@ import numpy as np
 from PIL import Image
 
 from battlezone.terrain import colortables as ct
-from battlezone.terrain.atlas import AtlasCell, MaterialDef, read_atlas_csv, read_materials, tile_family, tile_level
+from battlezone.terrain.atlas import (
+    AtlasCell, MaterialDef, read_atlas_csv, read_atlas_default, read_materials, tile_family, tile_level,
+)
 from battlezone.terrain.palettes import get_stock_act_bytes, has_stock_palette
 from battlezone.terrain.trn import TRNDocument
 
 LEVELS = 4
 TILE_SIZES = (128, 256, 512)
 MAP_FORMATS = ("indexed", "565")
+MISSING_TILE_MODES = ("default", "solid", "none")
 PALETTE_MODES = ("auto", "trn", "rebuild")
 SKY_SECTIONS = {"sky": "sky", "clouds": "cloud", "stars": "star", "starlist": "star"}
 
@@ -74,6 +77,7 @@ class LegacyExportOptions:
     heightmaps: bool = True
     bzn: bool = True
     allow_bzn_loss: bool = False
+    missing_tiles: str = "default"        # MAT slots the TRN lacks: default (Redux's tile) | solid | none
 
 
 @dataclass
@@ -137,20 +141,22 @@ _HEADER = re.compile(r"^\s*\[([^\]]*)\]")
 _ENTRY = re.compile(r"^(\s*)([^=\s;/][^=]*?)(\s*=\s*)([^\s;/]+)(.*)$")
 _TEXTURE_TYPE = re.compile(r"texturetype\d+$", re.IGNORECASE)
 _LEVEL_DIGIT = re.compile(r"(\d)(\.map)$", re.IGNORECASE)
+EXTRA_COMMENT = "// Added by the Redux -> 1.5 port: 1.5 draws a checkerboard where Redux drew its default tile"
 
 
 def _newline(text: str) -> str:
     return "\r\n" if "\r\n" in text or "\n" not in text else "\n"
 
 
-def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None,
-                           levels: int = LEVELS) -> Tuple[str, List[str]]:
+def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None, levels: int = LEVELS,
+                           extra: Optional[Dict[int, List[Tuple[str, str]]]] = None) -> Tuple[str, List[str]]:
     """Redux TRN text -> 1.5 TRN text, plus a list of what changed.
 
     Drops ``[Atlases]``; after each level-0 texture entry adds the level 1..3
     entries its section lacks; sets the ``[Color]`` keys in ``color``
-    (Palette/Luma/Translucency/Alpha), adding the section if needed.
-    Comments and layout of everything else are kept.
+    (Palette/Luma/Translucency/Alpha), adding the section if needed; appends
+    ``extra`` entries (key, value) to ``[TextureTypeN]`` sections, adding the
+    sections that do not exist. Comments and layout of everything else are kept.
     """
     changes: List[str] = []
     if "\r\r\n" in text:
@@ -178,6 +184,25 @@ def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None,
     added_levels = 0
     color_seen = set()
     color_done = False
+    extra = {int(k): list(v) for k, v in (extra or {}).items() if v}
+    extra_done = set()
+
+    def flush_extra(type_index: int) -> None:
+        entries = extra.get(type_index)
+        if not entries or type_index in extra_done:
+            return
+        blanks = 0
+        while out and not out[-1].strip():
+            out.pop()
+            blanks += 1
+        out.append(EXTRA_COMMENT)
+        out.extend(f"{k:<15}= {v}" for k, v in entries)
+        out.extend([""] * max(1, blanks))
+        extra_done.add(type_index)
+        changes.append(f"[TextureType{type_index}]: added {len(entries)} entries for tiles the MAT uses")
+
+    def section_type(name: str) -> Optional[int]:
+        return int(name[len("texturetype"):]) if _TEXTURE_TYPE.fullmatch(name) else None
 
     def flush_color() -> None:
         nonlocal color_done
@@ -195,6 +220,8 @@ def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None,
         if header:
             if section.lower() == "color" and not color_done:
                 flush_color()
+            if section_type(section) is not None:
+                flush_extra(section_type(section))
             section, section_at = header.group(1).strip(), number
             if section.lower() == "atlases":
                 changes.append("removed [Atlases] (Redux only)")
@@ -227,6 +254,14 @@ def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None,
                     added_levels += 1
     if section.lower() == "color" and not color_done:
         flush_color()
+    if section_type(section) is not None:
+        flush_extra(section_type(section))
+    for type_index in sorted(set(extra) - extra_done):
+        while out and not out[-1].strip():
+            out.pop()
+        out += ["", f"[TextureType{type_index}]"]
+        flush_extra(type_index)
+        changes[-1] = f"added [TextureType{type_index}] for tiles the MAT uses"
     if color and not color_done and not any(_HEADER.match(l) and _HEADER.match(l).group(1).strip().lower() == "color"
                                             for l in lines):
         while out and not out[-1].strip():
@@ -391,8 +426,15 @@ class _Sky:
     texture: Path
 
 
-def _plan_tiles(doc: TRNDocument, finder: _Finder, report: LegacyExportReport, atlases: Dict[Path, Image.Image]
-                ) -> List[_Tile]:
+@dataclass
+class _Atlas:
+    texture: Path
+    cells: Dict[str, AtlasCell]
+    default: Optional[AtlasCell]      # the CSV's nameless row: Redux's tile for undefined MAT slots
+
+
+def _plan_tiles(doc: TRNDocument, finder: _Finder, report: LegacyExportReport, atlases: Dict[Path, Image.Image],
+                layouts: Optional[Dict[str, _Atlas]] = None) -> List[_Tile]:
     material_name = doc.material_name
     trn_name = Path(doc.path or "?").name
     if not material_name:
@@ -412,6 +454,8 @@ def _plan_tiles(doc: TRNDocument, finder: _Finder, report: LegacyExportReport, a
         report.errors.append(f"{trn_name}: {material_name}.csv (the atlas layout) was not found")
         return []
     cells = read_atlas_csv(csv_path)
+    if layouts is not None:
+        layouts[(doc.path or "").lower()] = _Atlas(texture, cells, read_atlas_default(csv_path))
     by_family: Dict[str, AtlasCell] = {}
     for key, cell in cells.items():
         by_family.setdefault(tile_family(key), cell)
@@ -526,6 +570,8 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
         raise ValueError(f"tile size must be one of {TILE_SIZES}")
     if options.map_format not in MAP_FORMATS:
         raise ValueError(f"map format must be one of {MAP_FORMATS}")
+    if options.missing_tiles not in MISSING_TILE_MODES:
+        raise ValueError(f"missing tiles must be one of {MISSING_TILE_MODES}")
     output.mkdir(parents=True, exist_ok=True)
     game_dir = Path(options.game_dir) if options.game_dir else None
     finder = _Finder(source, options.search_dirs, game_dir)
@@ -538,10 +584,17 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
 
     # --- plan -------------------------------------------------------------
     atlases: Dict[Path, Image.Image] = {}
+    layouts: Dict[str, _Atlas] = {}
     tiles: Dict[str, _Tile] = {}
     for doc in docs:
         say(f"Reading {Path(doc.path).name}")
-        for tile in _plan_tiles(doc, finder, report, atlases):
+        for tile in _plan_tiles(doc, finder, report, atlases, layouts):
+            tiles.setdefault(tile.name.lower(), tile)
+    fills: Dict[str, Dict[int, List[Tuple[str, str]]]] = {}
+    for doc in docs:
+        extra, new_tiles = _plan_mat_fills(doc, source, layouts.get((doc.path or "").lower()), options, report)
+        fills[(doc.path or "").lower()] = extra
+        for tile in new_tiles:
             tiles.setdefault(tile.name.lower(), tile)
     skies: Dict[str, _Sky] = {}
     for doc in docs:
@@ -636,13 +689,10 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
     # --- TRNs ----------------------------------------------------------------
     for path in trn_paths:
         text = path.read_bytes().decode("cp1252", errors="replace")
-        rewritten, changes = rewrite_trn_for_legacy(text, color=color)
+        rewritten, changes = rewrite_trn_for_legacy(text, color=color, extra=fills.get(str(path).lower()))
         (output / path.name).write_bytes(rewritten.encode("cp1252", errors="replace"))
         report.written.append(path.name)
         report.notes += [f"{path.name}: {c}" for c in changes]
-
-    for doc in docs:
-        _check_mat_types(doc, source, report)
 
     # --- heightmaps, light maps, missions and the rest --------------------------
     stems_with_hg2 = {p.stem.lower() for p in files if p.suffix.lower() == ".hg2"}
@@ -676,19 +726,129 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
     return report
 
 
-def _check_mat_types(doc: TRNDocument, source: Path, report: LegacyExportReport) -> None:
-    """Warn when the MAT beside a TRN paints texture types the TRN does not define."""
+_SLOT_KEY = re.compile(r"^(solid|capto(\d)_|diagonalto(\d)_)([a-d])0$", re.IGNORECASE)
+_KIND_NAMES = {"S": "Solid", "C": "CapTo", "D": "DiagonalTo"}
+
+
+def defined_slots(doc: TRNDocument) -> set:
+    """``(type, kind, next, variant)`` slots a TRN defines at level 0; kind is S(olid), C(ap) or D(iagonal)."""
+    slots = set()
+    for type_index, section in doc.texture_types().items():
+        for entry in section.entries:
+            match = _SLOT_KEY.match(entry.key.strip())
+            if not match or not entry.value.strip():
+                continue
+            if match.group(1).lower() == "solid":
+                kind, other = "S", type_index
+            else:
+                kind, other = ("C", int(match.group(2))) if match.group(2) else ("D", int(match.group(3)))
+            slots.add((type_index, kind, other, "abcd".index(match.group(4).lower())))
+    return slots
+
+
+def mat_slot_usage(entries: np.ndarray) -> Dict[Tuple[int, str, int, int], int]:
+    """Cells per ``(type, kind, next, variant)`` in a MAT, the way 1.5 looks tiles up."""
+    entries = np.asarray(entries, dtype=np.uint16)
+    base, other = entries >> 12, (entries >> 8) & 15
+    cap, variant = (entries >> 7) & 1, entries & 3
+    kind = np.where(base == other, 0, np.where(cap == 1, 1, 2))
+    code = ((base.astype(np.int64) * 16 + other) * 4 + kind) * 4 + variant
+    values, counts = np.unique(code, return_counts=True)
+    out = {}
+    for value, count in zip(values.tolist(), counts.tolist()):
+        variant, value = value % 4, value // 4
+        kind, value = "SCD"[value % 4], value // 4
+        out[(value // 16, kind, value % 16, variant)] = count
+    return out
+
+
+def _level_name(level0: str, level: int) -> str:
+    digit = _LEVEL_DIGIT.search(level0)
+    return level0[:digit.start(1)] + str(level) + level0[digit.end(1):] if digit else level0
+
+
+def _plan_mat_fills(doc: TRNDocument, source: Path, layout: Optional[_Atlas], options: LegacyExportOptions,
+                    report: LegacyExportReport) -> Tuple[Dict[int, List[Tuple[str, str]]], List[_Tile]]:
+    """TRN entries (and tiles) for MAT slots the TRN leaves undefined.
+
+    1.5 draws its checkerboard ``badTexture`` for a type/transition/variant
+    slot no TRN key fills (a variant falls back to a lower letter, nothing
+    else does); Redux draws the atlas CSV's nameless default cell instead.
+    """
+    trn_name = Path(doc.path or "?").name
     stem = Path(doc.path or "").stem.lower()
     mat = next((p for p in source.iterdir() if p.suffix.lower() == ".mat" and p.stem.lower() == stem), None)
-    defined = set(doc.texture_types())
-    if mat is None or not defined:
-        return
-    entries = np.fromfile(mat, dtype="<u2")
-    used = set(np.unique(entries >> 12).tolist()) | set(np.unique((entries >> 8) & 15).tolist())
-    for kind in sorted(used - defined):
-        cells = int(((entries >> 12) == kind).sum() + (((entries >> 8) & 15) == kind).sum())
-        report.warnings.append(f"{mat.name} paints texture type {kind} in {cells} cell(s), but "
-                               f"{Path(doc.path).name} has no [TextureType{kind}]; 1.5 has nothing to draw there")
+    if mat is None or not doc.texture_types():
+        return {}, []
+    usage = mat_slot_usage(np.fromfile(mat, dtype="<u2"))
+    defined = defined_slots(doc)
+    beyond = sum(n for (t, _k, o, _v), n in usage.items() if t > 7 or o > 7)
+    if beyond:
+        report.warnings.append(f"{mat.name}: {beyond} cell(s) use texture types above 7, which 1.5 cannot draw")
+    missing: Dict[Tuple[int, str, int], int] = {}
+    for (t, kind, other, variant), count in usage.items():
+        if t > 7 or other > 7:
+            continue
+        if not any((t, kind, other, v) in defined for v in range(variant + 1)):
+            missing[(t, kind, other)] = missing.get((t, kind, other), 0) + count
+    if not missing:
+        return {}, []
+    cells = sum(missing.values())
+    listed = ", ".join(f"{t}{'->' + str(o) if k != 'S' else ''} {_KIND_NAMES[k]} ({n})"
+                       for (t, k, o), n in sorted(missing.items()))
+    if options.missing_tiles == "none":
+        report.warnings.append(f"{mat.name}: {cells} cell(s) use slots {trn_name} leaves undefined; 1.5 draws them "
+                               f"as a checkerboard: {listed}")
+        return {}, []
+
+    # The tile to fill with: Redux's default cell, or the base type's own solid tile.
+    level0_of: Dict[str, str] = {}        # family -> the TRN's level-0 spelling
+    for section in doc.texture_types().values():
+        for entry in section.entries:
+            value = entry.value.strip().strip('"')
+            if value.lower().endswith(".map") and tile_level(value) == 0:
+                level0_of.setdefault(tile_family(value), value)
+    new_tiles: List[_Tile] = []
+    default_name: Optional[str] = None
+    if layout is not None and layout.default is not None:
+        box = (layout.default.u, layout.default.v, layout.default.width, layout.default.height)
+        for key, cell in layout.cells.items():
+            if abs(cell.u - box[0]) + abs(cell.v - box[1]) + abs(cell.width - box[2]) + abs(cell.height - box[3]) < 1e-6 \
+                    and tile_family(key) in level0_of:
+                default_name = level0_of[tile_family(key)]
+                break
+        if default_name is None:
+            prefix = os.path.commonprefix(list(level0_of))[:2] or stem[:2].upper()
+            default_name = f"{prefix}DEF0.MAP"
+            for level in range(LEVELS):
+                new_tiles.append(_Tile(_level_name(default_name, level), level, tile_family(default_name),
+                                       layout.default, layout.texture))
+
+    extra: Dict[int, List[Tuple[str, str]]] = {}
+    solid_used = default_used = 0
+    for (t, kind, other), _count in sorted(missing.items()):
+        fill = None
+        if options.missing_tiles == "solid" or default_name is None:
+            section = doc.texture_types().get(t)
+            solid = section.get("SolidA0") if section is not None else None
+            fill = solid.strip().strip('"') if solid else None
+            solid_used += fill is not None
+        if fill is None:
+            fill = default_name
+            default_used += fill is not None
+        if fill is None:
+            report.warnings.append(f"{mat.name}: nothing to fill {_KIND_NAMES[kind]} of type {t} with")
+            continue
+        key = "SolidA" if kind == "S" else f"{_KIND_NAMES[kind]}{other}_A"
+        extra.setdefault(t, []).extend((f"{key}{level}", _level_name(fill, level)) for level in range(LEVELS))
+    how = []
+    if default_used:
+        how.append(f"the atlas default tile {tile_family(default_name)} (what Redux draws)")
+    if solid_used:
+        how.append("each type's own solid tile")
+    report.notes.append(f"{mat.name}: {cells} cell(s) use slots {trn_name} leaves undefined (1.5 would draw a "
+                        f"checkerboard); filled with {' and '.join(how)}: {listed}")
+    return extra, new_tiles
 
 
 def _port_heightmap(path: Path, output: Path, report: LegacyExportReport) -> None:
@@ -781,6 +941,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="more folders with materials, CSVs, textures or ODFs (repeatable)")
     parser.add_argument("--no-heightmaps", action="store_true", help="leave HG2/LGT alone")
     parser.add_argument("--no-bzn", action="store_true", help="leave BZNs alone")
+    parser.add_argument("--missing-tiles", default="default", choices=MISSING_TILE_MODES,
+                        help="MAT slots the TRN leaves undefined (1.5 draws a checkerboard): fill with the atlas "
+                             "default tile like Redux (default), the type's solid tile, or leave them (none)")
     parser.add_argument("--allow-bzn-loss", action="store_true", help="write BZNs even if values have no 1.5 field")
     return parser
 
@@ -791,7 +954,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         tile_size=args.tile_size, map_format=args.map_format, palette=args.palette, base_world=args.base_world,
         dither=args.dither, color_tables=not args.no_tables, game_dir=args.game_dir or _default_game_dir(),
         search_dirs=tuple(args.search), heightmaps=not args.no_heightmaps, bzn=not args.no_bzn,
-        allow_bzn_loss=args.allow_bzn_loss)
+        allow_bzn_loss=args.allow_bzn_loss, missing_tiles=args.missing_tiles)
     try:
         report = port_redux_to_legacy(args.source, args.output, options, log=lambda m: print(m, flush=True))
     except (OSError, ValueError) as exc:

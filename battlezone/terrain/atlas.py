@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-__all__ = ["AtlasCell", "read_atlas_csv", "MaterialDef", "parse_materials", "read_materials",
+__all__ = ["AtlasCell", "read_atlas_csv", "read_atlas_default", "MaterialDef", "parse_materials", "read_materials",
            "tile_level", "tile_family"]
 
 _LEVEL = re.compile(r"^(.*?)(\d)(\.map)?$", re.IGNORECASE)
@@ -58,6 +58,20 @@ def read_atlas_csv(path) -> Dict[str, AtlasCell]:
             raise ValueError(f"{Path(path).name} line {number}: {raw!r} is not NAME,u,v,width,height") from exc
         cells.setdefault(parts[0].upper(), AtlasCell(parts[0], u, v, w, h))
     return cells
+
+
+def read_atlas_default(path) -> Optional[AtlasCell]:
+    """The nameless header row's cell: the tile Redux draws for a MAT slot the TRN leaves undefined."""
+    text = Path(path).read_text(encoding="cp1252", errors="replace")
+    for raw in text.splitlines():
+        parts = [p.strip() for p in raw.split(",")]
+        if len(parts) >= 5 and not parts[0]:
+            try:
+                u, v, w, h = (float(p) for p in parts[1:5])
+            except ValueError:
+                return None
+            return AtlasCell("", u, v, w, h)
+    return None
 
 
 def tile_level(name: str) -> int:
