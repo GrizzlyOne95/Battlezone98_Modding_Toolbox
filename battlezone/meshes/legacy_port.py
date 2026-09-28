@@ -30,7 +30,8 @@ of their 1.5 models (hbptow, hbchar, obhavc, obheph, hvsrb, hvrckt, ...):
   the VDF/SDF). Persons (pilots) instead get the named skeletal animations
   Redux plays on them (``idle``, ``runForward``, ``stand2Kneel``, ...), keyed
   from their ANIM sequences, as DivisionByZero's BZRModelPorter does.
-* a VDF whose cockpit or eyepoint animates (pilots, walkers) writes the
+* a VDF whose cockpit or eyepoint animates (pilots, walkers), or a turret
+  or howitzer (Redux ships avartl_c, svturr_c, ...), writes the
   cockpit to its own ``<model>_fp`` / ``_c`` / ``_cockpit`` mesh, each
   cockpit part hanging from the model part in its slot; persons also get a
   sniper scope (a screen quad, a quad on the gun, or faces textured
@@ -105,6 +106,7 @@ _SCOPE = "\0scope"                # group key of scope faces
 SCOPE_PLACEMENT = {"american": (2.975, 0.23), "soviet": (2.58, 0.27)}
 
 # ODF classLabel -> model kind (BZRModelPorter's lists).
+TURRET_CLASSES = frozenset({"turret", "turrettank", "howitzer"})
 VDF_CLASSES = frozenset({"apc", "hover", "howitzer", "minelayer", "sav", "scavenger", "tug", "turrettank", "walker",
                          "wingman", "armory", "constructionrig", "factory", "producer", "recycler", "turret",
                          "person", "ammopack", "camerapod", "daywrecker", "powerup", "repairkit", "dropoff",
@@ -126,7 +128,9 @@ class PortOptions:
     flat_colours: bool = False                 # every face from a palette of GEO face colours, no .map
     person: Optional[bool] = None              # None: the name's second letter is "s" (aspilo, sspilo)
     animations: Optional[bool] = None          # person skeletal animations; None: when a person
-    cockpit_files: Optional[bool] = None       # separate cockpit mesh; None: when the cockpit animates
+    cockpit_files: Optional[bool] = None       # separate cockpit mesh; None: when it animates or a turret
+    turret: Optional[bool] = None              # turret/howitzer: the cockpit gets its own mesh; None: a stock
+                                               # name Redux asks a _c cockpit for (avartl, svturr, ...)
     pov_rotations: bool = True                 # False: the eyepoint keeps its bind rotation while running
     scope: Optional[bool] = None               # sniper scope; None: persons
     scope_type: str = "auto"                   # auto (geometry if __scope faces, else fixed), fixed, attached, geometry
@@ -481,7 +485,10 @@ def build_port(model_data: bytes, kind: str, name: str, load: LoadBytes,
     elif options.cockpit_files is not None:
         separate = options.cockpit_files
     else:
-        separate = _cockpit_animates(model, primary, cockpit, geos)
+        # Redux ships every howitzer, turret tank and walker with a _c cockpit
+        # (avartl_c, svturr_c, ...); BZRModelPorter left this as a TODO
+        turret = options.turret if options.turret is not None else cockpit_suffix(name) == "_c"
+        separate = turret or _cockpit_animates(model, primary, cockpit, geos)
     if separate:
         result.cockpit_name = name + cockpit_suffix(name)
         result.cockpit_mesh = OgreMesh(version="MeshSerializer_v1.100", endian="little")
@@ -1092,6 +1099,9 @@ def port_file(path: Union[str, Path], out_dir: Union[str, Path], *, search: Iter
             options = _replace(options, person=person)
         if not options.scope_nation and nation:
             options = _replace(options, scope_nation=nation)
+        label = _odf_values(path.read_text(errors="replace")).get("classlabel", "").lower()
+        if options.turret is None and label:
+            options = _replace(options, turret=label in TURRET_CLASSES)
         result = build_port(data, kind, name or model, source, options)
     elif suffix == ".geo":
         result = build_geo_port(path.read_bytes(), name or path.stem.lower(), options)
@@ -1168,7 +1178,10 @@ def main(argv: Optional[Sequence[str]] = None,
         prog="bztoolbox meshes port-legacy",
         description="Port Battlezone 1.5 models (.vdf/.sdf + .geo + .map) to Redux .mesh/.skeleton/.material "
                     "and textures. Also takes an .odf (ports the model it names; a person class gets pilot "
-                    "animations), a lone .geo (one-bone mesh) or a .map (texture only).")
+                    "animations), a lone .geo (one-bone mesh) or a .map (texture only).",
+        epilog="@FILE reads more arguments from FILE, one per line (BZRModelPorter's config.cfg: e.g. "
+               "--palette, --textures and --game15 lines).",
+        fromfile_prefix_chars="@")
     parser.add_argument("files", nargs="+", metavar="FILE", help=".vdf, .sdf, .odf, .geo or .map (any number)")
     parser.add_argument("--out", help="output folder (default: <name>_redux beside each file)")
     parser.add_argument("--name", help="output model name (one input only; default: the file name)")
@@ -1198,6 +1211,9 @@ def main(argv: Optional[Sequence[str]] = None,
     parser.add_argument("--animations", choices=tri, default="auto", help="person skeletal animations")
     parser.add_argument("--cockpit", choices=tri, default="auto",
                         help="write the cockpit as its own <model>_fp/_c/_cockpit mesh (auto: when it animates)")
+    parser.add_argument("--turret", choices=tri, default="auto",
+                        help="turret/howitzer: write the cockpit as its own _c mesh (auto: the ODF class, else "
+                             "the stock names Redux asks a _c cockpit for)")
     parser.add_argument("--no-pov-rotations", action="store_true",
                         help="the eyepoint does not rotate in the four run animations")
     parser.add_argument("--scope", choices=tri, default="auto", help="person sniper scope (auto: persons)")
@@ -1240,6 +1256,7 @@ def main(argv: Optional[Sequence[str]] = None,
                           texture_format=args.format, headlights=not args.no_headlights,
                           flat_colours=args.flat_colours, person=_tristate(args.person),
                           animations=_tristate(args.animations), cockpit_files=_tristate(args.cockpit),
+                          turret=_tristate(args.turret),
                           pov_rotations=not args.no_pov_rotations, scope=_tristate(args.scope),
                           scope_type=args.scope_type, scope_nation=args.scope_nation,
                           scope_screen=args.scope_screen, scope_gun=args.scope_gun,

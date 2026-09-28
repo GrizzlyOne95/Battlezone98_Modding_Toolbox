@@ -216,6 +216,16 @@ class VehicleTests(unittest.TestCase):
         result = build_port(self.vdf, "vdf", "xbtest", loader(self.files), PortOptions(bands=(0,)))
         self.assertFalse(any(s.material.endswith("_cockpit") for s in result.mesh.submeshes))
 
+    def test_turret_cockpit_mesh(self):
+        # turrets and howitzers get a separate cockpit mesh (Redux ships avartl_c, svturr_c, ...)
+        turret = build_port(self.vdf, "vdf", "xbtest", loader(self.files), PortOptions(turret=True))
+        self.assertEqual(turret.cockpit_name, "xbtest_cockpit")
+        self.assertEqual({s.material for s in turret.cockpit_mesh.submeshes}, {"xbtest_cock00_cockpit"})
+        stock_name = build_port(self.vdf, "vdf", "avartl", loader(self.files))
+        self.assertEqual(stock_name.cockpit_name, "avartl_c")               # Redux asks for avartl_c
+        self.assertIsNone(build_port(self.vdf, "vdf", "avartl", loader(self.files),
+                                     PortOptions(turret=False)).cockpit_mesh)
+
 
 def same_rotation(test, a, b, places=5):
     """Quaternions equal up to sign."""
@@ -429,6 +439,9 @@ class InputTests(unittest.TestCase):
         (self.src / "hut.sdf").write_bytes(make_bwd("sdf", "H", [(0, 0, "xsp11ctr", matrix(), "WORLD", 61)], 6))
         (self.src / "hut.odf").write_text('[GameObject]\nmaxHealth = 5\n')          # no class label
         self.assertEqual(legacy_port.port_file(self.src / "hut.odf", self.src, dry_run=True).kind, "sdf")
+        (self.src / "gun.odf").write_text('[GameObjectClass]\nbaseName = "xspilo"\nclassLabel = "howitzer"\n')
+        self.assertTrue(legacy_port.port_file(self.src / "gun.odf", self.src, dry_run=True).options.turret)
+        self.assertIsNone(legacy_port.port_file(self.src / "hut.odf", self.src, dry_run=True).options.turret)
 
     def test_cli_many_files(self):
         (self.src / "a.sdf").write_bytes(make_bwd("sdf", "A", [(0, 0, "abda", matrix(), "WORLD", 61)], 6))
@@ -448,6 +461,27 @@ class InputTests(unittest.TestCase):
         found = []
         legacy_port.main([files[1], "--game15", "auto", "--dry-run"], find_game15=lambda: found.append(1))
         self.assertEqual(found, [1])
+        # @FILE: options one per line, like BZRModelPorter's config.cfg and .bat variants
+        args = Path(self.tmp.name, "port.args")
+        args.write_text("--format\nnone\n--out\n" + str(Path(self.tmp.name, "from_args")) + "\n")
+        self.assertEqual(legacy_port.main(["@" + str(args), files[1]]), 0)
+        self.assertTrue(Path(self.tmp.name, "from_args", "b.mesh").is_file())
+        self.assertFalse(Path(self.tmp.name, "from_args", "b_tex00_D.png").exists())
+
+    def test_toolbox_wrapper_resolves_game15_auto(self):
+        from unittest import mock
+
+        from bztoolbox.modules.meshes import port_legacy
+
+        (self.src / "b.geo").write_bytes(top_quad("b"))
+        install = Path(self.tmp.name, "bz15")
+        with mock.patch.object(port_legacy, "find_legacy_install", return_value=str(install)):
+            with mock.patch.object(legacy_port, "legacy_archives", return_value=[]) as archives:
+                self.assertEqual(port_legacy.main([str(self.src / "b.geo"), "--game15", "auto", "--dry-run"]), 0)
+        archives.assert_called_once_with(str(install))
+        from bztoolbox import cli
+        delegate = next(d for d in cli.DELEGATES if (d.group, d.name) == ("meshes", "port-legacy"))
+        self.assertTrue(delegate.target.startswith("bztoolbox.modules.meshes.port_legacy"))
 
 
 class WriterTests(unittest.TestCase):
