@@ -91,6 +91,22 @@ class HeightmapConvertPage(ScrollableFrame):
         self.convert_button = ttk.Button(actions, text="Convert", style="Toolbox.Accent.TButton", command=self.convert)
         self.convert_button.pack(side="left")
 
+        self.relight_path = tk.StringVar()
+        self.relight_only_broken = tk.BooleanVar(value=True)
+        card = Card(body, "Light maps (LGT)", "Rebake .lgt light maps from their .hg2 terrain the way Redux's stock "
+                                             "maps are lit (sun due east, 80° up). Pick one .hg2 or a folder of "
+                                             "maps; old light maps are backed up first.")
+        card.pack(fill="x", pady=(0, 12))
+        PathPicker(card.body, "HG2 or folder", self.relight_path, kind="dir", surface=True,
+                   on_browse=self._browse_relight).pack(fill="x", pady=2)
+        ttk.Checkbutton(card.body, text="Only light maps that are missing, flat or do not follow the terrain",
+                        variable=self.relight_only_broken, style="Toolbox.Surface.TCheckbutton").pack(anchor="w")
+        actions = ttk.Frame(card.body, style="Toolbox.Surface.TFrame")
+        actions.pack(fill="x", pady=(10, 0))
+        self.relight_button = ttk.Button(actions, text="Rebake light maps", style="Toolbox.Accent.TButton",
+                                         command=self.relight)
+        self.relight_button.pack(side="left")
+
         ttk.Label(body, text="RESULT", style="Toolbox.Heading.TLabel").pack(anchor="w")
         self.log = LogView(body, height=10)
         self.log.pack(fill="both", expand=True, pady=(4, 0))
@@ -139,4 +155,50 @@ class HeightmapConvertPage(ScrollableFrame):
 
     def _failed(self, error: str) -> None:
         self.convert_button.state(["!disabled"])
+        self.relight_button.state(["!disabled"])
         self.log.write(error, "error")
+
+    def _browse_relight(self) -> None:
+        from tkinter import filedialog
+
+        chosen = filedialog.askopenfilename(title="HG2 terrain (Cancel to pick a folder instead)",
+                                            filetypes=(("Redux HG2", "*.hg2"),))
+        if not chosen:
+            chosen = filedialog.askdirectory(title="Folder of maps (searched recursively)", mustexist=True)
+        if chosen:
+            self.relight_path.set(os.path.normpath(chosen))
+
+    def relight(self) -> None:
+        if self.job is not None and self.job.status in ("queued", "running"):
+            return
+        target = self.relight_path.get().strip()
+        if not target or not os.path.exists(target):
+            messagebox.showerror("Light maps", "Pick an .hg2 file or a folder of maps.")
+            return
+        only_broken = self.relight_only_broken.get()
+        if not only_broken and not messagebox.askyesno(
+                "Rebake light maps", "Rebake every light map found, including ones that look fine?\n"
+                                     "(Old ones are backed up.)"):
+            return
+        self.relight_button.state(["disabled"])
+        self.log.clear()
+
+        def work(_job):
+            from bztoolbox.modules.terrain_generator.relight import relight
+
+            lines = []
+            result = relight([target], only_broken=only_broken, log=lines.append)
+            return result, lines
+
+        self.job = self.shell.jobs.submit("Rebake light maps", work, on_done=self._relit, on_error=self._failed)
+
+    def _relit(self, outcome) -> None:
+        result, lines = outcome
+        self.relight_button.state(["!disabled"])
+        for line in lines:
+            self.log.write(line)
+        for failure in result.failed:
+            self.log.write(failure, "error")
+        self.log.write(f"Rebaked {len(result.rebaked)}, left {len(result.kept)} as they were"
+                       + (f"; old light maps in {result.backup}" if result.rebaked else ""), "success")
+        self.shell.status(f"Rebaked {len(result.rebaked)} light map(s)")
