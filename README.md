@@ -24,6 +24,82 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **Archives** | Browse, search, extract, verify, and build ZFS archives (including supported legacy and encrypted formats) and Battlezone II / BZ2R PAK texture packs. |
 | **Workshop Publishing** | Check a mod before release, review changed files, fix common problems, and upload through your Steam client (or SteamCMD). |
 
+## Page gallery
+
+These screenshots come from the running Toolbox with a temporary example mod.
+Select a thumbnail to view it at full size. Regenerate them on Windows with
+`python -m scripts.capture_toolbox_pages` (Pillow required).
+
+<details open>
+<summary><strong>Home and Project (6 pages)</strong></summary>
+
+| Page | Capabilities |
+| --- | --- |
+| <a href="docs/images/toolbox-pages/home.png"><img src="docs/images/toolbox-pages/home.png" width="430" alt="Home page"></a> | **Home:** Open recent projects, jump to common workflows, and check game and external-tool detection. |
+| <a href="docs/images/toolbox-pages/project-overview.png"><img src="docs/images/toolbox-pages/project-overview.png" width="430" alt="Project Overview page"></a> | **Overview:** Edit shared project and Workshop metadata; see file, mission, and world counts. |
+| <a href="docs/images/toolbox-pages/project-validation.png"><img src="docs/images/toolbox-pages/project-validation.png" width="430" alt="Project Validation page"></a> | **Validation:** Scan missions, ODFs, assets, TRNs, and Workshop layout; inspect findings and export a report. |
+| <a href="docs/images/toolbox-pages/project-dependencies.png"><img src="docs/images/toolbox-pages/project-dependencies.png" width="430" alt="Project Dependencies page"></a> | **Dependencies:** Trace file references, find missing or unused assets, and inspect texture memory. |
+| <a href="docs/images/toolbox-pages/project-localization.png"><img src="docs/images/toolbox-pages/project-localization.png" width="430" alt="Project Localization page"></a> | **Localization:** Scan ODF unit names and prepare entries for Redux localization tables. |
+| <a href="docs/images/toolbox-pages/project-publish.png"><img src="docs/images/toolbox-pages/project-publish.png" width="430" alt="Workshop Publish page"></a> | **Workshop / Publish:** Manage upload profiles, review readiness and changed files, then publish to Steam Workshop. |
+
+</details>
+
+<details>
+<summary><strong>Missions (3 pages)</strong></summary>
+
+| Page | Capabilities |
+| --- | --- |
+| <a href="docs/images/toolbox-pages/missions-port.png"><img src="docs/images/toolbox-pages/missions-port.png" width="430" alt="BZCC to Redux Port page"></a> | **BZCC → Redux Port:** Convert a BZ2/BZCC mission with a Redux prototype; align objects to ported terrain and map ODFs and teams. |
+| <a href="docs/images/toolbox-pages/missions-convert.png"><img src="docs/images/toolbox-pages/missions-convert.png" width="430" alt="BZN version conversion page"></a> | **1.5 ↔ Redux BZN:** Convert mission versions and review fields added, dropped, or changed before writing. |
+| <a href="docs/images/toolbox-pages/missions-replace_class.png"><img src="docs/images/toolbox-pages/missions-replace_class.png" width="430" alt="Replace Object Class page"></a> | **Replace Object Class:** Rebuild selected records from a class-compatible prototype while preserving identity and placement; preview and back up changes. |
+
+</details>
+
+<details>
+<summary><strong>World and Terrain (3 pages)</strong></summary>
+
+| Page | Capabilities |
+| --- | --- |
+| <a href="docs/images/toolbox-pages/world-builder.png"><img src="docs/images/toolbox-pages/world-builder.png" width="430" alt="World Builder page"></a> | **World Builder:** Create worlds, port terrain, build atlases and skies, auto-paint, and preview missions. |
+| <a href="docs/images/toolbox-pages/world-generate.png"><img src="docs/images/toolbox-pages/world-generate.png" width="430" alt="Generate Terrain page"></a> | **Generate Terrain:** Build procedural HG2 heightmaps and inspect height, lighting, and shaded previews. |
+| <a href="docs/images/toolbox-pages/world-heightmap.png"><img src="docs/images/toolbox-pages/world-heightmap.png" width="430" alt="Heightmap Convert page"></a> | **Heightmap Convert:** Convert legacy HGT and Redux HG2 heightmaps with round-trip options. |
+
+</details>
+
+<details>
+<summary><strong>Assets (5 pages)</strong></summary>
+
+| Page | Capabilities |
+| --- | --- |
+| <a href="docs/images/toolbox-pages/assets-textures.png"><img src="docs/images/toolbox-pages/assets-textures.png" width="430" alt="Textures and Images page"></a> | **Textures & Images:** Edit ACT palettes and convert textures, MAP, LGT, DXTBZ2, and packed channels. |
+| <a href="docs/images/toolbox-pages/assets-fonts.png"><img src="docs/images/toolbox-pages/assets-fonts.png" width="430" alt="Fonts page"></a> | **Fonts:** Configure glyphs and export a Battlezone font atlas. |
+| <a href="docs/images/toolbox-pages/assets-holotext.png"><img src="docs/images/toolbox-pages/assets-holotext.png" width="430" alt="Holographic Text page"></a> | **Holographic Text:** Preview text and generate sprite sheets or DDS assets, materials, ODFs, and Lua. |
+| <a href="docs/images/toolbox-pages/assets-meshes.png"><img src="docs/images/toolbox-pages/assets-meshes.png" width="430" alt="Models and Meshes page"></a> | **Models & Meshes:** Repair Ogre mesh normals, export OBJ geometry, and preview models when Ogre is available. |
+| <a href="docs/images/toolbox-pages/assets-audio.png"><img src="docs/images/toolbox-pages/assets-audio.png" width="430" alt="Audio page"></a> | **Audio:** Master radio voiceovers, prepare engine WAV and music OGG files, and export timing manifests. |
+
+</details>
+
+<details>
+<summary><strong>Archives (2 pages)</strong></summary>
+
+| Page | Capabilities |
+| --- | --- |
+| <a href="docs/images/toolbox-pages/archives-zfs.png"><img src="docs/images/toolbox-pages/archives-zfs.png" width="430" alt="ZFS Archives page"></a> | **ZFS Archives:** Browse, filter, extract, verify, and pack ZFS archives. |
+| <a href="docs/images/toolbox-pages/archives-pak.png"><img src="docs/images/toolbox-pages/archives-pak.png" width="430" alt="BZ2 PAK Archives page"></a> | **BZ2 PAK Archives:** Browse and pack PAKs, verify or extract members, and convert PIC textures on extraction. |
+
+</details>
+
+<details>
+<summary><strong>Tools and Settings (3 pages)</strong></summary>
+
+| Page | Capabilities |
+| --- | --- |
+| <a href="docs/images/toolbox-pages/tools-tasks.png"><img src="docs/images/toolbox-pages/tools-tasks.png" width="430" alt="Background Tasks page"></a> | **Background Tasks:** Track progress, cancel running work, and inspect errors. |
+| <a href="docs/images/toolbox-pages/settings-general.png"><img src="docs/images/toolbox-pages/settings-general.png" width="430" alt="General Settings page"></a> | **General:** Configure the Redux install, data folders, update checks, and profile import. |
+| <a href="docs/images/toolbox-pages/settings-external.png"><img src="docs/images/toolbox-pages/settings-external.png" width="430" alt="External Tools Settings page"></a> | **External Tools:** Detect or configure SteamCMD for Workshop uploads. |
+
+</details>
+
 ## A unified modding workflow
 
 The main advantage of the toolbox is that these features understand the same project.
