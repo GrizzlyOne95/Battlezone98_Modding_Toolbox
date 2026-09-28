@@ -82,6 +82,8 @@ DELEGATES: Sequence[Delegate] = (
              "MakeTRN-compatible MAT painting from HG2 + TRN rules.", True, "WorldBuilder"),
     Delegate("terrain", "legacy-port", "bztoolbox.modules.world.legacy_port_cli:main",
              "Port legacy Battlezone worlds/missions to Redux.", True, "WorldBuilder"),
+    Delegate("terrain", "to-legacy", "bztoolbox.modules.world.redux_to_legacy:main",
+             "Port a Redux world/mission to Battlezone 1.5 (atlas -> MAP tiles, palette, TRN, HGT, BZN).", True),
     Delegate("terrain", "msn2terrain", "bztoolbox.modules.world.msn2terrain:main",
              "Build terrain from a Battlezone MSN.", True, "WorldBuilder"),
     Delegate("terrain", "preview", "bztoolbox.modules.world.map_preview:main",
