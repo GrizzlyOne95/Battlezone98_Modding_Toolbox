@@ -1,0 +1,76 @@
+{
+  "_about": "Redux Lua calls whose string-literal arguments name ODFs, object labels, paths or AIP files (1-based argument positions). Names are from the Redux binding table (battlezone98redux.exe) and their use in mod scripts. Target arguments accept an object label or a path name: the engine reports 'No object named' / 'Path not found' for either.",
+  "odf": {
+    "BuildObject": [1],
+    "BuildObjectAtPortal": [1],
+    "MakeExplosion": [1],
+    "GiveWeapon": [2],
+    "Build": [2],
+    "BuildAt": [2],
+    "OpenODF": [1]
+  },
+  "_odf_info": "Reported as info: IsOdf only compares, and an unknown pilot class is a known trick to stop a craft's pilot from bailing out.",
+  "odf_info": {
+    "IsOdf": [2],
+    "SetPilotClass": [2]
+  },
+  "label": {
+    "GetHandle": [1]
+  },
+  "target": {
+    "BuildObject": [3],
+    "BuildAt": [3],
+    "MakeExplosion": [2],
+    "GetPosition": [1],
+    "SetPosition": [2],
+    "GetDistance": [1, 2],
+    "Goto": [2],
+    "Patrol": [2],
+    "Retreat": [2],
+    "Dropoff": [2],
+    "Mine": [2],
+    "Follow": [2],
+    "Defend2": [2],
+    "Attack": [2],
+    "Pickup": [2],
+    "GetIn": [2],
+    "IsInsideArea": [1],
+    "GetWindingNumber": [1],
+    "SetPathType": [1],
+    "GetPathType": [1],
+    "SetPathLoop": [1],
+    "SetPathOneWay": [1],
+    "SetPathRoundTrip": [1],
+    "GetPathPointCount": [1],
+    "CameraPath": [1, 4],
+    "CameraPathDir": [1],
+    "GetTerrainHeightAndNormal": [1],
+    "GetFloorHeightAndNormal": [1],
+    "GetNearestObject": [1],
+    "GetNearestVehicle": [1],
+    "GetNearestBuilding": [1],
+    "GetNearestEnemy": [1],
+    "GetNearestFriend": [1],
+    "CountUnitsNearObject": [1],
+    "GetPositionNear": [1],
+    "GetCircularPos": [1]
+  },
+  "set_label": {
+    "SetLabel": [2]
+  },
+  "aip": {
+    "SetAIP": [1]
+  },
+  "builtin_modules": ["_G", "bit", "bit32", "coroutine", "debug", "ffi", "io", "jit", "math", "os", "package",
+                      "string", "table", "utf8"],
+  "known_libraries": {
+    "exu": "EXU (Extra Utilities) native module, shipped as exu.dll by the mod or the EXU Workshop item"
+  },
+  "stock_aip": ["bowl.aip", "demo01.aip", "inst01.aip", "misn02.aip", "misn02b.aip", "misn03.aip", "misn05.aip",
+                "misn07.aip", "misn08.aip", "misn08a.aip", "misn08b.aip", "misn09.aip", "misn09a.aip",
+                "misn09b.aip", "misn10.aip", "misn10a.aip", "misn10b.aip", "misn13.aip", "misn13a.aip",
+                "misn13b.aip", "misn13c.aip", "misn14.aip", "misn15.aip", "misn16.aip", "misn17.aip",
+                "misns4.aip", "misns5.aip", "misns6.aip", "misns7.aip", "misns7a.aip", "misns7b.aip",
+                "misns7c.aip", "misns8.aip", "misns8a.aip", "misns8b.aip", "misns8c.aip", "misns8d.aip",
+                "misns8e.aip", "misns8f.aip", "misns8g.aip", "tran03.aip"]
+}
