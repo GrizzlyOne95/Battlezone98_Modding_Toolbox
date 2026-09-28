@@ -100,6 +100,9 @@ PAGES: Sequence[PageSpec] = (
     PageSpec("missions.convert", "missions", "1.5 ↔ Redux BZN",
              "Re-save a Battlezone 1.5 mission (1045) for Redux (2016) or back, with every changed field listed.",
              f"{_P}.bzn_convert:BZNConvertPage", keywords=("bzn", "1.5", "version", "convert", "redux", "1045", "2016")),
+    PageSpec("missions.replace_class", "missions", "Replace Object Class",
+             "Rebuild selected BZN objects with a compatible prototype, preserving identity and placement.",
+             f"{_P}.bzn_class_replace:BZNClassReplacePage", keywords=("bzn", "classlabel", "prototype", "repair", "record")),
 
     # --- World & Terrain --------------------------------------------------
     PageSpec("world.builder", "world", "World Builder",
