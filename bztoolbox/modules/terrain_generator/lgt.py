@@ -206,24 +206,15 @@ def compute_lgt_lightmap(
     return lgt
 
 
-# Redux's own bake, fitted to the stock LGT/HG2 pairs in bzone.zfs (misn02/05/10, misns1/4/7):
-# a sun due east 80 degrees up, no cast shadows, 256 cells per zone, and
-# value = clip(360 * lambert - 106, 56, 255) -- within 1-5 levels of every stock file
-# (misns4: 96% of cells exact). That is why stock LGTs never go below 56.
-REDUX_SUN_AZIMUTH_DEG = 90.0
-REDUX_SUN_ALTITUDE_DEG = 80.0
-REDUX_LGT_SCALE = 360.0
-REDUX_LGT_OFFSET = -106.0
-REDUX_LGT_FLOOR = 56
+from battlezone.terrain.lgt import (  # noqa: E402,F401  (Redux's bake lives in the core)
+    REDUX_LGT_FLOOR, REDUX_LGT_OFFSET, REDUX_LGT_SCALE, REDUX_SUN_ALTITUDE_DEG, REDUX_SUN_AZIMUTH_DEG,
+    bake_redux_lgt,
+)
 
 
 def compute_redux_lgt(heights: np.ndarray, zones_x: int, zones_z: int, lgt_zone_size: int = 256) -> np.ndarray:
-    """An LGT lit the way Redux's stock maps are (see the REDUX_* constants)."""
-    lambert = compute_lgt_lightmap(heights, zones_x, zones_z, lgt_zone_size=lgt_zone_size,
-                                   sun_azimuth_deg=REDUX_SUN_AZIMUTH_DEG,
-                                   sun_altitude_deg=REDUX_SUN_ALTITUDE_DEG, raw=True).astype(np.float64)
-    value = np.rint(REDUX_LGT_SCALE * lambert + REDUX_LGT_OFFSET)
-    return np.clip(value, REDUX_LGT_FLOOR, 255).astype(np.uint8)
+    """An LGT lit the way Redux's stock maps are (see battlezone.terrain.lgt.bake_redux_lgt)."""
+    return bake_redux_lgt(heights, zones_x, zones_z, lgt_zone_size)
 
 
 def compute_lgt_for_hg2(hg2: HG2Map, lgt_zone_size: int = 128) -> np.ndarray:
