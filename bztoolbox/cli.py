@@ -104,8 +104,9 @@ DELEGATES: Sequence[Delegate] = (
              "Convert Ogre .mesh/.mesh.xml to OBJ.", False, "OgreMeshTools"),
     Delegate("meshes", "normals", "bztoolbox.modules.meshes.recalculate_normals:main",
              "Recalculate normals in an Ogre .mesh.xml.", False, "OgreMeshTools"),
-    Delegate("meshes", "port-legacy", "battlezone.meshes.legacy_port:main",
-             "Port a Battlezone 1.5 .vdf/.sdf model to Redux .mesh/.skeleton/.material + textures.", True),
+    Delegate("meshes", "port-legacy", "bztoolbox.modules.meshes.port_legacy:main",
+             "Port Battlezone 1.5 .vdf/.sdf/.odf/.geo/.map files to Redux .mesh/.skeleton/.material + textures.",
+             True),
     Delegate("fonts", "dump-st", "bztoolbox.modules.fonts.dump_bzfont_st:main",
              "Dump stock bzfont.st sprite coordinates.", False, "Font Generator"),
 )
