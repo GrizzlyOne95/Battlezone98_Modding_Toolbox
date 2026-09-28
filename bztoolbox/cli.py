@@ -72,6 +72,8 @@ DELEGATES: Sequence[Delegate] = (
              "Diff BZCC ODF class labels against Redux.", True, "BZN Toolbox"),
     Delegate("bzn", "convert", "battlezone.bzn.version_convert:main",
              "Convert a Battlezone 1 BZN between 1.5 (1045) and Redux (2016), reporting every change.", True),
+    Delegate("bzn", "replace-class", "battlezone.bzn.class_replace:main",
+             "Preview or apply class-aware object record replacement in a Redux mission.", True),
     Delegate("terrain", "heightmap", "bztoolbox.modules.terrain_generator.heightmap_convert:main",
              "Convert legacy .HGT terrain to Redux .HG2 and back.", True),
     Delegate("terrain", "generate", "bztoolbox.modules.terrain_generator.cli:cli",
