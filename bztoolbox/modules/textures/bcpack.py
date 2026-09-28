@@ -69,8 +69,11 @@ def _mask_decode(values, mask):
     return ((raw.astype(np.uint32) * 255 + span // 2) // span).astype(np.uint8)
 
 
-def read_dds(path):
-    """-> (levels, info). levels is a list of HxWx4 uint8 RGBA arrays, mip 0 first."""
+def read_dds(path, max_levels=None):
+    """-> (levels, info). levels is a list of HxWx4 uint8 RGBA arrays, mip 0 first.
+
+    ``max_levels`` stops after that many levels (1: just the full-size image).
+    """
     with open(path, "rb") as fh:
         blob = fh.read()
     if blob[:4] != b"DDS " or len(blob) < 128:
@@ -88,6 +91,8 @@ def read_dds(path):
     if bits not in (8, 16, 24, 32):
         raise Unsupported("%d bits per pixel" % bits)
     levels_n = mipcount if (flags & DDSD_MIPMAPCOUNT) and mipcount else 1
+    if max_levels:
+        levels_n = min(levels_n, max_levels)
 
     bpp = bits // 8
     dt = {1: np.uint8, 2: "<u2", 4: "<u4"}.get(bpp)
