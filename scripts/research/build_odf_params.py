@@ -1,8 +1,10 @@
 """Regenerate the ODF lint data from the loader schema.
 
-Writes battlezone/validation/data/bzrODFparams.txt (keys per section) and
+Writes battlezone/validation/data/bzrODFparams.txt (keys per section),
 redux_odf_dead.json (sections Redux never reads, and keys that are dead or
-read only under another section, from the schema's dead_sections_and_keys).
+read only under another section, from the schema's dead_sections_and_keys)
+and redux_odf_classes.json (prototype class chain, labels and key defaults,
+used by the ODF explorer).
 
 With ``--source`` (a Battlezone_Source checkout) it also writes
 odf_key_hashes.json: the hash constants in the Redux and BZ2 decompiles. The
@@ -163,6 +165,49 @@ def build(schema: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+CLASSES_OUTPUT = OUTPUT.with_name("redux_odf_classes.json")
+_LITERAL_TEXT = re.compile(r"[\w.]+")
+
+
+def _default(key: dict, names: set) -> dict:
+    """``{"default": value}``, ``{"default_from": key}`` or ``{"default_note": text}`` (none: parent prototype)."""
+    value = key.get("default")
+    if value is None:
+        return {}
+    if isinstance(value, str) and value:
+        if value.lower() in names:
+            return {"default_from": value}
+        if not _LITERAL_TEXT.fullmatch(value):
+            return {"default_note": value}
+    return {"default": value}
+
+
+def classes(schema: dict) -> dict:
+    """Prototype classes for the ODF explorer: base class, section, label and the keys (with defaults) Redux reads.
+
+    Each constructor level reads its own section with the parent prototype's
+    fields as defaults; the recorded default is the value the class's own
+    prototype constructor compiles in.
+    """
+    out: dict[str, dict] = {}
+    for loader in schema["loaders"]:
+        name = loader.get("class") or ""
+        if not re.fullmatch(r"[A-Za-z]\w*Class", name) or not (loader.get("base_class") or loader.get("class_label")
+                                                                or loader.get("section")):
+            continue
+        keys = [k for k in loader.get("keys", ()) if k.get("present_redux") and not k["name"].startswith("unknown_")]
+        names = {k["name"].rstrip("*").lower() for k in keys}
+        entries = []
+        for key in keys:
+            family = _family(key)
+            entries.append({"name": f"{family}#" if family else key["name"].rstrip("*"), "type": key["type"],
+                            **_default(key, names)})
+        out[name] = {"base": loader.get("base_class") or "", "section": loader.get("section") or "",
+                     "label": loader.get("class_label") or "", "keys": entries}
+    return {"source": f"odf_loader_schema.json schema_version {schema.get('schema_version')}",
+            "inheritance": schema.get("inheritance", ""), "classes": out}
+
+
 HASH_OUTPUT = OUTPUT.with_name("odf_key_hashes.json")
 REDUX_DECOMP = ("BZ1/Redux/Raw .C",)
 BZ2_DECOMP = ("BZ2/_analysis/global_decompile/bzone_a130_best_effort",
@@ -201,7 +246,9 @@ def main(argv=None) -> int:
     args.output.write_text(build(schema), encoding="utf-8", newline="\n")
     dead_output = args.output.with_name(DEAD_OUTPUT.name)
     dead_output.write_text(json.dumps(dead_entries(schema), indent=1) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {args.output} and {dead_output}")
+    classes_output = args.output.with_name(CLASSES_OUTPUT.name)
+    classes_output.write_text(json.dumps(classes(schema), indent=1) + "\n", encoding="utf-8", newline="\n")
+    print(f"wrote {args.output}, {dead_output} and {classes_output}")
     if args.source:
         hash_output = args.output.with_name(HASH_OUTPUT.name)
         hash_output.write_text(json.dumps(key_hashes(args.source), separators=(",", ":")) + "\n",
