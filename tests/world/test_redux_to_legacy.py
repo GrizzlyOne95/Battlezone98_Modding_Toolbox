@@ -16,7 +16,7 @@ from battlezone.images.sprites import SpriteEntry, read_sta, read_stb, write_stb
 from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world.redux_to_legacy import (
     LegacyExportOptions, defined_slots, encode_indexed_map, encode_rgb_map, mat_slot_usage, port_redux_to_legacy,
-    rewrite_trn_for_legacy,
+    rewrite_trn_for_legacy, star_dome_values,
 )
 
 MARS = ct.palette_array(get_stock_act_bytes("mars.act"))
@@ -185,6 +185,16 @@ class TRNRewriteTests(unittest.TestCase):
         text, changes = rewrite_trn_for_legacy("[Size]\r\r\nWidth=1280\r\r\n\r\r\n[Sky]\r\r\n")
         self.assertEqual(text, "[Size]\r\nWidth=1280\r\n\r\n[Sky]\r\n")
         self.assertTrue(any("CR CR LF" in c for c in changes))
+
+    def test_star_dome_is_scaled_to_stock_radius(self):
+        text = "[Stars]\r\nRadius\t\t= 4096\r\nTexture05   = a.map\r\nSize05      = 8192\r\nSize01 = 100\r\n"
+        values = star_dome_values(TRNDocument.parse(text))
+        self.assertEqual(values, {("stars", "radius"): "1000", ("stars", "size05"): "2000",
+                                  ("stars", "size01"): "24"})
+        out, _ = rewrite_trn_for_legacy(text, values=values)
+        self.assertIn("Radius\t\t= 1000", out)
+        self.assertIn("Size05      = 2000", out)
+        self.assertEqual(star_dome_values(TRNDocument.parse("[Stars]\nRadius=1000\nSize00=200\n")), {})
 
     def test_colour_section_is_added_when_missing(self):
         text, _ = rewrite_trn_for_legacy("[Size]\nWidth=1280\n", color={"Palette": "x.act"})
