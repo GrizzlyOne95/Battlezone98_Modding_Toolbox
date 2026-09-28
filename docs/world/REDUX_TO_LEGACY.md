@@ -21,6 +21,7 @@ ready for 1.5's `addon` folder. A report, `redux_to_legacy_report.txt`, is writt
 | TRN | TRN | `[Atlases]` is removed. A level-0 entry whose section lacks levels 1–3 gets them (`SolidA0 = XX00S0.MAP` → `SolidA1..3`). `[Color]` names the new palette and tables. Everything else stays as written. `CR CR LF` line endings are repaired. |
 | (no usable ACT) | ACT | See **Palette** below. |
 | stock LUM/TBL/ALB | `<palette>.lum/.tbl/.alb` | Transferred onto a new palette from the base world's tables in the game's `bzone.zfs`. |
+| `[Stars]` dome | `[Stars]` dome | 1.5 (`Submit_Stars`) draws each star as a camera polygon `Radius` away, `SizeNN / 2` across. Every stock TRN uses 1000. A larger Redux dome, such as ROTBD's skybox of 8192 faces at 4096, is not drawn, so `Radius` and every `SizeNN` are scaled to a radius of 1000. This keeps each face's angular size. |
 | Sky/backdrop, `[Clouds]`, `[Stars]` textures with a material in the folder | MAPs, 256 px | Clouds and stars keep index 0 as clear (alpha < 128). Names without a material are 1.5 stock files and are left alone. |
 | HG2 | HGT | The legacy vertices (`convert_hg2_to_hgt`). The report says how much detail between vertices had no place in the 10 m grid. Flags come from a same-named HGT when one is present. |
 | LGT (256 cells per zone) | LGT (128 cells per zone, with the border block) | Every other cell. Checked against stock misn05/misns1, where Redux's relit LGTs correlate 0.97 with 1.5's. |

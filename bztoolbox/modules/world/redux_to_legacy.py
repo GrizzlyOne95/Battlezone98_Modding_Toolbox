@@ -46,7 +46,7 @@ from battlezone.terrain.atlas import (
     AtlasCell, MaterialDef, read_atlas_csv, read_atlas_default, read_materials, tile_family, tile_level,
 )
 from battlezone.terrain.palettes import get_stock_act_bytes, has_stock_palette
-from battlezone.terrain.trn import TRNDocument
+from battlezone.terrain.trn import TRNDocument, parse_number
 
 LEVELS = 4
 TILE_SIZES = (128, 256, 512)
@@ -716,10 +716,10 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
         report.warnings.append(f"SunTexture {sun} is not a 1.5 sprite ({why}); set to the stock sun.0")
 
     # --- TRNs ----------------------------------------------------------------
-    for path in trn_paths:
+    for path, doc in zip(trn_paths, docs):
         text = path.read_bytes().decode("cp1252", errors="replace")
         rewritten, changes = rewrite_trn_for_legacy(text, color=color, extra=fills.get(str(path).lower()),
-                                                    values=values)
+                                                    values={**values, **star_dome_values(doc)})
         (output / path.name).write_bytes(rewritten.encode("cp1252", errors="replace"))
         report.written.append(path.name)
         report.notes += [f"{path.name}: {c}" for c in changes]
@@ -885,6 +885,28 @@ LEGACY_INSTALL_GUESSES = (r"C:\Program Files (x86)\Battlezone", r"C:\Program Fil
                           r"C:\GOG Games\Battlezone", r"C:\Games\Battlezone")
 SPRITE_SHEET_MAX = 256              # 1.5's stock sprite sheets are 128 px; 1998 cards stop at 256
 SUN_SPRITE_SIZE = 64                # sun.0 is 63x63 and is drawn at its table size in screen pixels
+STAR_DOME_RADIUS = 1000             # [Stars] Radius in every stock 1.5 TRN (and the engine default)
+
+
+def star_dome_values(doc: TRNDocument) -> Dict[Tuple[str, str], str]:
+    """``[Stars]`` Radius/SizeNN scaled down to 1.5's dome, keeping every angular size.
+
+    1.5 (``Submit_Stars``) draws each star as a camera polygon ``Radius`` away,
+    ``Size / 2`` across; the stock dome is 1000. Redux skyboxes are built
+    further out (ROTBD: a cube of 8192 faces at 4096), which 1.5 does not draw.
+    """
+    stars = doc.section("stars")
+    radius = stars.number("radius") if stars is not None else None
+    if not radius or radius <= STAR_DOME_RADIUS:
+        return {}
+    factor = STAR_DOME_RADIUS / radius
+    out = {("stars", "radius"): str(STAR_DOME_RADIUS)}
+    for entry in stars.entries:
+        if re.fullmatch(r"size\d+", entry.key, re.IGNORECASE):
+            size = parse_number(entry.value)
+            if size is not None:
+                out[("stars", entry.key.lower())] = str(max(1, int(round(size * factor))))
+    return out
 
 
 def default_legacy_dir() -> Optional[str]:
