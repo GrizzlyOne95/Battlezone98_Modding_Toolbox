@@ -19,6 +19,7 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **World & Terrain** | Build and convert terrain, create atlases, generate heightmaps, auto-paint maps, work with skies, and preview missions. |
 | **Textures & Graphics** | Convert and batch-process textures, edit ACT palettes, work with MAP/LGT/DXTBZ2 files, convert Battlezone II Softimage `.pic` textures, generate fonts, and create holographic text assets. |
 | **Models & Meshes** | Inspect Ogre meshes, recalculate normals, preview models, and export static meshes to OBJ. |
+| **Asset Porting** | Convert Battlezone 1.5 VDF, SDF, GEO, ODF and MAP assets to Redux individually, in a folder batch, or by dropping files and folders onto the GUI. |
 | **Audio** | Prepare Battlezone-style radio voiceovers, engine/turbo WAVs, soundtrack OGGs, and timing manifests. |
 | **Localization** | Scan mod ODFs for player-visible names and build Battlezone-compatible localization table entries. |
 | **Archives** | Browse, search, extract, verify, and build ZFS archives (including supported legacy and encrypted formats) and Battlezone II / BZ2R PAK texture packs. |

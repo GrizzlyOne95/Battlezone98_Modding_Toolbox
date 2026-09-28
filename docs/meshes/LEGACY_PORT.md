@@ -24,8 +24,12 @@ stock names Redux asks for, see below).
 
 Use it from:
 
-* **Assets > Legacy Model Port** in the app (a model file dropped on the
-  Model field is picked up when tkinterdnd2 is installed);
+* **Asset Porting > 1.5 → Redux Assets** in the app: select a VDF, SDF, GEO,
+  ODF or MAP directly, or choose a folder to port all supported files. Folder
+  batches place each result under `<output>/<relative path>/<name>_<type>/` to
+  avoid collisions. The optional **Include subfolders** switch scans
+  recursively. When tkinterdnd2 is installed, dropping a supported file,
+  several files, or one folder on the page starts the matching port at once;
 * **drag and drop**: drop any number of `.vdf`/`.sdf`/`.odf`/`.geo`/`.map`
   files on `scripts/meshes/port_legacy_drop.cmd`; each converts into a
   `<name>_redux` folder beside itself, with stock parts and textures taken
