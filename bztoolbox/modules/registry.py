@@ -23,7 +23,7 @@ SECTIONS: Sequence[tuple[str, str]] = (
     ("missions", "Missions"),
     ("world", "World & Terrain"),
     ("assets", "Assets"),
-    ("porting", "Asset Porting"),
+    ("porting", "1.5 Asset Porting"),
     ("archives", "Archives"),
     ("tools", "Tools"),
     ("settings", "Settings"),
@@ -117,7 +117,7 @@ PAGES: Sequence[PageSpec] = (
              "Procedural HG2 terrain with live HG2/LGT preview.",
              f"{_L}:terrain_generator", kind="legacy", package="bztoolbox.modules.terrain_generator", origin="HeightmapGen", keywords=("hg2", "lgt", "heightmap")),
     PageSpec("world.heightmap", "world", "Heightmap Convert",
-             "Legacy Battlezone .HGT to Redux .HG2 and back, byte-exact for HG2s cooked from an HGT.",
+             "Legacy HGT ↔ Redux HG2 conversion and LGT lighting rebake from HG2 terrain.",
              f"{_P}.heightmap_convert:HeightmapConvertPage", package="bztoolbox.modules.terrain_generator",
              keywords=("hgt", "hg2", "heightmap", "legacy", "1.5")),
     PageSpec("world.tunnel", "world", "Tunnels",
@@ -153,7 +153,7 @@ PAGES: Sequence[PageSpec] = (
              "Radio VO mastering, engine WAV conversion, music OGG and timing manifests.",
              f"{_L}:audio", kind="legacy", package="bztoolbox.modules.audio", origin="AudioTool"),
 
-    # --- Asset Porting ----------------------------------------------------
+    # --- 1.5 Asset Porting -----------------------------------------------
     PageSpec("assets.legacy_model_port", "porting", "1.5 → Redux Assets",
              "Port VDF, SDF, GEO and related Battlezone 1.5 assets to Redux, one file or a folder batch.",
              f"{_P}.legacy_model_port:LegacyModelPortPage",
