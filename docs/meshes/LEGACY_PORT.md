@@ -24,7 +24,7 @@ stock names Redux asks for, see below).
 
 Use it from:
 
-* **Asset Porting > 1.5 → Redux Assets** in the app: select a VDF, SDF, GEO,
+* **1.5 Asset Porting > 1.5 → Redux Assets** in the app: select a VDF, SDF, GEO,
   ODF or MAP directly, or choose a folder to port all supported files. Folder
   batches place each result under `<output>/<relative path>/<name>_<type>/` to
   avoid collisions. The optional **Include subfolders** switch scans

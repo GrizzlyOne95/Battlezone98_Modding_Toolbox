@@ -1,4 +1,4 @@
-"""Asset Porting: Battlezone 1.5 VDF/SDF/GEO assets to Redux Ogre assets."""
+"""1.5 Asset Porting: VDF/SDF/GEO assets to Redux Ogre assets."""
 
 from __future__ import annotations
 
@@ -87,7 +87,8 @@ class LegacyModelPortPage(ScrollableFrame):
         body = ttk.Frame(self.body, style="Toolbox.TFrame", padding=(18, 4, 18, 18))
         body.pack(fill="both", expand=True)
         single = Card(body, "Single asset", "Choose a VDF, SDF or GEO directly; ODF and MAP are also supported. "
-                      "An ODF ports its referenced model; a MAP ports one texture.")
+                      "An ODF ports its referenced model; a MAP creates a Redux model diffuse texture. "
+                      "For general MAP ↔ PNG conversion, use Assets › Textures & Images.")
         single.pack(fill="x", pady=(0, 12))
         form = single.body
         quick = ttk.Frame(form, style="Toolbox.Surface.TFrame")

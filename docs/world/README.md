@@ -7,7 +7,7 @@ A powerful world building tool that auto creates custom atlases, material files,
 
 ## BZ2/BZCC Terrain Port (in progress)
 
-The dedicated **BZ2 → BZ1 Map Port** tab can inspect TERR v3–v5 files. Its
+The dedicated **BZ2/BZCC → Redux Terrain** tab can inspect TERR v3–v5 files. Its
 resolved bundle action takes the companion TRN and texture assets, then writes
 Redux HG2, MAT, atlas, TRN, and an object-offset report. Target MinX/MinZ
 default to `0,0` so centred BZCC maps can be placed in the Redux world. The
