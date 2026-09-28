@@ -57,7 +57,7 @@ SKY_SECTIONS = {"sky": "sky", "clouds": "cloud", "stars": "star", "starlist": "s
 
 # Redux-only files that have no use in 1.5.
 REDUX_ONLY = {".ini", ".material", ".dds", ".csv", ".mesh", ".skeleton", ".program", ".cg", ".hlsl", ".glsl",
-              ".png", ".tga", ".jpg", ".jpeg", ".paint", ".xcf", ".psd", ".dll", ".exe", ".zip", ".ogg",
+              ".png", ".tga", ".jpg", ".jpeg", ".paint", ".xcf", ".psd", ".dll", ".exe", ".zip", ".ogg", ".sta",
               ".particle", ".compositor", ".fontdef", ".overlay", ".log"}
 HANDLED = {".trn", ".hg2", ".hgt", ".lgt", ".bzn", ".act", ".lum", ".tbl", ".alb"}
 REPORT_NAME = "redux_to_legacy_report.txt"
@@ -78,6 +78,8 @@ class LegacyExportOptions:
     bzn: bool = True
     allow_bzn_loss: bool = False
     missing_tiles: str = "default"        # MAT slots the TRN lacks: default (Redux's tile) | solid | none
+    sprites: bool = True                  # Redux .sta sprites (e.g. a custom SunTexture) -> 1.5 sprite tables
+    legacy_dir: Optional[str] = None      # Battlezone 1.5 install: the stock sprite tables to extend
 
 
 @dataclass
@@ -149,14 +151,16 @@ def _newline(text: str) -> str:
 
 
 def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None, levels: int = LEVELS,
-                           extra: Optional[Dict[int, List[Tuple[str, str]]]] = None) -> Tuple[str, List[str]]:
+                           extra: Optional[Dict[int, List[Tuple[str, str]]]] = None,
+                           values: Optional[Dict[Tuple[str, str], str]] = None) -> Tuple[str, List[str]]:
     """Redux TRN text -> 1.5 TRN text, plus a list of what changed.
 
     Drops ``[Atlases]``; after each level-0 texture entry adds the level 1..3
     entries its section lacks; sets the ``[Color]`` keys in ``color``
     (Palette/Luma/Translucency/Alpha), adding the section if needed; appends
     ``extra`` entries (key, value) to ``[TextureTypeN]`` sections, adding the
-    sections that do not exist. Comments and layout of everything else are kept.
+    sections that do not exist; ``values`` {(section, key): value} (lower-case)
+    replaces existing entries. Comments and layout of everything else are kept.
     """
     changes: List[str] = []
     if "\r\r\n" in text:
@@ -231,6 +235,11 @@ def rewrite_trn_for_legacy(text: str, *, color: Optional[Dict[str, str]] = None,
         if section.lower() == "atlases":
             continue
         match = _ENTRY.match(raw)
+        replacement = (values or {}).get((section.lower(), match.group(2).strip().lower())) if match else None
+        if replacement is not None and match.group(4) != replacement:
+            changes.append(f"[{section}] {match.group(2).strip()}: {match.group(4)} -> {replacement}")
+            raw = f"{match.group(1)}{match.group(2)}{match.group(3)}{replacement}{match.group(5)}"
+            match = _ENTRY.match(raw)
         if match and section.lower() == "color":
             key = match.group(2).strip()
             wanted = next((k for k in color if k.lower() == key.lower()), None)
@@ -613,11 +622,18 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
                                                         Image.Resampling.LANCZOS)
                   for name, sky in skies.items()}
 
+    sun_names = {d.get("sky", "SunTexture").strip().lower() for d in docs if (d.get("sky", "SunTexture") or "").strip()}
+    legacy_dir = Path(options.legacy_dir) if options.legacy_dir else None
+    stock_sprites = stock_sprite_tables(legacy_dir) if legacy_dir else None
+    sheets = _plan_sprites(source, finder, report, sun_names) if options.sprites else []
+
     def samples() -> np.ndarray:
-        # A sky fills half the screen, so it gets the weight of several tiles.
+        # A sky fills half the screen, so it gets the weight of several tiles; a sun is small but bright.
         sky = [img for n, img in sky_images.items() if skies[n].kind == "sky"]
+        suns = [s.image for s in sheets if s.has_sun]
         return np.vstack([ct.sample_pixels(base_tiles.values()),
-                          ct.sample_pixels(sky, per_image=4096 * max(4, len(base_tiles) // 4), seed=1)])
+                          ct.sample_pixels(sky, per_image=4096 * max(4, len(base_tiles) // 4), seed=1),
+                          ct.sample_pixels(suns, per_image=2048, seed=2)])
 
     # --- palette and tables -------------------------------------------------
     indexed = options.map_format == "indexed"
@@ -686,10 +702,24 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
         report.notes.append(f"{sky.name}: {sky.kind} from {sky.texture.name}"
                             + (" (index 0 is clear)" if clear and indexed else ""))
 
+    # --- sprites --------------------------------------------------------------
+    known_sprites = _write_sprites(sheets, stock_sprites, output, palette, options, report, sun_names)
+    values: Dict[Tuple[str, str], str] = {}
+    for sun in sorted(sun_names):
+        if known_sprites is not None and sun in known_sprites:
+            continue
+        if known_sprites is None and sun == "sun.0":
+            continue
+        values[("sky", "suntexture")] = "sun.0"
+        why = ("its sprite could not be added: " + ("no 1.5 install with the stock sprite tables was found"
+                                                    if stock_sprites is None else "no .sta entry or texture for it"))
+        report.warnings.append(f"SunTexture {sun} is not a 1.5 sprite ({why}); set to the stock sun.0")
+
     # --- TRNs ----------------------------------------------------------------
     for path in trn_paths:
         text = path.read_bytes().decode("cp1252", errors="replace")
-        rewritten, changes = rewrite_trn_for_legacy(text, color=color, extra=fills.get(str(path).lower()))
+        rewritten, changes = rewrite_trn_for_legacy(text, color=color, extra=fills.get(str(path).lower()),
+                                                    values=values)
         (output / path.name).write_bytes(rewritten.encode("cp1252", errors="replace"))
         report.written.append(path.name)
         report.notes += [f"{path.name}: {c}" for c in changes]
@@ -851,6 +881,162 @@ def _plan_mat_fills(doc: TRNDocument, source: Path, layout: Optional[_Atlas], op
     return extra, new_tiles
 
 
+LEGACY_INSTALL_GUESSES = (r"C:\Program Files (x86)\Battlezone", r"C:\Program Files\Battlezone",
+                          r"C:\GOG Games\Battlezone", r"C:\Games\Battlezone")
+SPRITE_SHEET_MAX = 256              # 1.5's stock sprite sheets are 128 px; 1998 cards stop at 256
+SUN_SPRITE_SIZE = 64                # sun.0 is 63x63 and is drawn at its table size in screen pixels
+
+
+def default_legacy_dir() -> Optional[str]:
+    """A Battlezone 1.5 install (bzone.exe beside its ZFS archives), if one is in a usual place."""
+    for guess in LEGACY_INSTALL_GUESSES:
+        folder = Path(guess)
+        if (folder / "bzone.exe").is_file() and any(folder.glob("*.zfs")):
+            return str(folder)
+    return None
+
+
+def stock_sprite_tables(legacy_dir: Optional[Path]) -> Optional[Dict[str, List["SpriteEntry"]]]:
+    """``{"spritea.stb": [...], "sprite8.stb": [...]}`` from a 1.5 install's archives."""
+    from battlezone.archives.zfs import ZFSArchive
+    from battlezone.images.sprites import SPRITE_TABLES, read_stb
+
+    if not legacy_dir or not Path(legacy_dir).is_dir():
+        return None
+    found: Dict[str, List] = {}
+    archives = sorted(Path(legacy_dir).glob("*.zfs"), key=lambda p: (p.name.lower() != "bzone152.zfs", p.name.lower()))
+    for path in archives:
+        try:
+            archive = ZFSArchive(path)
+            for entry in archive:
+                name = entry.name.lower()
+                if name in SPRITE_TABLES and name not in found:
+                    found[name] = read_stb(archive.read(entry.name))
+        except (OSError, ValueError, KeyError):
+            continue
+    return found if len(found) == len(SPRITE_TABLES) else None
+
+
+@dataclass
+class _SpriteSheet:
+    texture: Path
+    image: Image.Image
+    entries: List["StaEntry"]
+    has_sun: bool
+
+
+def _plan_sprites(source: Path, finder: _Finder, report: LegacyExportReport, sun_names: set) -> List[_SpriteSheet]:
+    """Redux .sta entries in the folder, grouped by the texture of their material."""
+    from battlezone.images.sprites import read_sta
+
+    sta_files = sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".sta")
+    if not sta_files:
+        if any(name not in ("", "sun.0") for name in sun_names):
+            report.notes.append("no .sta sprite table in the folder for the custom SunTexture")
+        return []
+    by_texture: Dict[Path, List] = {}
+    missing = []
+    for path in sta_files:
+        for entry in read_sta(path.read_text(encoding="cp1252", errors="replace")):
+            material = finder.material(entry.material)
+            texture = finder.texture(material.diffuse) if material is not None and material.diffuse else None
+            if texture is None:
+                missing.append(entry.name)
+                continue
+            by_texture.setdefault(texture, []).append(entry)
+    if missing:
+        report.notes.append(f"{len(missing)} sprite(s) in {', '.join(p.name for p in sta_files)} have no material "
+                            f"or texture in the folder and were left out (add their folder with --search): "
+                            + ", ".join(missing[:8]) + (" ..." if len(missing) > 8 else ""))
+    return [_SpriteSheet(texture, _open_image(texture), entries,
+                         any(e.name.lower() in sun_names for e in entries))
+            for texture, entries in by_texture.items()]
+
+
+def _pow2(value: float) -> int:
+    side = 8
+    while side < value and side < SPRITE_SHEET_MAX:
+        side *= 2
+    return side
+
+
+def _write_sprites(sheets: List[_SpriteSheet], stock: Optional[Dict[str, List]], output: Path, palette: np.ndarray,
+                   options: LegacyExportOptions, report: LegacyExportReport, sun_names: set) -> Optional[set]:
+    """Sprite sheet MAPs and the stock tables plus the Redux entries. Returns the sprite names 1.5 will know."""
+    from battlezone.images.sprites import MAX_SPRITES, SpriteEntry, find_entry, write_stb
+
+    if stock is None:
+        if sheets:
+            report.warnings.append(f"{sum(len(s.entries) for s in sheets)} Redux sprite(s) were not converted: "
+                                   "no Battlezone 1.5 install with the stock sprite tables was found (set the 1.5 "
+                                   "game folder); 1.5 draws unknown sprites as nothing")
+        return None
+    stock_sun = find_entry(stock["spritea.stb"], "sun.0")
+    taken = {e.texture.lower() for table in stock.values() for e in table}
+
+    def unique(stem: str) -> str:
+        name, n = stem[:8], 0
+        while name in taken:
+            n += 1
+            name = f"{stem[:8 - len(str(n))]}{n}"
+        taken.add(name)
+        return name
+
+    added: Dict[str, List[SpriteEntry]] = {"spritea.stb": [], "sprite8.stb": []}
+    for sheet in sheets:
+        # Sizes follow the .sta's own pixel space (its declared image size), which is what the
+        # sprite rectangles, and so the on-screen sizes, were authored in, not the texture's resolution.
+        width, height = sheet.entries[0].image_width, sheet.entries[0].image_height
+        scale = min(1.0, SPRITE_SHEET_MAX / max(width, height, 1))
+        for entry in (e for e in sheet.entries if e.name.lower() in sun_names):
+            scale = min(scale, SUN_SPRITE_SIZE / max(entry.width, entry.height, 1))
+        sheet_w, sheet_h = _pow2(width * scale), _pow2(height * scale)
+        stem = re.sub(r"[^A-Za-z0-9_]", "", sheet.texture.stem).lower() or "sprite"
+        image = sheet.image.resize((sheet_w, sheet_h), Image.Resampling.LANCZOS)   # sprite MAPs are top-down
+        # Direct3D draws sprites alpha-blended, and the stock 16-bit sheets are A4R4G4B4, so the
+        # spritea.stb sheet keeps the alpha; the software renderer only has the index-255 key.
+        d3d, soft = unique(stem), unique(stem[:7] + "8")
+        (output / f"{d3d.upper()}.MAP").write_bytes(encode_rgb_map(image, transparent=True))
+        (output / f"{soft.upper()}.MAP").write_bytes(encode_indexed_map(
+            ct.quantize(image, palette, ct.TERRAIN_INDICES, dither=options.dither, transparent_index=255)))
+        report.written += [f"{d3d.upper()}.MAP", f"{soft.upper()}.MAP"]
+        for entry in sheet.entries:
+            fx, fy = sheet_w / entry.image_width, sheet_h / entry.image_height
+            existing = find_entry(stock["spritea.stb"], entry.name)
+            if entry.name.lower() in sun_names:
+                flags = stock_sun.flags if stock_sun else 0
+            else:
+                flags = existing.flags & ~0xF if existing else 0
+            rect = dict(u=int(round(entry.u * fx)), v=int(round(entry.v * fy)),
+                        width=max(1, int(round(entry.width * fx))), height=max(1, int(round(entry.height * fy))))
+            added["spritea.stb"].append(SpriteEntry(entry.name, d3d, flags=flags, **rect))
+            added["sprite8.stb"].append(SpriteEntry(entry.name, soft, flags=flags, **rect))
+        report.notes.append(f"sprite sheet {sheet.texture.name} -> {d3d.upper()}.MAP (A4R4G4B4) and "
+                            f"{soft.upper()}.MAP (8-bit, software), {sheet_w}x{sheet_h}: "
+                            + ", ".join(e.name for e in sheet.entries[:6]) + (" ..." if len(sheet.entries) > 6 else ""))
+    if not added["spritea.stb"]:
+        return {e.name.lower() for e in stock["spritea.stb"]}
+    known = set()
+    for table_name, table in stock.items():
+        merged = list(table)
+        index = {e.name.lower(): i for i, e in enumerate(merged)}
+        for entry in added[table_name]:
+            if entry.name.lower() in index:
+                merged[index[entry.name.lower()]] = entry
+            else:
+                index[entry.name.lower()] = len(merged)
+                merged.append(entry)
+        if len(merged) > MAX_SPRITES:
+            report.warnings.append(f"{table_name}: {len(merged)} sprites; 1.5 reads the first {MAX_SPRITES}")
+        (output / table_name).write_bytes(write_stb(merged))
+        report.written.append(table_name)
+        known |= {e.name.lower() for e in merged[:MAX_SPRITES]}
+    report.notes.append(f"{len(added['spritea.stb'])} Redux sprite(s) added to 1.5's stock sprite tables (spritea.stb, sprite8.stb). "
+                        "These replace the stock tables for everything while installed; merge them with any other "
+                        "mod's tables")
+    return known
+
+
 def _port_heightmap(path: Path, output: Path, report: LegacyExportReport) -> None:
     from battlezone.terrain.hg2 import read_hg2_header
     from bztoolbox.modules.terrain_generator.heightmap_convert import convert_hg2_to_hgt
@@ -937,6 +1123,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dither", action="store_true", help="Floyd-Steinberg dithering when quantising")
     parser.add_argument("--no-tables", action="store_true", help="do not write LUM/TBL/ALB for a new palette")
     parser.add_argument("--game-dir", help="Battlezone 98 Redux install (default: detected)")
+    parser.add_argument("--legacy-dir", help="Battlezone 1.5 install, for the stock sprite tables (default: detected)")
+    parser.add_argument("--no-sprites", action="store_true", help="do not convert .sta sprites (a custom SunTexture "
+                                                                  "becomes sun.0)")
     parser.add_argument("--search", action="append", default=[], metavar="DIR",
                         help="more folders with materials, CSVs, textures or ODFs (repeatable)")
     parser.add_argument("--no-heightmaps", action="store_true", help="leave HG2/LGT alone")
@@ -954,7 +1143,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         tile_size=args.tile_size, map_format=args.map_format, palette=args.palette, base_world=args.base_world,
         dither=args.dither, color_tables=not args.no_tables, game_dir=args.game_dir or _default_game_dir(),
         search_dirs=tuple(args.search), heightmaps=not args.no_heightmaps, bzn=not args.no_bzn,
-        allow_bzn_loss=args.allow_bzn_loss, missing_tiles=args.missing_tiles)
+        allow_bzn_loss=args.allow_bzn_loss, missing_tiles=args.missing_tiles, sprites=not args.no_sprites,
+        legacy_dir=args.legacy_dir or default_legacy_dir())
     try:
         report = port_redux_to_legacy(args.source, args.output, options, log=lambda m: print(m, flush=True))
     except (OSError, ValueError) as exc:
