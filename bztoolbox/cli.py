@@ -76,6 +76,8 @@ DELEGATES: Sequence[Delegate] = (
              "Preview or apply class-aware object record replacement in a Redux mission.", True),
     Delegate("terrain", "heightmap", "bztoolbox.modules.terrain_generator.heightmap_convert:main",
              "Convert legacy .HGT terrain to Redux .HG2 and back.", True),
+    Delegate("terrain", "relight", "bztoolbox.modules.terrain_generator.relight:main",
+             "Rebake .lgt light maps from their .hg2 terrain with Redux's stock lighting.", True),
     Delegate("terrain", "generate", "bztoolbox.modules.terrain_generator.cli:cli",
              "Generate an HG2 heightmap (and optional LGT/previews).", False, "HeightmapGen"),
     Delegate("terrain", "paint", "bztoolbox.modules.world.bzpaint:main",

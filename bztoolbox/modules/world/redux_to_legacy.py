@@ -756,40 +756,7 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
     return report
 
 
-_SLOT_KEY = re.compile(r"^(solid|capto(\d)_|diagonalto(\d)_)([a-d])0$", re.IGNORECASE)
-_KIND_NAMES = {"S": "Solid", "C": "CapTo", "D": "DiagonalTo"}
-
-
-def defined_slots(doc: TRNDocument) -> set:
-    """``(type, kind, next, variant)`` slots a TRN defines at level 0; kind is S(olid), C(ap) or D(iagonal)."""
-    slots = set()
-    for type_index, section in doc.texture_types().items():
-        for entry in section.entries:
-            match = _SLOT_KEY.match(entry.key.strip())
-            if not match or not entry.value.strip():
-                continue
-            if match.group(1).lower() == "solid":
-                kind, other = "S", type_index
-            else:
-                kind, other = ("C", int(match.group(2))) if match.group(2) else ("D", int(match.group(3)))
-            slots.add((type_index, kind, other, "abcd".index(match.group(4).lower())))
-    return slots
-
-
-def mat_slot_usage(entries: np.ndarray) -> Dict[Tuple[int, str, int, int], int]:
-    """Cells per ``(type, kind, next, variant)`` in a MAT, the way 1.5 looks tiles up."""
-    entries = np.asarray(entries, dtype=np.uint16)
-    base, other = entries >> 12, (entries >> 8) & 15
-    cap, variant = (entries >> 7) & 1, entries & 3
-    kind = np.where(base == other, 0, np.where(cap == 1, 1, 2))
-    code = ((base.astype(np.int64) * 16 + other) * 4 + kind) * 4 + variant
-    values, counts = np.unique(code, return_counts=True)
-    out = {}
-    for value, count in zip(values.tolist(), counts.tolist()):
-        variant, value = value % 4, value // 4
-        kind, value = "SCD"[value % 4], value // 4
-        out[(value // 16, kind, value % 16, variant)] = count
-    return out
+from battlezone.terrain.mat import _KIND_NAMES, defined_slots, mat_slot_usage  # noqa: E402,F401
 
 
 def _level_name(level0: str, level: int) -> str:

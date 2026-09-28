@@ -7,6 +7,8 @@ A fix is ``(action, old, new, label)``:
 ``remove-line``     the line is deleted (an ignored key whose correct twin is
                     already set in the section)
 ``rename-section``  the ``[old]`` header on the line becomes ``[new]``
+``rebake-lgt``      a whole-file fix: the LGT ``new`` is rebaked from the HG2 ``old``
+                    (Redux stock lighting); the line is ignored
 
 Before editing, each fix checks the line still holds what was validated, so a
 file changed since the scan is never edited blindly. Originals are copied to
@@ -24,6 +26,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 ACTIONS = ("rename-key", "remove-line", "rename-section")
+FILE_ACTIONS = ("rebake-lgt",)
 
 
 class FixError(Exception):
@@ -72,9 +75,13 @@ def apply_fixes(root: str | os.PathLike, fixes: Iterable[Tuple[str, int, Sequenc
     """
     root = Path(root)
     by_file: dict = {}
+    whole_file = []
     for rel, line, fix in fixes:
-        by_file.setdefault(rel, []).append((int(line), tuple(fix)))
-    changed = []
+        if fix and fix[0] in FILE_ACTIONS:
+            whole_file.append(tuple(fix))
+        else:
+            by_file.setdefault(rel, []).append((int(line), tuple(fix)))
+    changed = _apply_file_fixes(root, whole_file, backup_dir)
     for rel, items in sorted(by_file.items()):
         path = (root / rel).resolve()
         if root.resolve() not in path.parents:
@@ -94,4 +101,34 @@ def apply_fixes(root: str | os.PathLike, fixes: Iterable[Tuple[str, int, Sequenc
         tmp.write_bytes("".join(lines).encode("latin-1"))
         os.replace(tmp, path)
         changed.append(rel)
+    return changed
+
+
+def _inside(root: Path, rel: str) -> Path:
+    path = (root / rel).resolve()
+    if root.resolve() not in path.parents:
+        raise FixError(f"{rel} is outside the project")
+    return path
+
+
+def _apply_file_fixes(root: Path, fixes: List[tuple], backup_dir) -> List[str]:
+    from battlezone.terrain.lgt import rebake_lgt_file
+
+    changed = []
+    for fix in dict.fromkeys(fixes):                    # a shared LGT can be listed twice
+        action, source, target = fix[0], fix[1], fix[2]
+        if action != "rebake-lgt":
+            raise FixError(f"Unknown fix action {action!r}")
+        hg2, lgt = _inside(root, source), _inside(root, target)
+        if not hg2.is_file():
+            raise FixError(f"{source} no longer exists. Run validation again before fixing.")
+        if backup_dir is not None and lgt.is_file():
+            backup = Path(backup_dir) / target
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(lgt, backup)
+        try:
+            rebake_lgt_file(hg2, lgt)
+        except (OSError, ValueError) as exc:
+            raise FixError(f"{target}: {exc}") from None
+        changed.append(target)
     return changed

@@ -15,6 +15,8 @@ in separate tools:
 * ``models``     - legacy ``.geo``/``.vdf``/``.sdf`` and Ogre ``.mesh`` files
   (BZ98R Blender ToolKit rules)
 * ``upload-rules`` - folder and file-name rules of the official Redux uploader
+* ``lgt``, ``tiles``, ``sprites`` - terrain light maps, TRN tile coverage and sky sprites
+  (:mod:`battlezone.validation.terrain_checks`)
 
 Every check reports :class:`Issue` records with one shared severity scale.
 """
@@ -30,6 +32,7 @@ from battlezone.bzn.scan import STOCK_SET, BZNParser
 from battlezone.odf.validator import ODFIssue, parse_odf, validate_documents
 from battlezone.validation.mod_scanner import ModScanner
 from battlezone.validation.models import check_models
+from battlezone.validation.terrain_checks import check_lgt, check_sprites, check_tiles
 from battlezone.validation.upload_rules import check_upload_rules
 
 SEVERITIES = ("error", "warning", "info")
@@ -249,6 +252,11 @@ CHECKS: dict[str, Check] = {check.id: check for check in (
     Check("odf-lint", "ODF field lint", "Class headers, unknown and missing fields.", _check_odf_lint),
     Check("models", "Models", "GEO/VDF/SDF parts and Ogre meshes: missing parts, materials and skeletons, "
           "engine limits.", check_models),
+    Check("lgt", "Light maps", "LGT light maps that are missing, flat, shared between maps or baked from other "
+          "terrain.", check_lgt),
+    Check("tiles", "TRN tile coverage", "MAT cells asking for tile slots the TRN does not define (Redux: default "
+          "tile; 1.5: checkerboard).", check_tiles),
+    Check("sprites", "Sky sprites", "A TRN SunTexture that no stock or project sprite table defines.", check_sprites),
     Check("upload-rules", "Official uploader rules", "Subfolders, 8-character names, .hgt terrain and core "
           "files the official uploader refuses.", check_upload_rules),
 )}
