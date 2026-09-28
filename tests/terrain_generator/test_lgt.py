@@ -5,7 +5,9 @@ from pathlib import Path
 import numpy as np
 
 from bztoolbox.modules.terrain_generator.hg2 import HG2Map
-from bztoolbox.modules.terrain_generator.lgt import compute_lgt_for_hg2, compute_lgt_lightmap, lgt_to_brightness, read_lgt, write_lgt
+from bztoolbox.modules.terrain_generator.lgt import (
+    REDUX_LGT_FLOOR, compute_lgt_for_hg2, compute_lgt_lightmap, compute_redux_lgt, lgt_to_brightness, read_lgt, write_lgt,
+)
 from bztoolbox.modules.terrain_generator.preview import make_lgt_preview_image
 
 
@@ -22,6 +24,17 @@ class LgtTests(unittest.TestCase):
         self.assertTrue(np.array_equal(first, second))
         self.assertGreaterEqual(int(first.min()), 0)
         self.assertLessEqual(int(first.max()), 255)
+
+    def test_redux_stock_bake(self):
+        flat = np.full((256, 256), 1000, dtype=np.int64)
+        lit = compute_redux_lgt(flat, 1, 1)
+        self.assertEqual(lit.shape, (256, 256))
+        self.assertTrue(np.all(lit == 249))                     # 360 * sin(80 deg) - 106 = 248.5
+        cliff = np.zeros((256, 256), dtype=np.int64)
+        cliff[:, 128:] = 4000                                   # a wall facing west, away from the east sun
+        shaded = compute_redux_lgt(cliff, 1, 1)
+        self.assertEqual(int(shaded.min()), REDUX_LGT_FLOOR)    # stock LGTs never go below 56
+        self.assertEqual(compute_redux_lgt(flat, 1, 1, lgt_zone_size=128).shape, (128, 128))
 
     def test_flat_terrain_and_ambient_floor(self):
         light = compute_lgt_lightmap(np.full((256, 256), 2000, dtype=np.uint16), 1, 1)
