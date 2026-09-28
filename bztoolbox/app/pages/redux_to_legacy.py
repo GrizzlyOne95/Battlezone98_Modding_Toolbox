@@ -41,6 +41,8 @@ class ReduxToLegacyPage(ScrollableFrame):
         self.source = tk.StringVar()
         self.output = tk.StringVar()
         self.game_dir = tk.StringVar(value=self._game_dir())
+        self.legacy_dir = tk.StringVar(value=self._legacy_dir())
+        self.sprites = tk.BooleanVar(value=True)
         self.search_dir = tk.StringVar()
         self.palette = tk.StringVar(value="auto")
         self.act = tk.StringVar()
@@ -67,9 +69,12 @@ class ReduxToLegacyPage(ScrollableFrame):
                    on_change=self._suggest_output).pack(fill="x", pady=2)
         PathPicker(form, "Output folder", self.output, kind="dir", surface=True).pack(fill="x", pady=2)
         PathPicker(form, "Redux game folder", self.game_dir, kind="dir", surface=True).pack(fill="x", pady=2)
+        PathPicker(form, "1.5 game folder", self.legacy_dir, kind="dir", surface=True).pack(fill="x", pady=2)
         PathPicker(form, "Extra assets", self.search_dir, kind="dir", surface=True).pack(fill="x", pady=2)
         ttk.Label(form, text="Game folder: the stock colour tables (bzone.zfs) and stock atlases a map may use. "
-                             "Extra assets: optional folder with materials, CSVs, textures or ODFs kept elsewhere.",
+                             "1.5 game folder: its stock sprite tables, extended with the map's Redux sprites (a custom "
+                             "SunTexture). Extra assets: optional folder with materials, CSVs, textures or ODFs kept "
+                             "elsewhere.",
                   style="Toolbox.SurfaceMuted.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(2, 6))
 
         ttk.Label(form, text="Palette", style="Toolbox.CardTitle.TLabel").pack(anchor="w", pady=(8, 2))
@@ -104,6 +109,7 @@ class ReduxToLegacyPage(ScrollableFrame):
                            (self.dither, "Dither when reducing to the palette"),
                            (self.heightmaps, "Convert HG2 → HGT and LGT to 128 cells per zone"),
                            (self.bzn, "Convert BZN missions to version 1045"),
+                           (self.sprites, "Add the folder's .sta sprites to 1.5's sprite tables"),
                            (self.allow_loss, "Write BZNs even if some values have no 1.5 field")):
             ttk.Checkbutton(form, text=label, variable=var, style="Toolbox.Surface.TCheckbutton").pack(anchor="w")
 
@@ -133,6 +139,12 @@ class ReduxToLegacyPage(ScrollableFrame):
             return str(found[0]) if found else ""
         except Exception:
             return ""
+
+    @staticmethod
+    def _legacy_dir() -> str:
+        from bztoolbox.modules.world.redux_to_legacy import default_legacy_dir
+
+        return default_legacy_dir() or ""
 
     def _suggest_output(self, source: str) -> None:
         current = self.output.get().strip()
@@ -166,7 +178,8 @@ class ReduxToLegacyPage(ScrollableFrame):
             color_tables=self.tables.get(), game_dir=self.game_dir.get().strip() or None,
             search_dirs=tuple(d for d in (self.search_dir.get().strip(),) if d),
             heightmaps=self.heightmaps.get(), bzn=self.bzn.get(), allow_bzn_loss=self.allow_loss.get(),
-            missing_tiles=self.missing_tiles.get())
+            missing_tiles=self.missing_tiles.get(), sprites=self.sprites.get(),
+            legacy_dir=self.legacy_dir.get().strip() or None)
         self.convert_button.state(["disabled"])
         self.log.clear()
         self.log.write(f"Porting {Path(source).name}…", "info")

@@ -102,3 +102,40 @@ mission 4 uses 20 such slots in 5,161 cells. `--missing-tiles` controls the fix:
 | `default` (default) | Adds the missing `SolidA`, `CapToM_A` or `DiagonalToM_A` keys, levels 0–3, pointing at the default cell. When a TRN tile family already sits on that cell (Polar Mars: `PM11S`), it is reused. Otherwise the cell is written as `<prefix>DEF0-3.MAP`. |
 | `solid` | Fills each slot with its type's own `SolidA` tile, falling back to the default cell for types without one. |
 | `none` | Only reports the slots. |
+
+## Sprites (custom sun and others)
+
+Redux reads sprites from a text `.sta` table. Each line names an Ogre material and a rectangle in that material's
+texture, and the TRN's `SunTexture` is a sprite name. ROTBD's `sunblue`, for example, uses the `BLUESUN` material.
+
+1.5 looks a sprite name up in a binary table instead: `spritea.stb` for Direct3D, `sprite8.stb` for software. Both come
+from `bzone152.zfs`. An unknown name resolves to entry 0, the engine's bad sprite, so a custom sun does not draw.
+
+Each record is 52 bytes:
+
+| Offset | Field |
+|---|---|
+| 0x00 | name, 32 bytes |
+| 0x20 | texture, 8 characters; loaded as `<texture>.MAP` |
+| 0x28 | u, v, width, height, each a u16 in pixels |
+| 0x30 | flags, u32; in Direct3D the low 4 bits pick a tint colour |
+
+Sprite MAPs are stored top-down. The sun is drawn at its table size in screen pixels (`sun.0` is 63×63), using
+`D3D_Flat_Alpha_Blend_Texture_Polygon`.
+
+With a 1.5 install (`--legacy-dir`; the usual install folders are detected), the port converts every `.sta` entry
+whose material and texture it can find:
+
+- Each sheet is scaled from the `.sta`'s declared image size to a power of two, at most 256 px. A sheet with the sun is
+  scaled so the sun is 64 px.
+- Each sheet is written twice:
+  - `<name>.MAP`, A4R4G4B4, for `spritea.stb`. It keeps alpha, like the stock 16-bit sheets.
+  - `<name>8.MAP`, 8-bit with index 255 as the transparent key, for `sprite8.stb`.
+- Both tables are written as the full stock table plus the new entries. An entry replaces a stock sprite of the same
+  name. The sun takes `sun.0`'s flags.
+
+A table in `addon` replaces the stock one for every mission while it is installed. The tables carry every stock entry,
+so nothing else changes, but they must be merged by hand with another mod's tables.
+
+Without a 1.5 install, or without the sun's `.sta` entry or texture, a custom `SunTexture` is set to the stock `sun.0`.
+`--no-sprites` skips sprites.

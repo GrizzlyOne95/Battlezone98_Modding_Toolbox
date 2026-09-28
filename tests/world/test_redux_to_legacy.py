@@ -12,6 +12,7 @@ from battlezone.terrain.hg2 import HG2Map
 from battlezone.terrain.lgt import write_lgt
 from battlezone.terrain.palettes import get_stock_act_bytes
 from bztoolbox.modules.textures.makemap_compat import decode_map_bytes
+from battlezone.images.sprites import SpriteEntry, read_sta, read_stb, write_stb
 from battlezone.terrain.trn import TRNDocument
 from bztoolbox.modules.world.redux_to_legacy import (
     LegacyExportOptions, defined_slots, encode_indexed_map, encode_rgb_map, mat_slot_usage, port_redux_to_legacy,
@@ -327,6 +328,90 @@ class PortTests(unittest.TestCase):
             src = _redux_folder(Path(tmp))
             with self.assertRaises(ValueError):
                 port_redux_to_legacy(src, src)
+
+
+STOCK_SPRITES = [SpriteEntry("status_left", "scrncut", 0, 0, 63, 84, 0),
+                 SpriteEntry("sun.0", "sprite_a", 0, 0, 63, 63, 16)]
+
+STA = '''# Custom sprite table
+"ttsun"      ttsunmat     0   0   512  512   512  512 0x00000000
+"ttfx.0"     ttfxmat      0   0   256  256   512  256 0x00000000
+"ttfx.1"     ttfxmat    256   0   256  256   512  256 0x00000000
+"nothere"    nomaterial   0   0    32   32    32   32 0x00000000
+'''
+
+
+class SpriteTableTests(unittest.TestCase):
+    def test_stb_round_trip_and_layout(self):
+        data = write_stb(STOCK_SPRITES)
+        self.assertEqual(len(data), 2 * 52)
+        self.assertEqual(data[32:40], b"scrncut\0")
+        self.assertEqual(struct.unpack_from("<4HI", data, 52 + 40), (0, 0, 63, 63, 16))
+        self.assertEqual(read_stb(data), STOCK_SPRITES)
+        with self.assertRaises(ValueError):
+            write_stb([SpriteEntry("x", "ninechars", 0, 0, 1, 1)])
+
+    def test_sta_lines(self):
+        entries = read_sta(STA)
+        self.assertEqual([e.name for e in entries], ["ttsun", "ttfx.0", "ttfx.1", "nothere"])
+        self.assertEqual((entries[2].material, entries[2].u, entries[2].image_width), ("ttfxmat", 256, 512))
+
+
+class SpritePortTests(unittest.TestCase):
+    def _folder(self, root: Path) -> Path:
+        src = _redux_folder(root)
+        trn = (src / "ttworld.trn").read_bytes().decode("cp1252").replace("[Sky]\r\n", "[Sky]\r\nSunTexture=ttsun\r\n")
+        (src / "ttworld.trn").write_bytes(trn.encode("cp1252"))
+        (src / "spritea.sta").write_text(STA)
+        (src / "sprites.material").write_text("material ttsunmat\n{\n technique\n {\n  pass\n  {\n   texture_unit\n"
+                                             "   {\n    texture ttsun.png\n   }\n  }\n }\n}\n"
+                                             "material ttfxmat\n{\n technique\n {\n  pass\n  {\n   texture_unit\n"
+                                             "   {\n    texture ttfx.png\n   }\n  }\n }\n}\n")
+        sun = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+        sun.paste((120, 160, 255, 255), (128, 128, 384, 384))
+        sun.save(src / "ttsun.png")
+        Image.new("RGBA", (512, 256), (255, 128, 0, 255)).save(src / "ttfx.png")
+        return src
+
+    def test_sprites_extend_the_stock_tables(self):
+        from bztoolbox.modules.world import redux_to_legacy as module
+
+        original = module.stock_sprite_tables
+        module.stock_sprite_tables = lambda _dir: {"spritea.stb": list(STOCK_SPRITES), "sprite8.stb": list(STOCK_SPRITES)}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                src = self._folder(Path(tmp))
+                out = Path(tmp) / "legacy"
+                report = port_redux_to_legacy(src, out, LegacyExportOptions(legacy_dir=tmp))
+                self.assertTrue(report.ok, report.lines())
+                hw = read_stb((out / "spritea.stb").read_bytes())
+                sw = read_stb((out / "sprite8.stb").read_bytes())
+                self.assertEqual(hw[:2], STOCK_SPRITES)                     # stock entries kept, in order
+                sun = next(e for e in hw if e.name == "ttsun")
+                self.assertEqual((sun.texture, sun.width, sun.height, sun.flags), ("ttsun", 64, 64, 16))
+                self.assertEqual(next(e for e in sw if e.name == "ttsun").texture, "ttsun8")
+                fx1 = next(e for e in hw if e.name == "ttfx.1")
+                self.assertEqual((fx1.u, fx1.v, fx1.width, fx1.height), (128, 0, 128, 128))   # 512x256 -> 256x128
+                self.assertIsNone(next((e for e in hw if e.name == "nothere"), None))
+                sheet = (out / "TTSUN.MAP").read_bytes()
+                self.assertEqual(struct.unpack_from("<HHI", sheet), (128, 1, 64))            # A4R4G4B4, top-down
+                alpha = np.frombuffer(sheet[8:], "<u2").reshape(64, 64) >> 12
+                self.assertEqual((alpha[0, 0], alpha[32, 32]), (0, 15))
+                soft = np.frombuffer((out / "TTSUN8.MAP").read_bytes()[8:], np.uint8).reshape(64, 64)
+                self.assertEqual((soft[0, 0], soft[32, 32] != 255), (255, True))
+                self.assertIn("SunTexture=ttsun", (out / "ttworld.trn").read_text(encoding="cp1252"))
+                self.assertFalse((out / "spritea.sta").exists())
+        finally:
+            module.stock_sprite_tables = original
+
+    def test_custom_sun_falls_back_to_sun0_without_a_legacy_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = self._folder(Path(tmp))
+            out = Path(tmp) / "legacy"
+            report = port_redux_to_legacy(src, out, LegacyExportOptions(legacy_dir=None))
+            self.assertIn("SunTexture=sun.0", (out / "ttworld.trn").read_text(encoding="cp1252"))
+            self.assertFalse((out / "spritea.stb").exists())
+            self.assertTrue(any("SunTexture ttsun" in w for w in report.warnings), report.warnings)
 
 
 if __name__ == "__main__":
