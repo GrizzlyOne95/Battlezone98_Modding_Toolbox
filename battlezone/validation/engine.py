@@ -17,6 +17,8 @@ in separate tools:
 * ``upload-rules`` - folder and file-name rules of the official Redux uploader
 * ``lgt``, ``tiles``, ``sprites`` - terrain light maps, TRN tile coverage and sky sprites
   (:mod:`battlezone.validation.terrain_checks`)
+* ``lua``, ``aip`` - mission scripts and AI plans
+  (:mod:`battlezone.validation.script_checks`)
 
 Every check reports :class:`Issue` records with one shared severity scale.
 """
@@ -32,6 +34,7 @@ from battlezone.bzn.scan import STOCK_SET, BZNParser
 from battlezone.odf.validator import ODFIssue, parse_odf, validate_documents
 from battlezone.validation.mod_scanner import ModScanner
 from battlezone.validation.models import check_models
+from battlezone.validation.script_checks import check_aip, check_lua
 from battlezone.validation.terrain_checks import check_lgt, check_sprites, check_tiles
 from battlezone.validation.upload_rules import check_upload_rules
 
@@ -257,6 +260,9 @@ CHECKS: dict[str, Check] = {check.id: check for check in (
     Check("tiles", "TRN tile coverage", "MAT cells asking for tile slots the TRN does not define (Redux: default "
           "tile; 1.5: checkerboard).", check_tiles),
     Check("sprites", "Sky sprites", "A TRN SunTexture that no stock or project sprite table defines.", check_sprites),
+    Check("lua", "Mission scripts", "Lua labels, paths, ODFs, AIPs and modules that the mission or project does "
+          "not have.", check_lua),
+    Check("aip", "AI plans", "AIP layout, the ODFs its rows name and the accounts it funds.", check_aip),
     Check("upload-rules", "Official uploader rules", "Subfolders, 8-character names, .hgt terrain and core "
           "files the official uploader refuses.", check_upload_rules),
 )}
