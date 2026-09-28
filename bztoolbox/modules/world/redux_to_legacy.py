@@ -756,40 +756,7 @@ def port_redux_to_legacy(source, output, options: Optional[LegacyExportOptions] 
     return report
 
 
-_SLOT_KEY = re.compile(r"^(solid|capto(\d)_|diagonalto(\d)_)([a-d])0$", re.IGNORECASE)
-_KIND_NAMES = {"S": "Solid", "C": "CapTo", "D": "DiagonalTo"}
-
-
-def defined_slots(doc: TRNDocument) -> set:
-    """``(type, kind, next, variant)`` slots a TRN defines at level 0; kind is S(olid), C(ap) or D(iagonal)."""
-    slots = set()
-    for type_index, section in doc.texture_types().items():
-        for entry in section.entries:
-            match = _SLOT_KEY.match(entry.key.strip())
-            if not match or not entry.value.strip():
-                continue
-            if match.group(1).lower() == "solid":
-                kind, other = "S", type_index
-            else:
-                kind, other = ("C", int(match.group(2))) if match.group(2) else ("D", int(match.group(3)))
-            slots.add((type_index, kind, other, "abcd".index(match.group(4).lower())))
-    return slots
-
-
-def mat_slot_usage(entries: np.ndarray) -> Dict[Tuple[int, str, int, int], int]:
-    """Cells per ``(type, kind, next, variant)`` in a MAT, the way 1.5 looks tiles up."""
-    entries = np.asarray(entries, dtype=np.uint16)
-    base, other = entries >> 12, (entries >> 8) & 15
-    cap, variant = (entries >> 7) & 1, entries & 3
-    kind = np.where(base == other, 0, np.where(cap == 1, 1, 2))
-    code = ((base.astype(np.int64) * 16 + other) * 4 + kind) * 4 + variant
-    values, counts = np.unique(code, return_counts=True)
-    out = {}
-    for value, count in zip(values.tolist(), counts.tolist()):
-        variant, value = value % 4, value // 4
-        kind, value = "SCD"[value % 4], value // 4
-        out[(value // 16, kind, value % 16, variant)] = count
-    return out
+from battlezone.terrain.mat import _KIND_NAMES, defined_slots, mat_slot_usage  # noqa: E402,F401
 
 
 def _level_name(level0: str, level: int) -> str:
@@ -947,11 +914,13 @@ class _SpriteSheet:
     has_sun: bool
 
 
-def _plan_sprites(source: Path, finder: _Finder, report: LegacyExportReport, sun_names: set) -> List[_SpriteSheet]:
-    """Redux .sta entries in the folder, grouped by the texture of their material."""
+def _plan_sprites(source: Path, finder: _Finder, report: LegacyExportReport, sun_names: set,
+                  sta_files: Optional[Sequence[Path]] = None) -> List[_SpriteSheet]:
+    """Redux .sta entries (the folder's, or ``sta_files``), grouped by the texture of their material."""
     from battlezone.images.sprites import read_sta
 
-    sta_files = sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".sta")
+    if sta_files is None:
+        sta_files = sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".sta")
     if not sta_files:
         if any(name not in ("", "sun.0") for name in sun_names):
             report.notes.append("no .sta sprite table in the folder for the custom SunTexture")
@@ -1057,6 +1026,44 @@ def _write_sprites(sheets: List[_SpriteSheet], stock: Optional[Dict[str, List]],
                         "These replace the stock tables for everything while installed; merge them with any other "
                         "mod's tables")
     return known
+
+
+def export_sprite_tables(sta_path, output, *, legacy_dir=None, game_dir=None, search_dirs: Sequence = (),
+                         world: str = "moon", dither: bool = False) -> LegacyExportReport:
+    """One Redux ``.sta`` -> 1.5 ``spritea.stb``/``sprite8.stb`` plus sheet MAPs in ``output``.
+
+    The same conversion the port does for a world folder: the stock tables of
+    the 1.5 install (``legacy_dir``) with the ``.sta`` entries added. The
+    8-bit software sheets are quantised to ``world``'s stock palette. Sprites
+    a TRN beside the ``.sta`` names as SunTexture get the port's sun sizing.
+    """
+    sta_path, output = Path(sta_path), Path(output)
+    report = LegacyExportReport(str(sta_path), str(output))
+    source = sta_path.parent
+    if source.resolve() == output.resolve():
+        raise ValueError("write the 1.5 sprite tables to a different folder than the .sta")
+    act = get_stock_act_bytes(world + ".act")
+    if act is None:
+        raise ValueError(f"{world} is not a stock world palette")
+    finder = _Finder(source, search_dirs, Path(game_dir) if game_dir else None)
+    sun_names = set()
+    for trn in (p for p in source.iterdir() if p.is_file() and p.suffix.lower() == ".trn"):
+        sun = (TRNDocument.read(trn).get("sky", "SunTexture") or "").strip().lower()
+        if sun:
+            sun_names.add(sun)
+    stock = stock_sprite_tables(Path(legacy_dir)) if legacy_dir else None
+    if stock is None:
+        report.errors.append("no Battlezone 1.5 install with spritea.stb/sprite8.stb in its archives; the stock "
+                             "tables are needed because a mod's tables replace them whole")
+        return report
+    sheets = _plan_sprites(source, finder, report, sun_names, sta_files=[sta_path])
+    if not sheets:
+        report.errors.append("no sprite in the table has a material and texture that could be found")
+        return report
+    output.mkdir(parents=True, exist_ok=True)
+    _write_sprites(sheets, stock, output, ct.palette_array(act), LegacyExportOptions(dither=dither), report,
+                   sun_names)
+    return report
 
 
 def _port_heightmap(path: Path, output: Path, report: LegacyExportReport) -> None:

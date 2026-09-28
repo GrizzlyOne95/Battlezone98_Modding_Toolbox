@@ -155,6 +155,8 @@ Mission checks live with the rest of the project checks: **Validation** reads AS
 
 The ODF validator is based on recovered Battlezone 98 Redux loader behavior and supporting stock-content research rather than only on old documentation. It is intended to catch errors that can otherwise result in silently ignored parameters, incorrect behavior, or crashes.
 
+**Assets › ODF Explorer** (`bztoolbox odf show`, `bztoolbox odf stats`) shows the value the game uses for every field of a project ODF and where it comes from (the ODF, the stock copy it replaces, or the class prototype), plus sortable craft and weapon stat tables with CSV export. See [docs/odf/README.md](docs/odf/README.md).
+
 There is also tooling for **BZ2/BZCC to Redux mission conversion**, including ODF/team mapping and conversion reports for areas that require manual review.
 
 **Missions › 1.5 ↔ Redux BZN** (`bztoolbox bzn convert`) re-saves a Battlezone 1.5 mission (BZN version 1045; 1037–1044 from older patches, ASCII or binary) for Redux (2016), or a Redux mission for 1.5. It reads and writes every version-gated field the way BZNParser does, lists each field it added, dropped or converted, and refuses a conversion that would lose a value (for example a Redux-only `isCritical = true`, or an ODF name longer than the 8 bytes 1.5 can store) unless the loss is allowed explicitly. See [docs/missions/README.md](docs/missions/README.md#battlezone-15--redux-bzn-conversion).

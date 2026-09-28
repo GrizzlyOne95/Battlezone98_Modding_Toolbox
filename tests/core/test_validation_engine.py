@@ -81,6 +81,19 @@ class ValidationEngineTests(unittest.TestCase):
         self.assertEqual(len(flare), 1)
         self.assertEqual((flare[0].severity, flare[0].path), ("error", "odf/badflare.odf"))
 
+    def test_odf_findings_name_the_copy_they_came_from(self):
+        bad = '[GameObjectClass]\nclassLabel = "flare"\n[MineClass]\nlifeSpan = 1e10\n[FlareBuildingClass]\n'
+        write(self.root / "odf" / "flare.odf", '[GameObjectClass]\nclassLabel = "wingman"\n')
+        write(self.root / "_backup" / "flare.odf", bad)
+        flare = [i for i in validate_project(self.root, ["odf"]).issues if i.rule_id == "flare-mine"]
+        self.assertEqual([i.path for i in flare], ["_backup/flare.odf"])
+
+    def test_odf_references_ignore_trailing_comments(self):
+        write(self.root / "odf" / "shot.odf", '[OrdnanceClass]\nclassLabel = "bullet"\n'
+              'xplGround = "xgasgnd" //"nosuchxpl"\nxplVehicle = NULL // "nosuchxpl"\n')
+        report = validate_project(self.root, ["odf"])
+        self.assertFalse([i for i in report.issues if "nosuchxpl" in i.message], report.issues)
+
     def test_odf_lint_runs_by_default(self):
         self.assertIn("odf-lint", DEFAULT_CHECKS)
 

@@ -5,6 +5,7 @@
 * :mod:`~battlezone.terrain.mat`       - MAT tile material maps (64x64 per zone)
 * :mod:`~battlezone.terrain.trn`       - TRN terrain descriptions (INI-style text)
 * :mod:`~battlezone.terrain.palettes`  - the 33 stock ACT palettes
+* :mod:`~battlezone.terrain.tunnel`    - cut-and-cover tunnels: trench carving, LGT roof shading
 
 The modules that used to carry their own copies (WorldBuilder, HeightmapGen,
 TextureManager, the Workshop checks) now import these.

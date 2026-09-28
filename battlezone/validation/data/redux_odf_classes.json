@@ -1,0 +1,2784 @@
+{
+ "source": "odf_loader_schema.json schema_version 4",
+ "inheritance": "No recursive ODF parent loading by baseName was found. baseName ([GameObjectClass] only, 0x0794B13B) is stored and used for .inf text fallback in the same constructor. ODF defaults come from the class prototype chain: each 3-arg ctor takes the parent prototype; missing keys inherit parent values; chain roots are the 1-arg prototype ctors with compiled defaults.",
+ "classes": {
+  "GameObjectClass": {
+   "base": "Attachable",
+   "section": "GameObjectClass",
+   "label": "",
+   "keys": [
+    {
+     "name": "baseName",
+     "type": "odf_reference",
+     "default_note": "own-cfg-derived"
+    },
+    {
+     "name": "scrapCost",
+     "type": "int",
+     "default": 2147483647
+    },
+    {
+     "name": "scrapValue",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "pilotCost",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "buildTime",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "maxHealth",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "maxAmmo",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "unitName",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "aiName",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "aiName2",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "weaponMask",
+     "type": "int",
+     "default": 11111
+    },
+    {
+     "name": "collisionRadius",
+     "type": "float",
+     "default": -1e+30
+    },
+    {
+     "name": "nation",
+     "type": "string32",
+     "default_note": "filename-derived"
+    },
+    {
+     "name": "pilotName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "userName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "imageSignature",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "radarSignature",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "heatSignature",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "weaponHard#",
+     "type": "string4-indexed",
+     "default": ""
+    },
+    {
+     "name": "weaponName#",
+     "type": "odf_reference-indexed"
+    },
+    {
+     "name": "explosionName",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "OrdnanceClass": {
+   "base": "",
+   "section": "OrdnanceClass",
+   "label": "ordnance",
+   "keys": [
+    {
+     "name": "shotGeometry",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "xplGround",
+     "type": "odf_reference"
+    },
+    {
+     "name": "xplVehicle",
+     "type": "odf_reference"
+    },
+    {
+     "name": "xplBuilding",
+     "type": "odf_reference"
+    },
+    {
+     "name": "lifeSpan",
+     "type": "float",
+     "default": 1e+30
+    },
+    {
+     "name": "shotSpeed",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "ammoCost",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "damageFlame",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageImpact",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageConcussion",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageBallistic",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "shotSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "notifyRemote",
+     "type": "int",
+     "default": false
+    },
+    {
+     "name": "xplExpire",
+     "type": "odf_reference"
+    },
+    {
+     "name": "renderName",
+     "type": "render_reference"
+    }
+   ]
+  },
+  "WeaponClass": {
+   "base": "",
+   "section": "WeaponClass",
+   "label": "weapon",
+   "keys": [
+    {
+     "name": "ordName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "fireSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "wpnName",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "wpnReticle",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "wpnLadder",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "wpnPriority",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "wpnCategory",
+     "type": "string",
+     "default_note": "SPEC-fallback"
+    },
+    {
+     "name": "shotAlternate",
+     "type": "bool"
+    }
+   ]
+  },
+  "BuildingClass": {
+   "base": "GameObjectClass",
+   "section": "BuildingClass",
+   "label": "i76building",
+   "keys": [
+    {
+     "name": "soundAmbient",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "CraftClass": {
+   "base": "GameObjectClass",
+   "section": "CraftClass",
+   "label": "craft",
+   "keys": [
+    {
+     "name": "rangeScan",
+     "type": "float"
+    },
+    {
+     "name": "periodScan",
+     "type": "float"
+    },
+    {
+     "name": "velocJam",
+     "type": "float"
+    },
+    {
+     "name": "fPersonEjectRatio",
+     "type": "float"
+    },
+    {
+     "name": "selectReadyMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "selectOtherMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "selectWaitMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectGoMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectFollowMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectAttackMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectPickupMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectDropoffMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectDeployMsg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectUser1Msg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "selectUser2Msg",
+     "type": "string16",
+     "default_from": "selectOtherMsg"
+    },
+    {
+     "name": "otherMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "goMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "goObjectMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "followMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "followMeMsg",
+     "type": "string16",
+     "default_from": "followMsg"
+    },
+    {
+     "name": "attackMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "repairMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "reloadMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "rescueMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "recycleMsg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "user1Msg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "user2Msg",
+     "type": "string16",
+     "default_from": "otherMsg"
+    },
+    {
+     "name": "deployedMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "packedMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "killedMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "diedMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "cloakAllowed",
+     "type": "bool"
+    },
+    {
+     "name": "cloakTime",
+     "type": "float"
+    },
+    {
+     "name": "forceCloak",
+     "type": "float"
+    },
+    {
+     "name": "damageEffect#",
+     "type": "render_reference-indexed",
+     "default_note": "dmgvhclN effect"
+    },
+    {
+     "name": "xplSnipe",
+     "type": "odf_reference"
+    },
+    {
+     "name": "xplSecondary",
+     "type": "odf_reference"
+    },
+    {
+     "name": "xplDetonate",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "MineClass": {
+   "base": "BuildingClass",
+   "section": "MineClass",
+   "label": "mine",
+   "keys": [
+    {
+     "name": "lifeSpan",
+     "type": "float",
+     "default": 300.0
+    }
+   ]
+  },
+  "FlareMineClass": {
+   "base": "MineClass",
+   "section": "FlareMineClass",
+   "label": "flare",
+   "keys": [
+    {
+     "name": "payloadName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "fireSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "triggerDelay",
+     "type": "float"
+    },
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 0.05
+    },
+    {
+     "name": "shotVariance",
+     "type": "float",
+     "default": 0.5
+    }
+   ]
+  },
+  "MagnetMineClass": {
+   "base": "MineClass",
+   "section": "MagnetMineClass",
+   "label": "magnet",
+   "keys": [
+    {
+     "name": "triggerDelay",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "fieldRadius",
+     "type": "float",
+     "default": 20.0
+    },
+    {
+     "name": "objPushCenter",
+     "type": "float",
+     "default": 30.0
+    },
+    {
+     "name": "objPushEdge",
+     "type": "float",
+     "default": 3.0
+    },
+    {
+     "name": "objDrag",
+     "type": "float",
+     "default": 0.3
+    },
+    {
+     "name": "ordPushCenter",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "ordPushEdge",
+     "type": "float",
+     "default": 10.0
+    },
+    {
+     "name": "ordDrag",
+     "type": "float",
+     "default": 1.0
+    }
+   ]
+  },
+  "ScavengerClass": {
+   "base": "HoverCraftClass",
+   "section": "ScavengerClass",
+   "label": "scavenger",
+   "keys": [
+    {
+     "name": "maxScrap",
+     "type": "int",
+     "default": 3
+    },
+    {
+     "name": "soundPickup",
+     "type": "string16",
+     "default": "suck.wav"
+    },
+    {
+     "name": "deployMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "foundMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "notFoundMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "noDropMsg",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "FlamePuffClass": {
+   "base": "BulletClass",
+   "section": "FlamePuffClass",
+   "label": "flamepuff",
+   "keys": [
+    {
+     "name": "flameRadius",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "frameDelay",
+     "type": "float",
+     "default": 0.2
+    },
+    {
+     "name": "flameTexture",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "flameFrames",
+     "type": "int",
+     "default": 0
+    }
+   ]
+  },
+  "ExplosionClass": {
+   "base": "",
+   "section": "ExplosionClass",
+   "label": "explosion",
+   "keys": [
+    {
+     "name": "frameName",
+     "type": "string32",
+     "default": ""
+    },
+    {
+     "name": "frameCount",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "frameDelay",
+     "type": "float",
+     "default_note": "1/parent"
+    },
+    {
+     "name": "explRadius",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "explSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "damageRadius",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageConcussion",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageBallistic",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageFlame",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageImpact",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "omegaShake",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "renderName",
+     "type": "render_reference"
+    },
+    {
+     "name": "particleTypes",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "particleClass#",
+     "type": "simulate_reference-indexed"
+    },
+    {
+     "name": "particleCount#",
+     "type": "int-indexed",
+     "default": 0
+    },
+    {
+     "name": "particleVeloc#",
+     "type": "vec3-indexed"
+    },
+    {
+     "name": "particleBias#",
+     "type": "vec3-indexed"
+    }
+   ]
+  },
+  "APCClass": {
+   "base": "HoverCraftClass",
+   "section": "APCClass",
+   "label": "apc",
+   "keys": [
+    {
+     "name": "timeDeploy",
+     "type": "float"
+    },
+    {
+     "name": "timeUndeploy",
+     "type": "float"
+    },
+    {
+     "name": "soldierCount",
+     "type": "int"
+    },
+    {
+     "name": "soldierDelay",
+     "type": "number"
+    },
+    {
+     "name": "soldierType",
+     "type": "odf_reference"
+    },
+    {
+     "name": "reloadRange",
+     "type": "number"
+    },
+    {
+     "name": "reloadDelay",
+     "type": "number"
+    },
+    {
+     "name": "reloadReset",
+     "type": "number"
+    }
+   ]
+  },
+  "AmmoPowerupClass": {
+   "base": "PowerUpClass",
+   "section": "AmmoPowerupClass",
+   "label": "ammopack",
+   "keys": [
+    {
+     "name": "ammoUp",
+     "type": "int",
+     "default": 500
+    }
+   ]
+  },
+  "AnchorRocketClass": {
+   "base": "RocketClass",
+   "section": "AnchorRocketClass",
+   "label": "anchor",
+   "keys": [
+    {
+     "name": "accelDrag",
+     "type": "float",
+     "default": 10.0
+    },
+    {
+     "name": "alphaDrag",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "anchorTime",
+     "type": "float",
+     "default": 10.0
+    }
+   ]
+  },
+  "ArmoryClass": {
+   "base": "ProducerClass",
+   "section": "ArmoryClass",
+   "label": "armory",
+   "keys": [
+    {
+     "name": "cannonItem#",
+     "type": "odf_reference-indexed"
+    },
+    {
+     "name": "rocketItem#",
+     "type": "odf_reference-indexed"
+    },
+    {
+     "name": "mortarItem#",
+     "type": "odf_reference-indexed"
+    },
+    {
+     "name": "specialItem#",
+     "type": "odf_reference-indexed"
+    }
+   ]
+  },
+  "BarracksClass": {
+   "base": "BuildingClass",
+   "section": "BarracksClass",
+   "label": "barracks",
+   "keys": [
+    {
+     "name": "pilotHold",
+     "type": "int"
+    },
+    {
+     "name": "pilotName",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "BeamClass": {
+   "base": "BulletClass",
+   "section": "BeamClass",
+   "label": "beam",
+   "keys": [
+    {
+     "name": "segmentRadius",
+     "type": "float",
+     "default": 0.1
+    },
+    {
+     "name": "segmentLength",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "segmentVariance",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "segmentTexture",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "BoltClass": {
+   "base": "BulletClass",
+   "section": "BoltClass",
+   "label": "bolt",
+   "keys": [
+    {
+     "name": "segmentRadius",
+     "type": "float",
+     "default": 0.1
+    },
+    {
+     "name": "segmentLength",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "segmentVariance",
+     "type": "float",
+     "default": 0.5
+    },
+    {
+     "name": "segmentTexture",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "effectDuration",
+     "type": "float",
+     "default": 0.1
+    }
+   ]
+  },
+  "BounceBombClass": {
+   "base": "GrenadeClass",
+   "section": "BounceBombClass",
+   "label": "bouncebomb",
+   "keys": [
+    {
+     "name": "bounceRatio",
+     "type": "float",
+     "default": 0.5
+    },
+    {
+     "name": "soundBounce",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "CameraPodClass": {
+   "base": "PowerUpClass",
+   "section": "CameraPodClass",
+   "label": "camerapod",
+   "keys": [
+    {
+     "name": "omegaSpin",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "rangeScan",
+     "type": "float",
+     "default": 200.0
+    },
+    {
+     "name": "periodScan",
+     "type": "float",
+     "default": 0.0
+    }
+   ]
+  },
+  "CannonClass": {
+   "base": "WeaponClass",
+   "section": "CannonClass",
+   "label": "cannon",
+   "keys": [
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 0.2
+    },
+    {
+     "name": "shotVariance",
+     "type": "float"
+    },
+    {
+     "name": "salvoCount",
+     "type": "int"
+    },
+    {
+     "name": "salvoDelay",
+     "type": "float"
+    },
+    {
+     "name": "shotPitch",
+     "type": "float"
+    }
+   ]
+  },
+  "ChargeGunClass": {
+   "base": "CannonClass",
+   "section": "ChargeGunClass",
+   "label": "chargegun",
+   "keys": [
+    {
+     "name": "startRate",
+     "type": "float",
+     "default": 11025.0
+    },
+    {
+     "name": "deltaRate",
+     "type": "float",
+     "default": 4000.0
+    },
+    {
+     "name": "startVolume",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "deltaVolume",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "ordnanceCount",
+     "type": "int",
+     "default": 1
+    },
+    {
+     "name": "shotDelay#",
+     "type": "float-indexed"
+    },
+    {
+     "name": "salvoCount#",
+     "type": "int-indexed"
+    },
+    {
+     "name": "salvoDelay#",
+     "type": "float-indexed"
+    },
+    {
+     "name": "fireSound#",
+     "type": "string16-indexed"
+    },
+    {
+     "name": "ordName#",
+     "type": "odf_reference-indexed"
+    },
+    {
+     "name": "wpnReticle#",
+     "type": "string16-indexed"
+    }
+   ]
+  },
+  "CommTowerClass": {
+   "base": "BuildingClass",
+   "section": "CommTowerClass",
+   "label": "commtower",
+   "keys": [
+    {
+     "name": "rangeScan",
+     "type": "float",
+     "default": 500.0
+    },
+    {
+     "name": "periodScan",
+     "type": "float",
+     "default": 0.0
+    }
+   ]
+  },
+  "DayWreckerClass": {
+   "base": "PowerUpClass",
+   "section": "DayWreckerClass",
+   "label": "daywrecker",
+   "keys": [
+    {
+     "name": "damageBallistic",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageFlame",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageImpact",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageConcussion",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "xplBlast",
+     "type": "odf_reference"
+    },
+    {
+     "name": "craterDepth",
+     "type": "float",
+     "default": 0
+    }
+   ]
+  },
+  "DispenserClass": {
+   "base": "WeaponClass",
+   "section": "DispenserClass",
+   "label": "dispenser",
+   "keys": [
+    {
+     "name": "objectClass",
+     "type": "odf_reference"
+    },
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 1.0
+    }
+   ]
+  },
+  "HealthPowerupClass": {
+   "base": "PowerUpClass",
+   "section": "HealthPowerupClass",
+   "label": "repairkit",
+   "keys": [
+    {
+     "name": "healthUp",
+     "type": "int",
+     "default": 1000
+    }
+   ]
+  },
+  "HoverCraftClass": {
+   "base": "CraftClass",
+   "section": "HoverCraftClass",
+   "label": "hover",
+   "keys": [
+    {
+     "name": "setAltitude",
+     "type": "float"
+    },
+    {
+     "name": "accelDragStop",
+     "type": "float"
+    },
+    {
+     "name": "accelDragFull",
+     "type": "float"
+    },
+    {
+     "name": "alphaDamp",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrack",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitch",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrust",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafe",
+     "type": "float"
+    },
+    {
+     "name": "rollSteer",
+     "type": "float"
+    },
+    {
+     "name": "velocForward",
+     "type": "float"
+    },
+    {
+     "name": "velocReverse",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafe",
+     "type": "float"
+    },
+    {
+     "name": "accelThrust",
+     "type": "float"
+    },
+    {
+     "name": "accelBrake",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpin",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurn",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteer",
+     "type": "float"
+    },
+    {
+     "name": "accelJump",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafRotatorRun",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafRotatorJump",
+     "type": "float"
+    },
+    {
+     "name": "rollSteerFinRun",
+     "type": "float"
+    },
+    {
+     "name": "rollSteerFinJump",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrotNacelleRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrotNacelleJump",
+     "type": "float"
+    },
+    {
+     "name": "pitchSteerNacelleRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchSteerNacelleJump",
+     "type": "float"
+    },
+    {
+     "name": "soundThrust",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "soundTurbo",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "soundFly",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "soundDeploy",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "soundUndeploy",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "pitchBaseNacelleRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchBaseNacelleJump",
+     "type": "float"
+    },
+    {
+     "name": "coeffDrag",
+     "type": "float"
+    },
+    {
+     "name": "flameParent#",
+     "type": "namecode8-indexed",
+     "default_note": "stop-on-first-miss"
+    },
+    {
+     "name": "flameOffset#",
+     "type": "vec3-indexed",
+     "default_note": "parent-slot"
+    },
+    {
+     "name": "flameAngles#",
+     "type": "vec3-indexed",
+     "default_note": "parent-slot"
+    }
+   ]
+  },
+  "LauncherClass": {
+   "base": "WeaponClass",
+   "section": "LauncherClass",
+   "label": "launcher",
+   "keys": [
+    {
+     "name": "lockRange",
+     "type": "float",
+     "default_note": "ordnance-derived"
+    },
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "lockDelay",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "coneAngle",
+     "type": "float",
+     "default": 1.5707964
+    },
+    {
+     "name": "lockingSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "lockedSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "lockingReticle",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "lockedReticle",
+     "type": "string16",
+     "default_from": "lockingReticle"
+    },
+    {
+     "name": "targetCount",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "targetReticle#",
+     "type": "string16-indexed"
+    }
+   ]
+  },
+  "LeaderRoundClass": {
+   "base": "RocketClass",
+   "section": "LeaderRoundClass",
+   "label": "targeting",
+   "keys": [
+    {
+     "name": "homingTime",
+     "type": "float",
+     "default": 2.0
+    }
+   ]
+  },
+  "MinelayerClass": {
+   "base": "HoverCraftClass",
+   "section": "MinelayerClass",
+   "label": "minelayer",
+   "keys": [
+    {
+     "name": "mineCount",
+     "type": "int",
+     "default": 15
+    },
+    {
+     "name": "mineAngle",
+     "type": "float",
+     "default": 1.263
+    },
+    {
+     "name": "mineRadius",
+     "type": "float",
+     "default": 60.0
+    },
+    {
+     "name": "mineRadiusInc",
+     "type": "float",
+     "default": 60.0
+    }
+   ]
+  },
+  "MissileClass": {
+   "base": "RocketClass",
+   "section": "MissileClass",
+   "label": "missile",
+   "keys": [
+    {
+     "name": "omegaTurn",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "shotAccel",
+     "type": "float",
+     "default": 100.0
+    }
+   ]
+  },
+  "ObjectLobberClass": {
+   "base": "WeaponClass",
+   "section": "ObjectLobberClass",
+   "label": "",
+   "keys": [
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "shotSpeed",
+     "type": "float",
+     "default": 100.0
+    }
+   ]
+  },
+  "PersonClass": {
+   "base": "CraftClass",
+   "section": "PersonClass",
+   "label": "person",
+   "keys": [
+    {
+     "name": "alphaDampCrawl",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrackCrawl",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitchCrawl",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrustCrawl",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafeCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocForwardCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocReverseCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafeCrawl",
+     "type": "float"
+    },
+    {
+     "name": "accelThrustCrawl",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpinCrawl",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurnCrawl",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteerCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocJumpCrawl",
+     "type": "float"
+    },
+    {
+     "name": "alphaDampRun",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrackRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitchRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrustRun",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafeRun",
+     "type": "float"
+    },
+    {
+     "name": "velocForwardRun",
+     "type": "float"
+    },
+    {
+     "name": "velocReverseRun",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafeRun",
+     "type": "float"
+    },
+    {
+     "name": "accelThrustRun",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpinRun",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurnRun",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteerRun",
+     "type": "float"
+    },
+    {
+     "name": "velocJumpRun",
+     "type": "float"
+    },
+    {
+     "name": "alphaDampFly",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrackFly",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitchFly",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrustFly",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafeFly",
+     "type": "float"
+    },
+    {
+     "name": "velocForwardFly",
+     "type": "float"
+    },
+    {
+     "name": "velocReverseFly",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafeFly",
+     "type": "float"
+    },
+    {
+     "name": "accelThrustFly",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpinFly",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurnFly",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteerFly",
+     "type": "float"
+    },
+    {
+     "name": "velocJumpFly",
+     "type": "float"
+    },
+    {
+     "name": "crushSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "jumpSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "landSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "stepSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "animRate",
+     "type": "float"
+    },
+    {
+     "name": "painSound#",
+     "type": "string16-indexed",
+     "default": "pain1.wav"
+    },
+    {
+     "name": "burnSound#",
+     "type": "string16-indexed",
+     "default": "lburn1.wav"
+    },
+    {
+     "name": "dieSound#",
+     "type": "string16-indexed",
+     "default": "death1.wav"
+    }
+   ]
+  },
+  "PopperClass": {
+   "base": "GrenadeClass",
+   "section": "PopperClass",
+   "label": "popper",
+   "keys": [
+    {
+     "name": "scanRange",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "launchXpl",
+     "type": "odf_reference"
+    },
+    {
+     "name": "launchOrd",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "PopperGunClass": {
+   "base": "WeaponClass",
+   "section": "PopperGunClass",
+   "label": "poppergun",
+   "keys": [
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "fireAngle",
+     "type": "float",
+     "default": 1.0
+    }
+   ]
+  },
+  "PortalClass": {
+   "base": "BuildingClass",
+   "section": "PortalClass",
+   "label": "portal",
+   "keys": [
+    {
+     "name": "activationTime",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "soundActivate",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "PowerPlantClass": {
+   "base": "BuildingClass",
+   "section": "PowerPlantClass",
+   "label": "powerplant",
+   "keys": [
+    {
+     "name": "powerRadius",
+     "type": "float",
+     "default": 100.0
+    }
+   ]
+  },
+  "PowerUpClass": {
+   "base": "GameObjectClass",
+   "section": "PowerUpClass",
+   "label": "powerup",
+   "keys": [
+    {
+     "name": "soundPickup",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "soundReject",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "ProducerClass": {
+   "base": "HoverCraftClass",
+   "section": "ProducerClass",
+   "label": "producer",
+   "keys": [
+    {
+     "name": "timeDeploy",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "timeUndeploy",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "timeRepair",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "healthRepair",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "scrapHold",
+     "type": "int",
+     "default": 10
+    },
+    {
+     "name": "pilotHold",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "buildItem#",
+     "type": "odf_reference-indexed"
+    },
+    {
+     "name": "soundBuild",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "soundFinish",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "blockedGeyserMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "buildEffect",
+     "type": "render_reference"
+    }
+   ]
+  },
+  "ProximityMineClass": {
+   "base": "MineClass",
+   "section": "ProximityMineClass",
+   "label": "proximity",
+   "keys": [
+    {
+     "name": "searchRadius",
+     "type": "float",
+     "default": 20.0
+    },
+    {
+     "name": "searchPeriod",
+     "type": "float",
+     "default": 0.1
+    },
+    {
+     "name": "xplBlast",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "QuakeBlastClass": {
+   "base": "ExplosionClass",
+   "section": "QuakeBlastClass",
+   "label": "quakeblast",
+   "keys": [
+    {
+     "name": "quakeCount",
+     "type": "int",
+     "default": 0
+    },
+    {
+     "name": "quakeClass",
+     "type": "odf_reference"
+    },
+    {
+     "name": "quakeMagnitude",
+     "type": "float"
+    }
+   ]
+  },
+  "RadarLauncherClass": {
+   "base": "LauncherClass",
+   "section": "RadarLauncherClass",
+   "label": "",
+   "keys": [
+    {
+     "name": "objectClass",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "RemoteDetonatorClass": {
+   "base": "MortarClass",
+   "section": "RemoteDetonatorClass",
+   "label": "detonator",
+   "keys": [
+    {
+     "name": "armedReticle",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "RepairDepotClass": {
+   "base": "BuildingClass",
+   "section": "RepairDepotClass",
+   "label": "repairdepot",
+   "keys": [
+    {
+     "name": "repairRange",
+     "type": "float",
+     "default": 30.0
+    },
+    {
+     "name": "repairDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "repairAmount",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "repairSound",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "RocketClass": {
+   "base": "BulletClass",
+   "section": "RocketClass",
+   "label": "rocket",
+   "keys": [
+    {
+     "name": "flameRadius",
+     "type": "float"
+    },
+    {
+     "name": "flameLength",
+     "type": "float"
+    },
+    {
+     "name": "flameTexture",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "flameFrames",
+     "type": "int"
+    },
+    {
+     "name": "flareRadius",
+     "type": "float"
+    },
+    {
+     "name": "flareTexture",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "flareFrames",
+     "type": "int"
+    },
+    {
+     "name": "smokeDevRadial",
+     "type": "float"
+    },
+    {
+     "name": "smokeDevAxial",
+     "type": "float"
+    },
+    {
+     "name": "smokeInherit",
+     "type": "float"
+    },
+    {
+     "name": "smokeRadius",
+     "type": "float"
+    },
+    {
+     "name": "smokePause",
+     "type": "float"
+    },
+    {
+     "name": "smokeDelay",
+     "type": "float"
+    },
+    {
+     "name": "smokeTexture",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "smokeFrames",
+     "type": "int"
+    },
+    {
+     "name": "lightRadius",
+     "type": "float"
+    },
+    {
+     "name": "lightTexture",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "SAVClass": {
+   "base": "HoverCraftClass",
+   "section": "SAVClass",
+   "label": "sav",
+   "keys": [
+    {
+     "name": "flightAltitude",
+     "type": "float"
+    }
+   ]
+  },
+  "ScrapSiloClass": {
+   "base": "BuildingClass",
+   "section": "ScrapSiloClass",
+   "label": "scrapsilo",
+   "keys": [
+    {
+     "name": "scrapHold",
+     "type": "int"
+    }
+   ]
+  },
+  "SeismicWaveClass": {
+   "base": "OrdnanceClass",
+   "section": "SeismicWaveClass",
+   "label": "seismic",
+   "keys": [
+    {
+     "name": "waveRadius",
+     "type": "float",
+     "default": 50.0
+    },
+    {
+     "name": "waveHeight",
+     "type": "float",
+     "default": 6.0
+    },
+    {
+     "name": "startOffset",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "rampUpTime",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "rampDownTime",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "sweepOmega",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "sweepVeloc",
+     "type": "float",
+     "default": 50.0
+    },
+    {
+     "name": "shakeFrequency",
+     "type": "float",
+     "default": 3.0
+    },
+    {
+     "name": "shakeOmega",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "shakeVeloc",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "walkerScale",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "towerScale",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "dampOmega",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "levelOmega",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "buildingScale",
+     "type": "float",
+     "default": 1.0
+    }
+   ]
+  },
+  "ShieldTowerClass": {
+   "base": "BuildingClass",
+   "section": "ShieldTowerClass",
+   "label": "shieldtower",
+   "keys": [
+    {
+     "name": "shieldMinX",
+     "type": "float"
+    },
+    {
+     "name": "shieldMaxX",
+     "type": "float"
+    },
+    {
+     "name": "shieldMinY",
+     "type": "float"
+    },
+    {
+     "name": "shieldMaxY",
+     "type": "float"
+    },
+    {
+     "name": "shieldMinZ",
+     "type": "float"
+    },
+    {
+     "name": "shieldMaxZ",
+     "type": "float"
+    },
+    {
+     "name": "objPush",
+     "type": "float",
+     "default": 100.0
+    },
+    {
+     "name": "objDrag",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "ordPush",
+     "type": "float",
+     "default": 200.0
+    },
+    {
+     "name": "ordDrag",
+     "type": "float",
+     "default": 3.0
+    }
+   ]
+  },
+  "SniperShellClass": {
+   "base": "BulletClass",
+   "section": "SniperShellClass",
+   "label": "snipershell",
+   "keys": [
+    {
+     "name": "killLength",
+     "type": "float",
+     "default": 3.0
+    },
+    {
+     "name": "killRadius",
+     "type": "float",
+     "default": 1.0
+    }
+   ]
+  },
+  "SpecialItemClass": {
+   "base": "WeaponClass",
+   "section": "SpecialItemClass",
+   "label": "specialitem",
+   "keys": [
+    {
+     "name": "activeSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "expireSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "ammoCost",
+     "type": "int",
+     "default": 100
+    },
+    {
+     "name": "triggerDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "reticleCount",
+     "type": "int",
+     "default": 0
+    }
+   ]
+  },
+  "SprayBombClass": {
+   "base": "GrenadeClass",
+   "section": "SprayBombClass",
+   "label": "spraybomb",
+   "keys": [
+    {
+     "name": "deployName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "bounceRatio",
+     "type": "float",
+     "default": 0.5
+    },
+    {
+     "name": "soundBounce",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "SprayBuildingClass": {
+   "base": "BuildingClass",
+   "section": "SprayBuildingClass",
+   "label": "spraybomb",
+   "keys": [
+    {
+     "name": "payloadName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "fireSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "triggerDelay",
+     "type": "float"
+    },
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 0.05
+    },
+    {
+     "name": "setAltitude",
+     "type": "float",
+     "default": 2.0
+    },
+    {
+     "name": "omegaSpin",
+     "type": "float",
+     "default": 10.0
+    },
+    {
+     "name": "anglePitch",
+     "type": "float",
+     "default": 0.25
+    }
+   ]
+  },
+  "SupplyDepotClass": {
+   "base": "BuildingClass",
+   "section": "SupplyDepotClass",
+   "label": "supplydepot",
+   "keys": [
+    {
+     "name": "supplyRange",
+     "type": "float",
+     "default": 30.0
+    },
+    {
+     "name": "supplyDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "supplyAmount",
+     "type": "float",
+     "default": 100
+    },
+    {
+     "name": "supplySound",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "TargetingGunClass": {
+   "base": "WeaponClass",
+   "section": "TargetingGunClass",
+   "label": "targeting",
+   "keys": [
+    {
+     "name": "leaderName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "leaderSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "shotDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "firstDelay",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "salvoDelay",
+     "type": "float",
+     "default": 0.2
+    },
+    {
+     "name": "salvoCount",
+     "type": "int",
+     "default": 10
+    },
+    {
+     "name": "lockingReticle",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "lockedReticle",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "shotVariance",
+     "type": "float"
+    }
+   ]
+  },
+  "TeamSwitcherClass": {
+   "base": "RocketClass",
+   "section": "TeamSwitcherClass",
+   "label": "switcher",
+   "keys": [
+    {
+     "name": "switchTime",
+     "type": "float",
+     "default": 10.0
+    }
+   ]
+  },
+  "ThermalMissileClass": {
+   "base": "MissileClass",
+   "section": "ThermalMissileClass",
+   "label": "thermalmissile",
+   "keys": [
+    {
+     "name": "coneAngle",
+     "type": "float",
+     "default": 0.31415927
+    }
+   ]
+  },
+  "TorpedoClass": {
+   "base": "PowerUpClass",
+   "section": "TorpedoClass",
+   "label": "torpedo",
+   "keys": [
+    {
+     "name": "setAltitude",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "alphaTrack",
+     "type": "float",
+     "default": 20.0
+    },
+    {
+     "name": "alphaDamp",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "velocForward",
+     "type": "float",
+     "default": 25.0
+    },
+    {
+     "name": "accelThrust",
+     "type": "float",
+     "default": 10.0
+    },
+    {
+     "name": "omegaTurn",
+     "type": "float",
+     "default": 1.0
+    },
+    {
+     "name": "alphaSteer",
+     "type": "float",
+     "default": 5.0
+    },
+    {
+     "name": "lifeSpan",
+     "type": "float",
+     "default": 60.0
+    },
+    {
+     "name": "damageBallistic",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageFlame",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageImpact",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "damageConcussion",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "xplBlast",
+     "type": "odf_reference"
+    },
+    {
+     "name": "soundThrust",
+     "type": "string16",
+     "default": ""
+    }
+   ]
+  },
+  "TracerClass": {
+   "base": "BulletClass",
+   "section": "TracerClass",
+   "label": "tracer",
+   "keys": [
+    {
+     "name": "tracerTexture",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "shotColor",
+     "type": "color",
+     "default": "white"
+    },
+    {
+     "name": "lodShift",
+     "type": "float",
+     "default": 0.0
+    },
+    {
+     "name": "tracerLength",
+     "type": "float",
+     "default": 10.5
+    },
+    {
+     "name": "tracerRadius",
+     "type": "float",
+     "default": 0.05
+    }
+   ]
+  },
+  "TugClass": {
+   "base": "HoverCraftClass",
+   "section": "TugClass",
+   "label": "tug",
+   "keys": [
+    {
+     "name": "selectCarryMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "pickupMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "dropoffMsg",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "dockSpeed",
+     "type": "float"
+    }
+   ]
+  },
+  "TurretCraftClass": {
+   "base": "CraftClass",
+   "section": "TurretCraftClass",
+   "label": "turret",
+   "keys": [
+    {
+     "name": "omegaTurret",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrack",
+     "type": "float"
+    },
+    {
+     "name": "alphaDamp",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitch",
+     "type": "float"
+    }
+   ]
+  },
+  "TurretTankClass": {
+   "base": "HoverCraftClass",
+   "section": "TurretTankClass",
+   "label": "turrettank",
+   "keys": [
+    {
+     "name": "omegaTurret",
+     "type": "float"
+    },
+    {
+     "name": "timeDeploy",
+     "type": "float"
+    },
+    {
+     "name": "timeUndeploy",
+     "type": "float"
+    }
+   ]
+  },
+  "WalkerClass": {
+   "base": "CraftClass",
+   "section": "WalkerClass",
+   "label": "walker",
+   "keys": [
+    {
+     "name": "alphaDampCrawl",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrackCrawl",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitchCrawl",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrustCrawl",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafeCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocForwardCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocReverseCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafeCrawl",
+     "type": "float"
+    },
+    {
+     "name": "accelThrustCrawl",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpinCrawl",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurnCrawl",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteerCrawl",
+     "type": "float"
+    },
+    {
+     "name": "velocJumpCrawl",
+     "type": "float"
+    },
+    {
+     "name": "alphaDampRun",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrackRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitchRun",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrustRun",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafeRun",
+     "type": "float"
+    },
+    {
+     "name": "velocForwardRun",
+     "type": "float"
+    },
+    {
+     "name": "velocReverseRun",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafeRun",
+     "type": "float"
+    },
+    {
+     "name": "accelThrustRun",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpinRun",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurnRun",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteerRun",
+     "type": "float"
+    },
+    {
+     "name": "velocJumpRun",
+     "type": "float"
+    },
+    {
+     "name": "alphaDampFly",
+     "type": "float"
+    },
+    {
+     "name": "alphaTrackFly",
+     "type": "float"
+    },
+    {
+     "name": "pitchPitchFly",
+     "type": "float"
+    },
+    {
+     "name": "pitchThrustFly",
+     "type": "float"
+    },
+    {
+     "name": "rollStrafeFly",
+     "type": "float"
+    },
+    {
+     "name": "velocForwardFly",
+     "type": "float"
+    },
+    {
+     "name": "velocReverseFly",
+     "type": "float"
+    },
+    {
+     "name": "velocStrafeFly",
+     "type": "float"
+    },
+    {
+     "name": "accelThrustFly",
+     "type": "float"
+    },
+    {
+     "name": "omegaSpinFly",
+     "type": "float"
+    },
+    {
+     "name": "omegaTurnFly",
+     "type": "float"
+    },
+    {
+     "name": "alphaSteerFly",
+     "type": "float"
+    },
+    {
+     "name": "velocJumpFly",
+     "type": "float"
+    },
+    {
+     "name": "jumpSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "landSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "stepSound",
+     "type": "string16",
+     "default": ""
+    },
+    {
+     "name": "animRate",
+     "type": "float"
+    }
+   ]
+  },
+  "WeaponMineClass": {
+   "base": "MineClass",
+   "section": "WeaponMineClass",
+   "label": "weaponmine",
+   "keys": [
+    {
+     "name": "searchRadius",
+     "type": "float",
+     "default": 50.0
+    },
+    {
+     "name": "heightScale",
+     "type": "float",
+     "default": 10.0
+    },
+    {
+     "name": "weaponName",
+     "type": "odf_reference"
+    },
+    {
+     "name": "checkSight",
+     "type": "int"
+    }
+   ]
+  },
+  "WeaponPowerupClass": {
+   "base": "PowerUpClass",
+   "section": "WeaponPowerupClass",
+   "label": "wpnpower",
+   "keys": [
+    {
+     "name": "weaponName",
+     "type": "odf_reference"
+    }
+   ]
+  },
+  "AnimBuildingClass": {
+   "base": "BuildingClass",
+   "section": "",
+   "label": "animbuilding",
+   "keys": []
+  },
+  "ArtifactClass": {
+   "base": "BuildingClass",
+   "section": "",
+   "label": "artifact",
+   "keys": []
+  },
+  "BeamGunClass": {
+   "base": "CannonClass",
+   "section": "",
+   "label": "beamgun",
+   "keys": []
+  },
+  "BulletClass": {
+   "base": "OrdnanceClass",
+   "section": "",
+   "label": "bullet",
+   "keys": []
+  },
+  "ConstructionRigClass": {
+   "base": "ProducerClass",
+   "section": "",
+   "label": "constructionrig",
+   "keys": []
+  },
+  "FactoryClass": {
+   "base": "ProducerClass",
+   "section": "",
+   "label": "factory",
+   "keys": []
+  },
+  "GeizerClass": {
+   "base": "BuildingClass",
+   "section": "GeyserClass",
+   "label": "geyser",
+   "keys": [
+    {
+     "name": "effectName",
+     "type": "render_reference"
+    }
+   ]
+  },
+  "GrenadeClass": {
+   "base": "RocketClass",
+   "section": "",
+   "label": "grenade",
+   "keys": []
+  },
+  "GroundBlastClass": {
+   "base": "ExplosionClass",
+   "section": "",
+   "label": "groundblast",
+   "keys": []
+  },
+  "HowitzerClass": {
+   "base": "TurretTankClass",
+   "section": "",
+   "label": "howitzer",
+   "keys": []
+  },
+  "ImageLauncherClass": {
+   "base": "LauncherClass",
+   "section": "",
+   "label": "imagelauncher",
+   "keys": []
+  },
+  "ImageMissileClass": {
+   "base": "MissileClass",
+   "section": "",
+   "label": "imagemissile",
+   "keys": []
+  },
+  "ImageRefractClass": {
+   "base": "SpecialItemClass",
+   "section": "",
+   "label": "imagerefract",
+   "keys": []
+  },
+  "MachineGunClass": {
+   "base": "CannonClass",
+   "section": "",
+   "label": "machinegun",
+   "keys": []
+  },
+  "MortarClass": {
+   "base": "CannonClass",
+   "section": "",
+   "label": "mortar",
+   "keys": []
+  },
+  "PlanarExplosionClass": {
+   "base": "ExplosionClass",
+   "section": "",
+   "label": "planarexpl",
+   "keys": []
+  },
+  "RadarDamperClass": {
+   "base": "SpecialItemClass",
+   "section": "",
+   "label": "radardamper",
+   "keys": []
+  },
+  "RecyclerClass": {
+   "base": "ProducerClass",
+   "section": "",
+   "label": "recycler",
+   "keys": []
+  },
+  "ScrapClass": {
+   "base": "BuildingClass",
+   "section": "",
+   "label": "scrap",
+   "keys": []
+  },
+  "ScrapDropoffClass": {
+   "base": "PowerUpClass",
+   "section": "",
+   "label": "dropoff",
+   "keys": []
+  },
+  "ScrapFieldClass": {
+   "base": "BuildingClass",
+   "section": "",
+   "label": "scrapfield",
+   "keys": []
+  },
+  "ShockBlastClass": {
+   "base": "ExplosionClass",
+   "section": "",
+   "label": "shockblast",
+   "keys": []
+  },
+  "SniperGunClass": {
+   "base": "CannonClass",
+   "section": "",
+   "label": "snipergun",
+   "keys": []
+  },
+  "SpawnBuoyClass": {
+   "base": "BuildingClass",
+   "section": "",
+   "label": "spawnpnt",
+   "keys": []
+  },
+  "TerrainExposeClass": {
+   "base": "SpecialItemClass",
+   "section": "",
+   "label": "terrainexpose",
+   "keys": []
+  },
+  "ThermalLauncherClass": {
+   "base": "LauncherClass",
+   "section": "",
+   "label": "thermallauncher",
+   "keys": []
+  },
+  "WingmanClass": {
+   "base": "HoverCraftClass",
+   "section": "",
+   "label": "wingman",
+   "keys": []
+  }
+ }
+}
