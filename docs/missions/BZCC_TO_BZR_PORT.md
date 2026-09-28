@@ -55,7 +55,15 @@ python bzcc_port.py source.bzn redux_template.bzn out.bzn \
 
 Matching is case insensitive. Redux BZN IDs are limited to eight bytes, so
 longer source names need a short `odf` in the map (`bocryst01` becomes
-`bocryst0`). See `docs/examples/isdf01_mapping.json`.
+`bocryst0`). See `docs/missions/examples/isdf01_mapping.json`.
+
+The ISDF01 example expects an `ivturr` turret-tank prototype for the Condor
+(`ivpdrop`) and an `sspilo` person prototype for Manson. The installed Redux
+ODFs declare those classes; a building record for either object causes the
+loader to read the wrong fields. Recheck mappings whenever a target ODF's
+`classLabel` changes. On 2026-09-27, replacing the installed map's two Condor
+building records and Manson building record with matching class records let
+all 126 objects load and the mission reach its first simulation frame.
 
 ### Terrain offset
 
