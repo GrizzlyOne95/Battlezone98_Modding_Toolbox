@@ -119,6 +119,9 @@ PAGES: Sequence[PageSpec] = (
              "Legacy Battlezone .HGT to Redux .HG2 and back, byte-exact for HG2s cooked from an HGT.",
              f"{_P}.heightmap_convert:HeightmapConvertPage", package="bztoolbox.modules.terrain_generator",
              keywords=("hgt", "hg2", "heightmap", "legacy", "1.5")),
+    PageSpec("world.tunnel", "world", "Tunnels",
+             "Cut-and-cover tunnels: carve a trench with ramps into an HG2 and darken the LGT under the roof.",
+             f"{_P}.tunnel:TunnelPage", keywords=("tunnel", "trench", "hg2", "lgt", "carve", "bridge", "roof")),
     PageSpec("world.to_legacy", "world", "Redux → 1.5 Port",
              "Rebuild a Redux world or mission for Battlezone 1.5: atlas to MAP tiles, palette and colour tables, "
              "TRN, sky, HGT, LGT and BZN.",
