@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dnd = ["tkinterdnd2>=0.3"]            # drag & drop in Textures
+dnd = ["tkinterdnd2>=0.3"]            # drag & drop in Textures and Asset Porting
 mesh-preview = ["ogre-python"]        # other platforms: preview if a wheel exists
 dev = ["pytest>=7", "pyinstaller>=6"]
 

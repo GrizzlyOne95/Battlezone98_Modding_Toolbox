@@ -93,7 +93,7 @@ class HeightmapConvertPage(ScrollableFrame):
 
         self.relight_path = tk.StringVar()
         self.relight_only_broken = tk.BooleanVar(value=True)
-        card = Card(body, "Light maps (LGT)", "Rebake .lgt light maps from their .hg2 terrain the way Redux's stock "
+        card = Card(body, "Rebake lighting from HG2", "Rebake .lgt light maps from their .hg2 terrain the way Redux's stock "
                                              "maps are lit (sun due east, 80° up). Pick one .hg2 or a folder of "
                                              "maps; old light maps are backed up first.")
         card.pack(fill="x", pady=(0, 12))
@@ -103,7 +103,7 @@ class HeightmapConvertPage(ScrollableFrame):
                         variable=self.relight_only_broken, style="Toolbox.Surface.TCheckbutton").pack(anchor="w")
         actions = ttk.Frame(card.body, style="Toolbox.Surface.TFrame")
         actions.pack(fill="x", pady=(10, 0))
-        self.relight_button = ttk.Button(actions, text="Rebake light maps", style="Toolbox.Accent.TButton",
+        self.relight_button = ttk.Button(actions, text="Rebake lighting from HG2", style="Toolbox.Accent.TButton",
                                          command=self.relight)
         self.relight_button.pack(side="left")
 

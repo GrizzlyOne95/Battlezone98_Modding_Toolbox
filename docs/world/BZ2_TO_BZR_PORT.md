@@ -1,6 +1,6 @@
 # BZ2/BZCC → BZR terrain port (terrain pipeline implemented; validation pending)
 
-The separate **BZ2 → BZ1 Map Port** tab now has two paths:
+The separate **BZ2/BZCC → Redux Terrain** tab now has two paths:
 
 - **CONVERT TER + HG2 + MAT DIAGNOSTICS** decodes a BZ2/BZCC TERR v3/v4/v5
   file without requiring source textures and records the terrain conversion for

@@ -106,7 +106,7 @@ class BZ98TRNArchitect(_BaseArchitect):
         self.bz2_target_min_z = core.tk.StringVar(value="0")
         self.bz2_status = core.tk.StringVar(value="Choose a BZ2/BZCC .TER to inspect.")
         self.tab_bz2_port = core.ttk.Frame(self.notebook)
-        self.notebook.insert(self.tab_hg2, self.tab_bz2_port, text=" BZ2 → BZ1 Map Port ")
+        self.notebook.insert(self.tab_hg2, self.tab_bz2_port, text=" BZ2/BZCC → Redux Terrain ")
         pane = core.ttk.Frame(self.tab_bz2_port, padding=20)
         pane.pack(fill="both", expand=True)
         core.ttk.Label(pane, text="BZ2 / BZCC TERRAIN PORT", foreground=core.BZ_GREEN,

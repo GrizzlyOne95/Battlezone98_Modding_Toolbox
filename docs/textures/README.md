@@ -66,8 +66,8 @@ BZMakeMAPCompat.exe -4444 -undopma effect.tga
 
 See [`docs/MAKEMAP_COMPATIBILITY.md`](docs/MAKEMAP_COMPATIBILITY.md) for the full parity matrix, reverse-engineered format details, transform order, and validation notes.
 
-### LGT Light Converter
-A dedicated tool for converting `.LGT` lightmap files into editable `.PNG` images.
+### LGT ↔ PNG
+A dedicated tool for converting `.LGT` lightmap files into editable `.PNG` images. To rebake lighting from `.HG2` terrain, use **World & Terrain › Heightmap Convert**.
 
 * **LGT to PNG**: Decodes game lightmaps into editable grayscale images.
 * **PNG to LGT**: Repacks the PNG to an LGT file.

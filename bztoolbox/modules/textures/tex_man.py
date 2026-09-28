@@ -281,7 +281,7 @@ class BZReduxSuite:
         self.notebook.add(self.tab_act, text="ACT Palette Editor")
         self.notebook.add(self.tab_tex, text="Texture Manager")
         self.notebook.add(self.tab_map, text="MAP Converter")
-        self.notebook.add(self.tab_lgt, text="LGT Converter")
+        self.notebook.add(self.tab_lgt, text="LGT ↔ PNG")
         self.notebook.add(self.tab_dxt, text="DXTBZ2 Converter")
         self.notebook.add(self.tab_pack, text="Channel Packer")
         
@@ -732,7 +732,7 @@ class BZReduxSuite:
 
 # --- LGT CONVERTER (BZRLGT REFERENCE-COMPATIBLE) ---
     def setup_lgt_tab(self):
-        ttk.Label(self.tab_lgt, text="Terrain Lightmap (.LGT) Manager", font=(self.custom_font_name, 16, "bold"), foreground=BZ_GREEN).pack(pady=10)
+        ttk.Label(self.tab_lgt, text="LGT ↔ PNG", font=(self.custom_font_name, 16, "bold"), foreground=BZ_GREEN).pack(pady=10)
         
         # Controls Frame
         ctrl = ttk.Frame(self.tab_lgt)
@@ -784,7 +784,7 @@ class BZReduxSuite:
         elif ext == ".png":
             self.png_to_lgt(path)
         else:
-            messagebox.showerror("LGT Converter", "The source must be a .lgt or a .png file.")
+            messagebox.showerror("LGT ↔ PNG", "The source must be a .lgt or a .png file.")
 
     def lgt_to_png(self, path=None):
         path = path or filedialog.askopenfilename(filetypes=[("Lightmap", "*.lgt")])
