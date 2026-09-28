@@ -1,8 +1,10 @@
 """Readers for the legacy binary model formats: ``.geo``, ``.vdf`` and ``.sdf``.
 
-Only what validation needs is decoded: GEO vertices and faces, and the part
-records of VDF (vehicle) and SDF (structure) files. Layouts follow the
-BZ98R Blender ToolKit's readers.
+Decoded: GEO vertices, normals and faces (with per-corner UVs, face colour
+and plane), and the part records of VDF (vehicle) and SDF (structure) files
+with their transforms. Validation and the Redux porter
+(:mod:`battlezone.meshes.legacy_port`) use them. Layouts follow the BZ98R
+Blender ToolKit's readers.
 
 GEO::
 
@@ -19,8 +21,28 @@ VDF / SDF::
     SDF: SGEO header, 6 bands x count x 120-byte part records, optional ANIM
 
 A part record starts ``8s name, 12f matrix, 8s parent, 3f centre, f radius,
-3f half extents, i class, i flags``. VDF bands are ``lod_slot * 4 +
-damage_state``; band 0 holds the parts the model is built from.
+3f half extents, i class, i flags``. The matrix is the part's right, up and
+front axes then its position, all in the parent's space (so
+``parent_point = x*right + y*up + z*front + position``). VDF bands are
+``lod_slot * 4 + damage_state``; band 0 holds the parts the model is built
+from, band 4 (lod slot 1) the cockpit, band 8 the low-detail model.
+
+ANIM (VDF and SDF)::
+
+    16s name, 5i counts (sequences, parts, rotation, scale and position
+    keys), 7i runtime pointers
+    sequences  count x (i index, 32i, i start frame, i signed length,
+               i loop, f frames per second)
+    parts      count x (8s name, i flags, 12f, 12f, then start and count
+               of its rotation, scale and position keys)
+    keys       i frame + 4f (w, x, y, z), i frame + 3f, i frame + 3f
+
+All sequences share one timeline; a sequence plays ``abs(length)`` frames
+from ``start``, backwards when the length is negative. Keys are the part's
+full transform in its parent's space (not an offset from the record). The
+stored rotation is the conjugate of the Hamilton quaternion of the part's
+column matrix: sbcomm's ``sbc11an3`` record has quaternion y = -0.0022 and
+its first key stores +0.0022.
 """
 
 from __future__ import annotations
@@ -29,10 +51,10 @@ import math
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
-__all__ = ["ModelError", "GeoFace", "GeoFile", "Part", "BwdModel", "read_geo", "read_vdf", "read_sdf",
-           "read_model"]
+__all__ = ["ModelError", "GeoFace", "GeoFile", "Part", "AnimSequence", "AnimTrack", "BwdModel", "read_geo",
+           "read_vdf", "read_sdf", "read_model"]
 
 VDF_BANDS = 28
 SDF_BANDS = 6
@@ -43,6 +65,8 @@ _BWD_HEADER = struct.Struct("<4si4sii")
 _VDF_RECORD = struct.Struct("<8s12f8s7fii")         # 100 bytes
 _SDF_RECORD = struct.Struct("<8s12f8s7fiii4f")      # 120 bytes
 _SECTION = struct.Struct("<4si")
+_ANIM_SEQUENCE = struct.Struct("<i128xiiif")         # 148 bytes
+_ANIM_PART = struct.Struct("<8si96x6i")              # 132 bytes
 
 
 class ModelError(ValueError):
@@ -63,6 +87,9 @@ class GeoFace:
     vertices: List[int]
     normals: List[int]
     texture: str
+    uvs: List[Tuple[float, float]] = field(default_factory=list)   # one per corner
+    colour: Tuple[int, int, int] = (0, 0, 0)
+    plane: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)  # stock normals point inward
 
 
 @dataclass
@@ -72,6 +99,8 @@ class GeoFile:
     faces: List[GeoFace] = field(default_factory=list)
     bad_vertices: int = 0            # vertices with a NaN or infinite coordinate
     declared_faces: int = 0
+    positions: List[Tuple[float, float, float]] = field(default_factory=list)
+    normals: List[Tuple[float, float, float]] = field(default_factory=list)
 
 
 def read_geo(source: Union[str, Path, bytes]) -> GeoFile:
@@ -87,9 +116,12 @@ def read_geo(source: Union[str, Path, bytes]) -> GeoFile:
     end = pos + vertex_count * 24
     if end > len(data):
         raise ModelError(f"cut short: {vertex_count} vertices declared, the file ends first")
-    bad = sum(1 for i in range(vertex_count)
-              if not all(math.isfinite(v) for v in struct.unpack_from("<3f", data, pos + i * 12)))
-    geo = GeoFile(_text(name), vertex_count, bad_vertices=bad, declared_faces=face_count)
+    positions = [struct.unpack_from("<3f", data, pos + i * 12) for i in range(vertex_count)]
+    bad = sum(1 for p in positions if not all(math.isfinite(v) for v in p))
+    geo = GeoFile(_text(name), vertex_count, bad_vertices=bad, declared_faces=face_count,
+                  positions=positions)
+    normals_at = pos + vertex_count * 12
+    geo.normals = [struct.unpack_from("<3f", data, normals_at + i * 12) for i in range(vertex_count)]
     pos = end
     for _ in range(face_count):
         if pos + _GEO_FACE.size > len(data):
@@ -99,13 +131,15 @@ def read_geo(source: Union[str, Path, bytes]) -> GeoFile:
         pos += _GEO_FACE.size
         if count < 0 or pos + count * _FACE_VERT.size > len(data):
             raise ModelError(f"face {len(geo.faces)} declares {count} vertices, past the end of the file")
-        verts, normals = [], []
+        verts, normals, uvs = [], [], []
         for _ in range(count):
-            vert, normal, _u, _v = _FACE_VERT.unpack_from(data, pos)
+            vert, normal, u, v = _FACE_VERT.unpack_from(data, pos)
             pos += _FACE_VERT.size
             verts.append(vert)
             normals.append(normal)
-        geo.faces.append(GeoFace(index, verts, normals, _text(texture)))
+            uvs.append((u, v))
+        geo.faces.append(GeoFace(index, verts, normals, _text(texture), uvs,
+                                 (fields[2], fields[3], fields[4]), tuple(fields[5:9])))
     return geo
 
 
@@ -121,6 +155,31 @@ class Part:
     flags: int
     band: int
     slot: int
+    matrix: Tuple[float, ...] = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+
+
+@dataclass
+class AnimSequence:
+    index: int                        # what the game asks for (person: 0 crouch, 1 stand, 2 standing, ...)
+    start: int                        # first frame on the shared timeline
+    length: int                       # frame count; negative plays backwards from start
+    loop: int
+    speed: float                      # frames per second
+
+    @property
+    def frames(self) -> Tuple[int, ...]:
+        """First and last timeline frame, in playback order."""
+        step = 1 if self.length >= 0 else -1
+        return self.start, self.start + (abs(self.length) - 1) * step
+
+
+@dataclass
+class AnimTrack:
+    name: str                         # the part it moves
+    flags: int = 0
+    rotations: List[Tuple[int, Tuple[float, float, float, float]]] = field(default_factory=list)  # (w, x, y, z)
+    positions: List[Tuple[int, Tuple[float, float, float]]] = field(default_factory=list)
+    scales: List[Tuple[int, Tuple[float, float, float]]] = field(default_factory=list)
 
 
 @dataclass
@@ -131,9 +190,15 @@ class BwdModel:
     parts: List[Part] = field(default_factory=list)       # every named record, all bands
     chunks: List[str] = field(default_factory=list)       # tags after the part records
     canonical_header: bool = True
+    sequences: List[AnimSequence] = field(default_factory=list)   # from the ANIM chunk
+    tracks: List[AnimTrack] = field(default_factory=list)
 
     def band(self, band: int) -> List[Part]:
         return [part for part in self.parts if part.band == band]
+
+    def track(self, name: str) -> Optional[AnimTrack]:
+        low = name.lower()
+        return next((t for t in self.tracks if t.name.lower() == low), None)
 
 
 def _read_parts(data: bytes, pos: int, geocount: int, bands: int, record: struct.Struct,
@@ -146,7 +211,8 @@ def _read_parts(data: bytes, pos: int, geocount: int, bands: int, record: struct
         name = _text(fields[0])
         if name:
             band, slot = divmod(index, geocount)
-            model.parts.append(Part(name, _text(fields[13]), fields[21], fields[22] & 0xFFFFFFFF, band, slot))
+            model.parts.append(Part(name, _text(fields[13]), fields[21], fields[22] & 0xFFFFFFFF, band, slot,
+                                    tuple(fields[1:13])))
     return pos + needed
 
 
@@ -158,9 +224,44 @@ def _walk_chunks(data: bytes, pos: int, model: BwdModel) -> None:
         if tag == b"EXIT":
             pos += 8
         elif 8 <= length <= len(data) - pos:
+            if tag == b"ANIM" and not model.sequences:
+                _read_anim(data[pos + 8:pos + length], model)
             pos += length
         else:
             return   # a length we cannot trust; the rest is opaque
+
+
+def _read_anim(body: bytes, model: BwdModel) -> None:
+    """Sequences and per-part keys of an ANIM chunk body; a short or odd chunk is left unread."""
+    if len(body) < 64:
+        return
+    counts = struct.unpack_from("<5i", body, 16)
+    n_seq, n_parts, n_rot, n_scale, n_pos = counts
+    if min(counts) < 0 or 64 + n_seq * 148 + n_parts * 132 + n_rot * 20 + (n_scale + n_pos) * 16 > len(body):
+        return
+    pos = 64
+    sequences = []
+    for _ in range(n_seq):
+        index, start, length, loop, speed = _ANIM_SEQUENCE.unpack_from(body, pos)
+        sequences.append(AnimSequence(index, start, length, loop, speed))
+        pos += _ANIM_SEQUENCE.size
+    ranges = []
+    for _ in range(n_parts):
+        name, flags, r0, rn, s0, sn, p0, pn = _ANIM_PART.unpack_from(body, pos)
+        ranges.append((_text(name), flags, r0, rn, s0, sn, p0, pn))
+        pos += _ANIM_PART.size
+    rotations = [struct.unpack_from("<i4f", body, pos + i * 20) for i in range(n_rot)]
+    pos += n_rot * 20
+    scales = [struct.unpack_from("<i3f", body, pos + i * 16) for i in range(n_scale)]
+    pos += n_scale * 16
+    positions = [struct.unpack_from("<i3f", body, pos + i * 16) for i in range(n_pos)]
+
+    def keys(table, start, count):
+        return sorted(((k[0], tuple(k[1:])) for k in table[max(start, 0):max(start, 0) + max(count, 0)]),
+                      key=lambda k: k[0])
+    model.sequences = sequences
+    model.tracks = [AnimTrack(name, flags, keys(rotations, r0, rn), keys(positions, p0, pn), keys(scales, s0, sn))
+                    for name, flags, r0, rn, s0, sn, p0, pn in ranges]
 
 
 def _read_bwd(data: bytes, kind: str) -> BwdModel:

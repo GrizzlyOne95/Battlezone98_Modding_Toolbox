@@ -167,3 +167,63 @@ def lgt_to_image(lightmap: np.ndarray) -> np.ndarray:
 def image_to_lgt(image: np.ndarray) -> np.ndarray:
     """North-up image rows -> south-first light map."""
     return np.flipud(np.asarray(image, dtype=np.uint8))
+
+
+# --- Redux's own bake -------------------------------------------------------------
+# Fitted to the stock LGT/HG2 pairs in bzone.zfs (misn02/05/10, misns1/4/7): a sun due
+# east 80 degrees up, Lambert shading with no cast shadows, and
+# value = clip(360 * lambert - 106, 56, 255); the border block holds 56. It reproduces
+# the stock files to within 3-6 levels on average, which is why they never go below 56.
+REDUX_SUN_AZIMUTH_DEG = 90.0
+REDUX_SUN_ALTITUDE_DEG = 80.0
+REDUX_LGT_SCALE = 360.0
+REDUX_LGT_OFFSET = -106.0
+REDUX_LGT_FLOOR = 56
+_ZONE_WORLD_SIZE = 1280.0
+_HEIGHT_UNIT = 0.1
+
+
+def lambert_shading(heights: np.ndarray, zones_x: int, zones_z: int, cell_zone_size: int = 256,
+                    azimuth_deg: float = REDUX_SUN_AZIMUTH_DEG,
+                    altitude_deg: float = REDUX_SUN_ALTITUDE_DEG) -> np.ndarray:
+    """0..1 Lambert shading of south-first HG2 heights, averaged to ``cell_zone_size`` cells per zone."""
+    import math
+
+    a = np.asarray(heights, dtype=np.float64) * _HEIGHT_UNIT
+    h, w = a.shape
+    vertex_zone = w // int(zones_x)
+    if vertex_zone * int(zones_x) != w or h != vertex_zone * int(zones_z):
+        raise ValueError("heights do not divide into the zone counts")
+    if vertex_zone % cell_zone_size:
+        raise ValueError(f"{cell_zone_size} cells per zone do not divide {vertex_zone} samples per zone")
+    spacing = _ZONE_WORLD_SIZE / vertex_zone
+    grad_z, grad_x = np.gradient(a, spacing, spacing)
+    az, alt = math.radians(azimuth_deg), math.radians(altitude_deg)
+    sun_x, sun_y, sun_z = math.cos(alt) * math.sin(az), math.sin(alt), math.cos(alt) * math.cos(az)
+    shade = np.clip((-grad_x * sun_x + sun_y - grad_z * sun_z) / np.sqrt(grad_x ** 2 + grad_z ** 2 + 1.0), 0.0, 1.0)
+    factor = vertex_zone // cell_zone_size
+    if factor > 1:
+        shade = shade.reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
+    return shade
+
+
+def bake_redux_lgt(heights: np.ndarray, zones_x: int, zones_z: int, cell_zone_size: int = 256) -> np.ndarray:
+    """An LGT lit the way Redux's stock maps are (the REDUX_* constants above)."""
+    shade = lambert_shading(heights, zones_x, zones_z, cell_zone_size)
+    return np.clip(np.rint(REDUX_LGT_SCALE * shade + REDUX_LGT_OFFSET), REDUX_LGT_FLOOR, 255).astype(np.uint8)
+
+
+def rebake_lgt_file(hg2_path, lgt_path) -> np.ndarray:
+    """Write ``lgt_path`` baked from ``hg2_path``, keeping the existing file's cells per zone (default 256)."""
+    from battlezone.terrain.hg2 import HG2Map
+
+    hg2 = HG2Map.read(hg2_path)
+    cells = 256
+    if Path(lgt_path).is_file():
+        try:
+            cells = read_lgt(lgt_path, hg2.zones_x, hg2.zones_z)[3]
+        except ValueError:
+            pass
+    baked = bake_redux_lgt(hg2.heights, hg2.zones_x, hg2.zones_z, cells)
+    write_lgt(lgt_path, baked, hg2.zones_x, hg2.zones_z, border=REDUX_LGT_FLOOR)
+    return baked

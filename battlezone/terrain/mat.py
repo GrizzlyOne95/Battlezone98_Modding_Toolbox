@@ -75,3 +75,49 @@ def write_mat(path,entries,zx,zz):
     with open(path,"wb") as f: f.write(pack_mat_zones(entries,zx,zz))
 def read_mat(path,zx,zz):
     with open(path,"rb") as f: return unpack_mat_zones(f.read(),zx,zz)
+
+
+# --- which TRN tile a MAT cell asks for --------------------------------------------
+# 1.5 (Load_Terrain_Texture_Info) fills a type x transition x variant table from the TRN's
+# [TextureTypeN] Solid<A-D>0, CapTo<M>_<A-D>0 and DiagonalTo<M>_<A-D>0 keys; a variant falls
+# back to a lower letter, nothing else does. An empty slot draws 1.5's checkerboard
+# badTexture; Redux draws the atlas CSV's default cell instead.
+import re as _re
+from typing import Dict as _Dict, Tuple as _Tuple
+
+_SLOT_KEY = _re.compile(r"^(solid|capto(\d)_|diagonalto(\d)_)([a-d])0$", _re.IGNORECASE)
+_KIND_NAMES = {"S": "Solid", "C": "CapTo", "D": "DiagonalTo"}
+
+
+def defined_slots(doc) -> set:
+    """``(type, kind, next, variant)`` slots a TRN defines at level 0; kind is S(olid), C(ap) or D(iagonal)."""
+    slots = set()
+    for type_index, section in doc.texture_types().items():
+        for entry in section.entries:
+            match = _SLOT_KEY.match(entry.key.strip())
+            if not match or not entry.value.strip():
+                continue
+            if match.group(1).lower() == "solid":
+                kind, other = "S", type_index
+            else:
+                kind, other = ("C", int(match.group(2))) if match.group(2) else ("D", int(match.group(3)))
+            slots.add((type_index, kind, other, "abcd".index(match.group(4).lower())))
+    return slots
+
+
+def mat_slot_usage(entries: np.ndarray) -> _Dict[_Tuple[int, str, int, int], int]:
+    """Cells per ``(type, kind, next, variant)`` in a MAT, the way 1.5 looks tiles up."""
+    entries = np.asarray(entries, dtype=np.uint16)
+    base, other = entries >> 12, (entries >> 8) & 15
+    cap, variant = (entries >> 7) & 1, entries & 3
+    kind = np.where(base == other, 0, np.where(cap == 1, 1, 2))
+    code = ((base.astype(np.int64) * 16 + other) * 4 + kind) * 4 + variant
+    values, counts = np.unique(code, return_counts=True)
+    out = {}
+    for value, count in zip(values.tolist(), counts.tolist()):
+        variant, value = value % 4, value // 4
+        kind, value = "SCD"[value % 4], value // 4
+        out[(value // 16, kind, value % 16, variant)] = count
+    return out
+
+
