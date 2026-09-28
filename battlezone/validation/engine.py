@@ -172,7 +172,10 @@ def _check_odf(ctx: _Context) -> Iterator[Issue]:
 
 def _from_odf_issue(ctx: _Context, odf_issue: ODFIssue, by_name: dict) -> Issue:
     matches = by_name.get(odf_issue.filename.lower(), [])
-    path = ctx.rel(matches[0]) if len(matches) == 1 else odf_issue.filename
+    source = next((m for m in matches if str(m) == odf_issue.path), None)
+    if source is None and len(matches) == 1:
+        source = matches[0]
+    path = ctx.rel(source) if source is not None else odf_issue.filename
     return Issue(
         severity=_odf_severity(odf_issue.severity),
         check="odf",

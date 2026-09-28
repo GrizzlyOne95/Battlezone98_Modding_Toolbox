@@ -37,6 +37,7 @@ class ODFIssue:
     rule_id: str = ""
     line: int = 0
     evidence_ids: Tuple[str, ...] = ()
+    path: str = ""                      # the ODF's full path, when it came from a file
 
 
 @dataclass
@@ -83,6 +84,17 @@ def _merge_evidence_ids(*groups: Iterable[str]) -> Tuple[str, ...]:
     return tuple(out)
 
 
+def _strip_trailing_comment(value: str) -> str:
+    """``"xhfire" //"xhfirecar"`` -> ``"xhfire"``; ``NULL // note`` -> ``NULL``: the game stops reading there."""
+    if value.startswith('"'):
+        end = value.find('"', 1)
+        if end > 0 and value[end + 1:].lstrip().startswith("//"):
+            return value[:end + 1]
+        return value
+    cut = value.find("//")
+    return value[:cut].rstrip() if cut >= 0 else value
+
+
 def parse_odf_bytes(data: bytes, virtual_path: str | Path) -> ODFDocument:
     """Parse an ODF byte stream as permissive legacy INI text."""
     text = data.decode("latin-1")
@@ -111,7 +123,7 @@ def parse_odf_bytes(data: bytes, virtual_path: str | Path) -> ODFDocument:
         if not match:
             continue
         key = match.group(1).strip()
-        value = match.group(2).strip()
+        value = _strip_trailing_comment(match.group(2).strip())
         sections[current].append((key, value, line_no))
 
     return ODFDocument(path=Path(virtual_path), sections=sections, original_sections=original_sections)
@@ -144,6 +156,7 @@ def _issue(
         rule_id=rule_id,
         line=line,
         evidence_ids=tuple(evidence_ids),
+        path=str(doc.path),
     )
 
 
