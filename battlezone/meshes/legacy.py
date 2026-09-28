@@ -1,8 +1,10 @@
 """Readers for the legacy binary model formats: ``.geo``, ``.vdf`` and ``.sdf``.
 
-Only what validation needs is decoded: GEO vertices and faces, and the part
-records of VDF (vehicle) and SDF (structure) files. Layouts follow the
-BZ98R Blender ToolKit's readers.
+Decoded: GEO vertices, normals and faces (with per-corner UVs, face colour
+and plane), and the part records of VDF (vehicle) and SDF (structure) files
+with their transforms. Validation and the Redux porter
+(:mod:`battlezone.meshes.legacy_port`) use them. Layouts follow the BZ98R
+Blender ToolKit's readers.
 
 GEO::
 
@@ -19,8 +21,11 @@ VDF / SDF::
     SDF: SGEO header, 6 bands x count x 120-byte part records, optional ANIM
 
 A part record starts ``8s name, 12f matrix, 8s parent, 3f centre, f radius,
-3f half extents, i class, i flags``. VDF bands are ``lod_slot * 4 +
-damage_state``; band 0 holds the parts the model is built from.
+3f half extents, i class, i flags``. The matrix is the part's right, up and
+front axes then its position, all in the parent's space (so
+``parent_point = x*right + y*up + z*front + position``). VDF bands are
+``lod_slot * 4 + damage_state``; band 0 holds the parts the model is built
+from, band 4 (lod slot 1) the cockpit, band 8 the low-detail model.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ import math
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 __all__ = ["ModelError", "GeoFace", "GeoFile", "Part", "BwdModel", "read_geo", "read_vdf", "read_sdf",
            "read_model"]
@@ -63,6 +68,9 @@ class GeoFace:
     vertices: List[int]
     normals: List[int]
     texture: str
+    uvs: List[Tuple[float, float]] = field(default_factory=list)   # one per corner
+    colour: Tuple[int, int, int] = (0, 0, 0)
+    plane: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)  # stock normals point inward
 
 
 @dataclass
@@ -72,6 +80,8 @@ class GeoFile:
     faces: List[GeoFace] = field(default_factory=list)
     bad_vertices: int = 0            # vertices with a NaN or infinite coordinate
     declared_faces: int = 0
+    positions: List[Tuple[float, float, float]] = field(default_factory=list)
+    normals: List[Tuple[float, float, float]] = field(default_factory=list)
 
 
 def read_geo(source: Union[str, Path, bytes]) -> GeoFile:
@@ -87,9 +97,12 @@ def read_geo(source: Union[str, Path, bytes]) -> GeoFile:
     end = pos + vertex_count * 24
     if end > len(data):
         raise ModelError(f"cut short: {vertex_count} vertices declared, the file ends first")
-    bad = sum(1 for i in range(vertex_count)
-              if not all(math.isfinite(v) for v in struct.unpack_from("<3f", data, pos + i * 12)))
-    geo = GeoFile(_text(name), vertex_count, bad_vertices=bad, declared_faces=face_count)
+    positions = [struct.unpack_from("<3f", data, pos + i * 12) for i in range(vertex_count)]
+    bad = sum(1 for p in positions if not all(math.isfinite(v) for v in p))
+    geo = GeoFile(_text(name), vertex_count, bad_vertices=bad, declared_faces=face_count,
+                  positions=positions)
+    normals_at = pos + vertex_count * 12
+    geo.normals = [struct.unpack_from("<3f", data, normals_at + i * 12) for i in range(vertex_count)]
     pos = end
     for _ in range(face_count):
         if pos + _GEO_FACE.size > len(data):
@@ -99,13 +112,15 @@ def read_geo(source: Union[str, Path, bytes]) -> GeoFile:
         pos += _GEO_FACE.size
         if count < 0 or pos + count * _FACE_VERT.size > len(data):
             raise ModelError(f"face {len(geo.faces)} declares {count} vertices, past the end of the file")
-        verts, normals = [], []
+        verts, normals, uvs = [], [], []
         for _ in range(count):
-            vert, normal, _u, _v = _FACE_VERT.unpack_from(data, pos)
+            vert, normal, u, v = _FACE_VERT.unpack_from(data, pos)
             pos += _FACE_VERT.size
             verts.append(vert)
             normals.append(normal)
-        geo.faces.append(GeoFace(index, verts, normals, _text(texture)))
+            uvs.append((u, v))
+        geo.faces.append(GeoFace(index, verts, normals, _text(texture), uvs,
+                                 (fields[2], fields[3], fields[4]), tuple(fields[5:9])))
     return geo
 
 
@@ -121,6 +136,7 @@ class Part:
     flags: int
     band: int
     slot: int
+    matrix: Tuple[float, ...] = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
 
 
 @dataclass
@@ -146,7 +162,8 @@ def _read_parts(data: bytes, pos: int, geocount: int, bands: int, record: struct
         name = _text(fields[0])
         if name:
             band, slot = divmod(index, geocount)
-            model.parts.append(Part(name, _text(fields[13]), fields[21], fields[22] & 0xFFFFFFFF, band, slot))
+            model.parts.append(Part(name, _text(fields[13]), fields[21], fields[22] & 0xFFFFFFFF, band, slot,
+                                    tuple(fields[1:13])))
     return pos + needed
 
 
