@@ -45,7 +45,7 @@ class BZCCPortPage(ScrollableFrame):
                                            "which holds the offset that lines the mission's objects up with "
                                            "the new terrain.")
         terrain.pack(fill="x", pady=(0, 12))
-        ttk.Button(terrain.body, text="Open World Builder › BZ2 → BZ1 Map Port", style="Toolbox.TButton",
+        ttk.Button(terrain.body, text="Open World Builder › BZ2/BZCC → Redux Terrain", style="Toolbox.TButton",
                    command=self.open_terrain_port).pack(anchor="w")
 
         mission = Card(body, "2. Mission", "Pick the files and press Convert. Nothing is written until then.")

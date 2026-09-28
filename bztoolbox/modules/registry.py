@@ -23,6 +23,7 @@ SECTIONS: Sequence[tuple[str, str]] = (
     ("missions", "Missions"),
     ("world", "World & Terrain"),
     ("assets", "Assets"),
+    ("porting", "1.5 Asset Porting"),
     ("archives", "Archives"),
     ("tools", "Tools"),
     ("settings", "Settings"),
@@ -116,7 +117,7 @@ PAGES: Sequence[PageSpec] = (
              "Procedural HG2 terrain with live HG2/LGT preview.",
              f"{_L}:terrain_generator", kind="legacy", package="bztoolbox.modules.terrain_generator", origin="HeightmapGen", keywords=("hg2", "lgt", "heightmap")),
     PageSpec("world.heightmap", "world", "Heightmap Convert",
-             "Legacy Battlezone .HGT to Redux .HG2 and back, byte-exact for HG2s cooked from an HGT.",
+             "Legacy HGT ↔ Redux HG2 conversion and LGT lighting rebake from HG2 terrain.",
              f"{_P}.heightmap_convert:HeightmapConvertPage", package="bztoolbox.modules.terrain_generator",
              keywords=("hgt", "hg2", "heightmap", "legacy", "1.5")),
     PageSpec("world.tunnel", "world", "Tunnels",
@@ -148,14 +149,16 @@ PAGES: Sequence[PageSpec] = (
     PageSpec("assets.meshes", "assets", "Models & Meshes",
              "Ogre mesh normal fixes and OBJ export with live preview.",
              f"{_L}:meshes", kind="legacy", package="bztoolbox.modules.meshes", origin="OgreMeshTools"),
-    PageSpec("assets.legacy_model_port", "assets", "Legacy Model Port",
-             "Port a Battlezone 1.5 .vdf/.sdf/.odf model (GEO parts, MAP textures, pilot animations) to a Redux mesh, skeleton and material.",
-             f"{_P}.legacy_model_port:LegacyModelPortPage",
-             keywords=("vdf", "sdf", "odf", "geo", "map", "mesh", "skeleton", "material", "1.5", "legacy", "port", "unit",
-                       "pilot", "cockpit", "animation")),
     PageSpec("assets.audio", "assets", "Audio",
              "Radio VO mastering, engine WAV conversion, music OGG and timing manifests.",
              f"{_L}:audio", kind="legacy", package="bztoolbox.modules.audio", origin="AudioTool"),
+
+    # --- 1.5 Asset Porting -----------------------------------------------
+    PageSpec("assets.legacy_model_port", "porting", "1.5 → Redux Assets",
+             "Port VDF, SDF, GEO and related Battlezone 1.5 assets to Redux, one file or a folder batch.",
+             f"{_P}.legacy_model_port:LegacyModelPortPage",
+             keywords=("vdf", "sdf", "odf", "geo", "map", "mesh", "skeleton", "material", "1.5", "legacy", "port", "unit",
+                       "pilot", "cockpit", "animation", "batch", "drag", "drop")),
 
     # --- Archives ---------------------------------------------------------
     PageSpec("archives.zfs", "archives", "ZFS Archives",
