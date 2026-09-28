@@ -137,6 +137,14 @@ Add `--source-odfs` and `--redux-odfs` to run the class check. It diffs each BZC
 records do not match. `class_labels.py` runs the same check on its own.
 See [`docs/BZCC_TO_BZR_PORT.md`](docs/BZCC_TO_BZR_PORT.md).
 
+## Replace a Redux object class
+
+**Missions › Replace object class** rebuilds selected BZN records from a
+class-compatible Redux prototype. It keeps identity and placement, previews
+the field changes, and backs up existing output before writing. See
+[`BZN_CLASS_REPLACEMENT.md`](BZN_CLASS_REPLACEMENT.md) for the GUI and CLI
+workflow.
+
 ## Battlezone 1.5 ↔ Redux BZN conversion
 
 **Missions › 1.5 ↔ Redux BZN** in the toolbox, or on the command line:
