@@ -275,8 +275,14 @@ def spec_from_args(args) -> TunnelSpec:
                       shade=args.shade, feather=args.feather, origin=origin)
 
 
+def _shield_negative_points(argv: Sequence[str]) -> list:
+    """Before Python 3.13 argparse reads ``-540,640`` as an option; a leading space keeps it a value."""
+    return [" " + a if len(a) > 1 and a[0] == "-" and "," in a and (a[1].isdigit() or a[1] == ".") else a
+            for a in argv]
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = build_parser().parse_args(list(sys.argv[1:] if argv is None else argv))
+    args = build_parser().parse_args(_shield_negative_points(sys.argv[1:] if argv is None else argv))
     try:
         spec = spec_from_args(args)
         outcome = apply_tunnel(args.hg2, spec, lgt_path=args.lgt, lgt=not args.no_lgt)
