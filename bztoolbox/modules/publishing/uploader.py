@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import threading
+import time
 import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -18,6 +19,7 @@ from bztoolbox.modules.publishing.content_fixes import ContentFixer
 from bztoolbox.modules.publishing.app_file_manager import AppFileManager
 from bztoolbox.modules.publishing.project_store import ProjectStore
 from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
+from bztoolbox.modules.publishing import steam_errors
 from bztoolbox.modules.publishing.steamworks_tags import UPDATE_STATUS, SteamworksTagUpdater, steam_client_running
 from bztoolbox.app.fonts import bz_font
 from bztoolbox.system import open_in_file_manager
@@ -1024,6 +1026,8 @@ class WorkshopUploader:
         steam = next((i for i in self.library_items if str(i.get("publishedfileid")) == str(item_id)), None)
         if steam is None:
             return warnings
+        if steam.get("steam_status"):
+            warnings.append(steam["steam_status"]["message"].replace("\n", " "))
         title = self.title_var.get()
         if steam.get("title") and title != steam["title"]:
             warnings.append(f'Title will change on Steam: "{steam["title"]}" -> "{title}".')
@@ -1832,6 +1836,7 @@ class WorkshopUploader:
         ttk.Label(diagnostics, textvariable=self.steamcmd_status_var, foreground="#ffff44").pack(side="left", padx=(0, 18))
         ttk.Label(diagnostics, textvariable=self.api_key_status_var, foreground="#ffff44").pack(side="left", padx=(0, 18))
         ttk.Button(diagnostics, text="STEAM LOGS", command=self.show_steam_logs).pack(side="right")
+        ttk.Button(diagnostics, text="ERROR CODES", command=self.show_steam_error_codes).pack(side="right", padx=(0, 6))
 
         self._set_access_advanced(False)
 
@@ -3151,6 +3156,10 @@ class WorkshopUploader:
                 self._ensure_steam_preview(uploaded_item_id, preview, api_key, appid, creator_app_id=creator)
             self.root.after(0, self.refresh_current_project_readiness)
             message = "Published to the Steam Workshop.\nUpload profile and publish snapshot were updated."
+            status = self._steam_item_status(uploaded_item_id)
+            if status:
+                self.log(f"Steam status: {status['message']}")
+                message += f"\n\n{status['label']}: Steam may keep the item hidden until its check finishes."
             if result.get("needs_legal_agreement"):
                 self.log("Steam reports the Workshop legal agreement is not accepted yet; the item stays hidden until it is.")
                 message += ("\n\nSteam says you have not accepted the Workshop legal agreement yet, so the item "
@@ -3161,8 +3170,12 @@ class WorkshopUploader:
             if created_id:
                 self.root.after(0, lambda: self.item_id_var.set(created_id))
                 self.root.after(0, lambda: self.save_current_project_state(quiet=True))
-            self.log(f"Steamworks publish failed: {e}")
-            self.root.after(0, lambda e=e: messagebox.showerror("Publish failed", str(e)))
+            detail = steam_errors.explain_steamworks_message(str(e))
+            status = self._steam_item_status(item_id) if is_update else None
+            if status:
+                detail += f"\n\nThis item is currently {status['label'].lower()}. {status['message']}"
+            self.log(f"Steamworks publish failed: {detail}")
+            self.root.after(0, lambda detail=detail: messagebox.showerror("Publish failed", detail))
         finally:
             self.pending_publish_signature = None
             self.pending_publish_inventory = None
@@ -3180,6 +3193,7 @@ class WorkshopUploader:
             else:
                 self.log("Attempting login using cached credentials (no username provided)...")
         
+        started_at = time.time()
         try:
             self.steamcmd_process, _cmd = self._get_workshop_backend().launch_steamcmd(
                 exe=exe,
@@ -3194,7 +3208,11 @@ class WorkshopUploader:
             p = self.steamcmd_process
             self.steamcmd_process = None
             
+            hidden_error = None
             if p.returncode == 0:
+                # SteamCMD can exit 0 after an "ERROR! Failed to update workshop item (...)".
+                hidden_error = self._steamcmd_reported_error(since=started_at)
+            if p.returncode == 0 and not hidden_error:
                 self.log("SteamCMD finished successfully.")
                 updated_item_id = self.update_item_id_from_vdf(vdf)
                 if updated_item_id:
@@ -3209,16 +3227,9 @@ class WorkshopUploader:
                 self.root.after(0, self.refresh_current_project_readiness)
                 self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD finished.\nUpload profile and publish snapshot were updated."))
             else:
-                self.log(f"SteamCMD exited with code {p.returncode}")
-                
-                analysis = self.analyze_last_upload_log()
-                msg = f"SteamCMD encountered an error (Code {p.returncode})."
-                
-                if use_cached:
-                    msg = "SteamCMD failed to login using cached credentials.\n\nPlease ensure you are logged into SteamCMD manually first, or use the QR Login / Manual boxes."
-                elif analysis:
-                    msg += f"\n\nPossible Errors found in log:\n{analysis}"
-                
+                msg = hidden_error or self._steamcmd_failure_message(p.returncode, use_cached, since=started_at)
+                self.log(msg)
+
                 def show_err():
                     if messagebox.askyesno("Upload Error", f"{msg}\n\nOpen logs to investigate?"):
                         self.show_steam_logs()
@@ -3231,6 +3242,84 @@ class WorkshopUploader:
             self.pending_publish_inventory = None
             self.pending_publish_preview = ""
             self._set_busy("Upload", False)
+
+    def _steamcmd_failure_message(self, returncode, use_cached, since=None):
+        """Why SteamCMD failed and what to do, from its exit code and logs."""
+        diagnoses = []
+        sc_exe = self.steamcmd_path.get()
+        if sc_exe:
+            appid = self.games[self.game_var.get()]["appid"]
+            try:
+                diagnoses = self._get_workshop_backend().diagnose_last_upload(sc_exe, appid, since=since)
+            except Exception as e:
+                self.log(f"Could not read the SteamCMD logs: {e}")
+        msg = steam_errors.describe_steamcmd_exit(returncode)
+        status = self._steam_item_status(self.item_id_var.get().strip())
+        if status:
+            msg += f"\n\nThis item is currently {status['label'].lower()}. {status['message']}"
+        if diagnoses:
+            msg += "\n\nWhat Steam reported:\n" + steam_errors.format_diagnoses(diagnoses)
+        elif use_cached:
+            msg += ("\n\nSteamCMD may have failed to sign in with its cached login. Sign in once with your "
+                    "password (Test Login in SETUP / ADVANCED), use QR Login, or publish with Steam running.")
+        else:
+            msg += "\n\nThe SteamCMD logs held no explained error; open them for the full output."
+        return msg
+
+    def _steam_item_status(self, item_id):
+        """Steam's hidden / under-review status for ``item_id`` from the loaded library, or None."""
+        item = next((i for i in self.library_items if str(i.get("publishedfileid")) == str(item_id)), None)
+        return (item or {}).get("steam_status")
+
+    def _steamcmd_reported_error(self, since=None):
+        """The explained SteamCMD "ERROR!" lines logged since ``since``, or None."""
+        sc_exe = self.steamcmd_path.get()
+        if not sc_exe:
+            return None
+        appid = self.games[self.game_var.get()]["appid"]
+        try:
+            diagnoses = self._get_workshop_backend().diagnose_last_upload(sc_exe, appid, since=since)
+        except Exception:
+            return None
+        errors = [d for d in diagnoses if d["line"].lstrip().upper().startswith("ERROR!")]
+        if not errors:
+            return None
+        return ("SteamCMD finished, but Steam rejected the upload.\n\nWhat Steam reported:\n"
+                + steam_errors.format_diagnoses(errors))
+
+    def show_steam_error_codes(self, focus_code=None):
+        """A searchable list of every Steam error code and what to do about it."""
+        win = tk.Toplevel(self.root)
+        apply_window_icon(win)
+        win.title("Steam Error Codes")
+        win.geometry("900x600")
+        win.configure(bg="#1a1a1a")
+
+        search_var = tk.StringVar(value=str(focus_code) if focus_code is not None else "")
+        top = ttk.Frame(win)
+        top.pack(fill="x", padx=5, pady=5)
+        ttk.Label(top, text="Search (code, name or words):").pack(side="left")
+        entry = ttk.Entry(top, textvariable=search_var)
+        entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+
+        text = tk.Text(win, bg="#050505", fg="#d4d4d4", font=("Consolas", 9), wrap="word")
+        text.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+        text.tag_config("head", foreground="#ffff44")
+
+        def render(*_args):
+            query = search_var.get().strip().lower()
+            text.config(state="normal")
+            text.delete("1.0", "end")
+            for heading, body in steam_errors.reference_entries():
+                if query and query not in (heading + " " + body).lower():
+                    continue
+                text.insert("end", heading + "\n", "head")
+                text.insert("end", body + "\n\n")
+            text.config(state="disabled")
+
+        search_var.trace_add("write", render)
+        render()
+        entry.focus_set()
 
     def _on_manage_selection(self, _event=None):
         # Selecting an item only shows its preview and tags. Linking it to the
@@ -3275,10 +3364,12 @@ class WorkshopUploader:
                 details = backend.fetch_workshop_item_details(api_key=self.api_key_var.get(), item_id=item_id)
                 preview_url = preview_url or details.get("preview_url", "") or ""
                 tags = item.get("tags") or backend.tag_names(details.get("tags"))
+                status = steam_errors.item_moderation_status(details) or item.get("steam_status")
                 for known in self.library_items:
                     if str(known.get("publishedfileid")) == item_id:
                         known["preview_url"] = preview_url
                         known["tags"] = tags
+                        known["steam_status"] = status
             data = backend.download_preview_bytes(preview_url) if preview_url else b""
         except Exception as e:
             data = b""
@@ -3303,6 +3394,9 @@ class WorkshopUploader:
         tags = item.get("tags") or []
         cached = self.library_preview_cache.get(item_id)
         lines = [str(item.get("title", "")), f"#{item_id}  ·  {item.get('visibility_label', '')}"]
+        status = item.get("steam_status")
+        if status:
+            lines.append(f"⚠ {status['message'].splitlines()[0]}")
         if tags:
             lines.append("Steam tags: " + ", ".join(tags))
         elif cached is not None:
@@ -3399,7 +3493,8 @@ class WorkshopUploader:
         tree.delete(*tree.get_children())
         for item in self._sorted_library_items():
             row = tree.insert("", "end", values=(item["title"], item["publishedfileid"],
-                                                 item["visibility_label"], item["updated_label"]))
+                                                 item.get("visibility_display", item["visibility_label"]),
+                                                 item["updated_label"]))
             if selected is not None and str(item["publishedfileid"]) == str(selected["publishedfileid"]):
                 tree.selection_set(row)
                 tree.see(row)
@@ -3620,7 +3715,7 @@ class WorkshopUploader:
                 init_app_id=creator)
             self.log("Workshop preview updated via Steamworks.")
         except Exception as e:
-            self.log(f"Preview Update Error: {e}")
+            self.log(f"Preview Update Error: {steam_errors.explain_steamworks_message(str(e))}")
 
     def _finish_publish_on_steam(self, item_id, preview_path):
         from bztoolbox.modules.publishing import publish_guard
