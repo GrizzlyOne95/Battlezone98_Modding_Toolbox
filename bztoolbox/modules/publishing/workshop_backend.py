@@ -1,10 +1,13 @@
 import json
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
 from datetime import datetime
+
+from bztoolbox.modules.publishing import steam_errors
 
 
 class WorkshopBackend:
@@ -289,10 +292,14 @@ class WorkshopBackend:
                 updated_ts = int(updated)
             except Exception:
                 updated_ts = 0
+            status = steam_errors.item_moderation_status(item)
+            visibility_label = vis_map.get(visibility, "Unknown")
             normalized.append({
                 "title": item.get("title", ""),
                 "publishedfileid": item.get("publishedfileid", ""),
-                "visibility_label": vis_map.get(visibility, "Unknown"),
+                "visibility_label": visibility_label,
+                "visibility_display": f"{visibility_label} · {status['label']}" if status else visibility_label,
+                "steam_status": status,
                 "updated_label": updated_label,
                 "updated_ts": updated_ts,
                 "preview_url": item.get("preview_url", "") or "",
@@ -482,19 +489,48 @@ class WorkshopBackend:
         return [
             ("Build Log", os.path.join(base_dir, "workshopbuilds", f"depot_build_{appid}.log")),
             ("Transfer Log", os.path.join(base_dir, "logs", "Workshop_log.txt")),
+            ("Console Log", os.path.join(base_dir, "logs", "console_log.txt")),
+            ("Error Log", os.path.join(base_dir, "logs", "stderr.txt")),
         ]
 
-    def analyze_last_upload_log(self, steamcmd_exe, appid):
-        build_log = self.get_log_paths(steamcmd_exe, appid)[0][1]
-        if not os.path.exists(build_log):
-            return None
+    def diagnose_last_upload(self, steamcmd_exe, appid, since=None, tail_lines=400):
+        """Explained problems from SteamCMD's logs (see ``steam_errors.diagnose_steamcmd_output``).
 
-        try:
-            with open(build_log, "r", errors="ignore") as f:
-                lines = f.readlines()
-            errors = [line.strip() for line in lines if "error" in line.lower() or "failed" in line.lower()]
-            if errors:
-                return "\n".join(errors[-5:])
-        except Exception:
-            pass
-        return None
+        Only the end of each log is read, and logs untouched since ``since``
+        (a timestamp) are skipped, so an old failure is not blamed for this one.
+        """
+        text = []
+        for _name, path in self.get_log_paths(steamcmd_exe, appid):
+            try:
+                if since is not None and os.path.getmtime(path) < since - 2:
+                    continue
+                with open(path, "r", errors="ignore") as f:
+                    lines = f.readlines()[-tail_lines:]
+            except OSError:
+                continue
+            text.extend(self._lines_since(lines, since))
+        return steam_errors.diagnose_steamcmd_output("".join(text))
+
+    _LOG_STAMP = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
+
+    @classmethod
+    def _lines_since(cls, lines, since):
+        """The log lines stamped at or after ``since``; unstamped lines follow the line before them."""
+        if since is None:
+            return lines
+        kept, keep = [], True
+        for line in lines:
+            match = cls._LOG_STAMP.match(line)
+            if match:
+                try:
+                    stamp = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+                    keep = stamp >= since - 2
+                except ValueError:
+                    pass
+            if keep:
+                kept.append(line)
+        return kept
+
+    def analyze_last_upload_log(self, steamcmd_exe, appid, since=None):
+        diagnoses = self.diagnose_last_upload(steamcmd_exe, appid, since=since)
+        return steam_errors.format_diagnoses(diagnoses) if diagnoses else None

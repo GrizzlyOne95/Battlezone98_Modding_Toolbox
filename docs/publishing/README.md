@@ -109,6 +109,8 @@ Then use the workspace like this:
 - The review lists what an update would change on Steam (title, visibility) from the loaded library
 - The preview is uploaded under a name derived from its content: Steam ignores a new preview that has the same file name as the last one, so this makes changed images update without renaming the file
 - Expandable Steam/upload diagnostics rather than an always-visible raw log
+- Failed uploads say exactly what Steam rejected and what to do: every Steam EResult, Steam API init result, SteamCMD message and Web API status is explained (see [Steam Error Codes](STEAM_ERRORS.md)); **SETUP / ADVANCED › ERROR CODES** opens the searchable list in the toolbox
+- SteamCMD's logs are checked after every upload, so an `ERROR!` it exits 0 after is still reported as a failure
 - Content, title, description, visibility, preview and tags go to Steam in one Steamworks update through your Steam client, with upload progress in the activity log (SteamCMD cannot set tags, and the Steam Web API only accepts tag changes from the game's publisher)
 
 ### Analysis
@@ -137,6 +139,7 @@ pip install -r requirements.txt
 - `workshop_backend.py`: SteamCMD and Workshop API interactions
 - `upload_preflight.py`: upload validation and VDF writing
 - `steamworks_tags.py` / `steamworks_helper.ps1`: publishing, tags and previews through Steamworks
+- `steam_errors.py`: every Steam error code with its meaning and fix
 - `profiles/`: saved local upload-profile state
 
 ## Notes
