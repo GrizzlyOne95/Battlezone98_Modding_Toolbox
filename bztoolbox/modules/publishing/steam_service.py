@@ -5,6 +5,12 @@ import time
 
 import requests
 
+from bztoolbox.modules.publishing import steam_errors
+
+
+class SteamWebApiError(RuntimeError):
+    """The Steam Web API accepted the request but reported a failing EResult."""
+
 
 class SteamService:
     def __init__(self, logger=None):
@@ -80,14 +86,13 @@ class SteamService:
             response = getattr(error, "response", None)
 
         status = getattr(response, "status_code", None)
-        if status in (401, 403):
-            return "access denied (check Steam Web API key and account permissions)"
-        if status == 429:
-            return "rate limited by Steam Web API"
-        if status and status >= 500:
-            return f"Steam service unavailable (HTTP {status})"
-        if status:
-            return f"HTTP {status}"
+        if isinstance(status, int) and status:
+            headers = getattr(response, "headers", None) or {}
+            try:
+                eresult = headers.get("x-eresult") or headers.get("X-eresult")
+            except AttributeError:
+                eresult = None
+            return steam_errors.describe_http_status(status, eresult)
 
         if error is None:
             return "unknown API error"
@@ -97,7 +102,20 @@ class SteamService:
             return "request timed out"
         if "connection" in name:
             return "network connection failed"
-        return str(error)
+        return steam_errors.explain_steamworks_message(str(error))
+
+    @staticmethod
+    def _raise_for_eresult(method, response, operation_name):
+        """A write the Web API answered with HTTP 200 but a failing ``x-eresult``."""
+        if str(method).upper() != "POST":
+            return
+        try:
+            eresult = response.headers.get("x-eresult")
+            code = int(eresult)
+        except (AttributeError, TypeError, ValueError):
+            return
+        if code != 1:
+            raise SteamWebApiError(f"{operation_name} failed: " + steam_errors.describe_eresult(code, "update"))
 
     def request_with_retry(self, method, url, operation_name="request", timeout=10, attempts=3, backoff=1.0, **kwargs):
         last_error = None
@@ -111,7 +129,10 @@ class SteamService:
                         time.sleep(backoff * (2 ** (attempt - 1)))
                         continue
                 response.raise_for_status()
+                self._raise_for_eresult(method, response, operation_name)
                 return response
+            except SteamWebApiError:
+                raise
             except Exception as e:
                 last_error = e
                 status = getattr(getattr(e, "response", None), "status_code", None)
