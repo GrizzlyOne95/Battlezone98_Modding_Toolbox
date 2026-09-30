@@ -621,4 +621,56 @@ def reference_entries():
         entries.append((f"SteamCMD exit code {code}", meaning))
     for status, meaning in sorted(HTTP_STATUS_TEXT.items()):
         entries.append((f"Steam Web API HTTP {status}", meaning))
+    for code, (name, meaning) in sorted(BAN_CHECK_RESULTS.items()):
+        entries.append((f"Workshop item check {code}: {name}", meaning))
+    entries.append(("Workshop item hidden by Steam", HIDDEN_ITEM_ADVICE))
     return entries
+
+
+# EBanContentCheckResult: Steam's automated check of an item's text and
+# files, reported as ``ban_text_check_result`` in the item details.
+BAN_CHECK_RESULTS = {
+    0: ("NotScanned", "Steam has not checked the item yet."),
+    1: ("Reset", "Steam's check was reset and will run again."),
+    2: ("NeedsChecking", "Steam's automated check is still reviewing the item; it may stay hidden until it "
+        "finishes."),
+    5: ("VeryUnlikely", "Steam's check found nothing wrong."),
+    30: ("Unlikely", "Steam's check found nothing likely to be wrong."),
+    50: ("Possible", "Steam's check flagged the item as possibly breaking Workshop rules."),
+    75: ("Likely", "Steam's check flagged the item as likely breaking Workshop rules."),
+    100: ("VeryLikely", "Steam's check flagged the item as very likely breaking Workshop rules."),
+}
+
+HIDDEN_ITEM_ADVICE = (
+    "Updates still go through the Steam client (Publish with Steam running), the same way the official "
+    "uploader does; the Web API cannot upload files. An update may restart Steam's check, so the item can stay "
+    "hidden a while afterwards. If Steam hid it by mistake, appeal from the item's Workshop page or through "
+    "help.steampowered.com.")
+
+
+def item_moderation_status(details):
+    """``{"state", "label", "message"}`` when Steam has an item hidden, banned or under review, else None.
+
+    ``details`` is a Workshop item as GetUserFiles / GetDetails /
+    GetPublishedFileDetails return it.
+    """
+    details = details or {}
+    banned = str(details.get("banned", "")).strip().lower() in ("1", "true")
+    reason = str(details.get("ban_reason") or "").strip()
+    try:
+        check = int(details.get("ban_text_check_result"))
+    except (TypeError, ValueError):
+        check = None
+    if banned:
+        message = "Steam has hidden this item from the Workshop" + (f": {reason}" if reason else ".")
+        if check in BAN_CHECK_RESULTS and check >= 50:
+            message += " " + BAN_CHECK_RESULTS[check][1]
+        return {"state": "banned", "label": "Hidden by Steam", "message": message + "\n" + HIDDEN_ITEM_ADVICE}
+    if check == 2:
+        return {"state": "checking", "label": "Under Steam review",
+                "message": BAN_CHECK_RESULTS[2][1] + "\n" + HIDDEN_ITEM_ADVICE}
+    if check is not None and check >= 50:
+        name, meaning = BAN_CHECK_RESULTS.get(check, (str(check), "Steam's check flagged the item."))
+        return {"state": "flagged", "label": "Flagged by Steam",
+                "message": meaning + " It may be hidden or removed.\n" + HIDDEN_ITEM_ADVICE}
+    return None

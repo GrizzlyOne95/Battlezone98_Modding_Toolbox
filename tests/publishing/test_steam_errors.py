@@ -79,6 +79,26 @@ class TestSteamErrors(unittest.TestCase):
         self.assertIn("Steam Web API HTTP 429", headings)
         self.assertTrue(any(h.startswith("SteamCMD: ") for h in headings))
 
+    def test_item_moderation_status(self):
+        self.assertIsNone(steam_errors.item_moderation_status({"banned": False, "ban_text_check_result": 5}))
+        hidden = steam_errors.item_moderation_status({"banned": True, "ban_reason": "Suspected malware"})
+        self.assertEqual(hidden["label"], "Hidden by Steam")
+        self.assertIn("Suspected malware", hidden["message"])
+        self.assertIn("Steam client", hidden["message"])
+        self.assertEqual(steam_errors.item_moderation_status({"banned": 0, "ban_text_check_result": 2})["state"],
+                         "checking")
+        self.assertEqual(steam_errors.item_moderation_status({"ban_text_check_result": "75"})["state"], "flagged")
+
+    def test_library_rows_show_steams_status(self):
+        backend = WorkshopBackend(SimpleNamespace())
+        response = SimpleNamespace(json=lambda: {"response": {"total": 1, "publishedfiledetails": [
+            {"publishedfileid": "5", "title": "Mod", "visibility": 0, "banned": True, "ban_reason": "Review"}]}})
+        backend.steam_service.request_with_retry = lambda *a, **k: response
+        _sid, items, _meta = backend.query_workshop_items("key", "me", "301650", lambda *_: "7656")
+        self.assertEqual(items[0]["visibility_label"], "Public")
+        self.assertEqual(items[0]["visibility_display"], "Public · Hidden by Steam")
+        self.assertEqual(items[0]["steam_status"]["state"], "banned")
+
     def test_documentation_lists_every_code(self):
         doc_path = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "publishing", "STEAM_ERRORS.md")
         with open(doc_path, encoding="utf-8") as f:
@@ -87,6 +107,8 @@ class TestSteamErrors(unittest.TestCase):
             self.assertIn(f"| {info.code} | `{info.name}` |", doc)
         for status in steam_errors.HTTP_STATUS_TEXT:
             self.assertIn(f"| {status} |", doc)
+        for code, (name, _meaning) in steam_errors.BAN_CHECK_RESULTS.items():
+            self.assertIn(f"| {code} | `{name}` |", doc)
 
 
 class TestSteamCmdLogDiagnosis(unittest.TestCase):
