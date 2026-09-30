@@ -1026,6 +1026,8 @@ class WorkshopUploader:
         steam = next((i for i in self.library_items if str(i.get("publishedfileid")) == str(item_id)), None)
         if steam is None:
             return warnings
+        if steam.get("steam_status"):
+            warnings.append(steam["steam_status"]["message"].replace("\n", " "))
         title = self.title_var.get()
         if steam.get("title") and title != steam["title"]:
             warnings.append(f'Title will change on Steam: "{steam["title"]}" -> "{title}".')
@@ -3154,6 +3156,10 @@ class WorkshopUploader:
                 self._ensure_steam_preview(uploaded_item_id, preview, api_key, appid, creator_app_id=creator)
             self.root.after(0, self.refresh_current_project_readiness)
             message = "Published to the Steam Workshop.\nUpload profile and publish snapshot were updated."
+            status = self._steam_item_status(uploaded_item_id)
+            if status:
+                self.log(f"Steam status: {status['message']}")
+                message += f"\n\n{status['label']}: Steam may keep the item hidden until its check finishes."
             if result.get("needs_legal_agreement"):
                 self.log("Steam reports the Workshop legal agreement is not accepted yet; the item stays hidden until it is.")
                 message += ("\n\nSteam says you have not accepted the Workshop legal agreement yet, so the item "
@@ -3165,6 +3171,9 @@ class WorkshopUploader:
                 self.root.after(0, lambda: self.item_id_var.set(created_id))
                 self.root.after(0, lambda: self.save_current_project_state(quiet=True))
             detail = steam_errors.explain_steamworks_message(str(e))
+            status = self._steam_item_status(item_id) if is_update else None
+            if status:
+                detail += f"\n\nThis item is currently {status['label'].lower()}. {status['message']}"
             self.log(f"Steamworks publish failed: {detail}")
             self.root.after(0, lambda detail=detail: messagebox.showerror("Publish failed", detail))
         finally:
@@ -3245,6 +3254,9 @@ class WorkshopUploader:
             except Exception as e:
                 self.log(f"Could not read the SteamCMD logs: {e}")
         msg = steam_errors.describe_steamcmd_exit(returncode)
+        status = self._steam_item_status(self.item_id_var.get().strip())
+        if status:
+            msg += f"\n\nThis item is currently {status['label'].lower()}. {status['message']}"
         if diagnoses:
             msg += "\n\nWhat Steam reported:\n" + steam_errors.format_diagnoses(diagnoses)
         elif use_cached:
@@ -3253,6 +3265,11 @@ class WorkshopUploader:
         else:
             msg += "\n\nThe SteamCMD logs held no explained error; open them for the full output."
         return msg
+
+    def _steam_item_status(self, item_id):
+        """Steam's hidden / under-review status for ``item_id`` from the loaded library, or None."""
+        item = next((i for i in self.library_items if str(i.get("publishedfileid")) == str(item_id)), None)
+        return (item or {}).get("steam_status")
 
     def _steamcmd_reported_error(self, since=None):
         """The explained SteamCMD "ERROR!" lines logged since ``since``, or None."""
@@ -3347,10 +3364,12 @@ class WorkshopUploader:
                 details = backend.fetch_workshop_item_details(api_key=self.api_key_var.get(), item_id=item_id)
                 preview_url = preview_url or details.get("preview_url", "") or ""
                 tags = item.get("tags") or backend.tag_names(details.get("tags"))
+                status = steam_errors.item_moderation_status(details) or item.get("steam_status")
                 for known in self.library_items:
                     if str(known.get("publishedfileid")) == item_id:
                         known["preview_url"] = preview_url
                         known["tags"] = tags
+                        known["steam_status"] = status
             data = backend.download_preview_bytes(preview_url) if preview_url else b""
         except Exception as e:
             data = b""
@@ -3375,6 +3394,9 @@ class WorkshopUploader:
         tags = item.get("tags") or []
         cached = self.library_preview_cache.get(item_id)
         lines = [str(item.get("title", "")), f"#{item_id}  ·  {item.get('visibility_label', '')}"]
+        status = item.get("steam_status")
+        if status:
+            lines.append(f"⚠ {status['message'].splitlines()[0]}")
         if tags:
             lines.append("Steam tags: " + ", ".join(tags))
         elif cached is not None:
@@ -3471,7 +3493,8 @@ class WorkshopUploader:
         tree.delete(*tree.get_children())
         for item in self._sorted_library_items():
             row = tree.insert("", "end", values=(item["title"], item["publishedfileid"],
-                                                 item["visibility_label"], item["updated_label"]))
+                                                 item.get("visibility_display", item["visibility_label"]),
+                                                 item["updated_label"]))
             if selected is not None and str(item["publishedfileid"]) == str(selected["publishedfileid"]):
                 tree.selection_set(row)
                 tree.see(row)

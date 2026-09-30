@@ -11,6 +11,7 @@ Steam reports failures in four shapes:
 - **Steam API init results**, when the toolbox cannot attach to the Steam client.
 - **SteamCMD messages and exit codes**. SteamCMD can exit with code 0 after an `ERROR!` line, so the toolbox also reads its logs after every upload.
 - **HTTP statuses** from the Steam Web API (library, tag and preview checks).
+- **Workshop item status**: an item Steam has hidden, banned or is still checking.
 
 ## EResult codes
 
@@ -240,3 +241,24 @@ SteamCMD logs read after a failed upload: `workshopbuilds/depot_build_<appid>.lo
 | 504 | Steam Web API gateway timeout; retry later |
 
 A write the Web API answers with HTTP 200 but a failing `x-eresult` header is reported as a failure with that EResult's explanation.
+
+## Hidden, banned or under-review items
+
+Steam's automated check can hide a Workshop item temporarily. The toolbox reads the item's `banned`, `ban_reason` and `ban_text_check_result` fields from Steam and shows the state:
+
+- in the **Your Workshop Items** list (the Visibility column reads e.g. `Public · Hidden by Steam`) and in the selected item's details;
+- in the publish review, before an update;
+- in the result or error dialog after an upload to that item.
+
+Updates still go through the Steam client (Publish with Steam running), the same way the official uploader does; the Web API cannot upload files. An update may restart Steam's check, so the item can stay hidden a while afterwards. If Steam hid it by mistake, appeal from the item's Workshop page or through help.steampowered.com.
+
+| `ban_text_check_result` | Name | Meaning |
+|---:|---|---|
+| 0 | `NotScanned` | Steam has not checked the item yet. |
+| 1 | `Reset` | Steam's check was reset and will run again. |
+| 2 | `NeedsChecking` | Steam's automated check is still reviewing the item; it may stay hidden until it finishes. |
+| 5 | `VeryUnlikely` | Steam's check found nothing wrong. |
+| 30 | `Unlikely` | Steam's check found nothing likely to be wrong. |
+| 50 | `Possible` | Steam's check flagged the item as possibly breaking Workshop rules. |
+| 75 | `Likely` | Steam's check flagged the item as likely breaking Workshop rules. |
+| 100 | `VeryLikely` | Steam's check flagged the item as very likely breaking Workshop rules. |

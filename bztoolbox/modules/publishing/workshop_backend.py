@@ -292,10 +292,14 @@ class WorkshopBackend:
                 updated_ts = int(updated)
             except Exception:
                 updated_ts = 0
+            status = steam_errors.item_moderation_status(item)
+            visibility_label = vis_map.get(visibility, "Unknown")
             normalized.append({
                 "title": item.get("title", ""),
                 "publishedfileid": item.get("publishedfileid", ""),
-                "visibility_label": vis_map.get(visibility, "Unknown"),
+                "visibility_label": visibility_label,
+                "visibility_display": f"{visibility_label} · {status['label']}" if status else visibility_label,
+                "steam_status": status,
                 "updated_label": updated_label,
                 "updated_ts": updated_ts,
                 "preview_url": item.get("preview_url", "") or "",
