@@ -300,8 +300,6 @@ def read_binary_mission(data: bytes) -> MissionData:
     if not match:
         raise PortError("binary source must start with a BZ2/BZCC version, saveType and binarySave header")
     version = int(match.group(1))
-    if version < 1103:
-        raise PortError("binary BZ2 versions before 1103 are not supported; export an ASCII BZN")
     tokens = binary_tokens(data, match.end())
     # Header: msn_filename, seq_count, saveType, terrain, object count.
     index = 0
@@ -319,7 +317,8 @@ def read_binary_mission(data: bytes) -> MissionData:
             odf, index = sized_string(tokens, index, version)
             seq, team = tokens[index:index + 2]
             expected_team = 2 if version >= 1145 else 4
-            if seq.kind != 4 or team.kind != expected_team or len(team.value) != (1 if version >= 1145 else 4):
+            expected_seq = 3 if version < 1103 else 4
+            if seq.kind != expected_seq or team.kind != expected_team or len(team.value) != (1 if version >= 1145 else 4):
                 raise PortError("invalid object preamble")
             index += 2
             seqno = token_uint(seq)
@@ -423,7 +422,8 @@ def find_next_preamble(tokens: list[Token], start: int, version: int) -> int:
             if not re.fullmatch(r"[A-Za-z0-9_./\\-]{2,64}", odf):
                 continue
             expected_team = 2 if version >= 1145 else 4
-            if tokens[j].kind != 4 or tokens[j + 1].kind != expected_team or len(tokens[j + 1].value) != (1 if version >= 1145 else 4):
+            expected_seq = 3 if version < 1103 else 4
+            if tokens[j].kind != expected_seq or tokens[j + 1].kind != expected_team or len(tokens[j + 1].value) != (1 if version >= 1145 else 4):
                 continue
             j += 2
             if not token_uint(tokens[j - 2]) & 0x800000:
@@ -615,7 +615,7 @@ def apply_offset(mission: MissionData, offset: tuple[float, float, float]) -> No
         path.points = [(x + dx, z + dz) for x, z in path.points]
 
 
-def normalize_edge_path(mission: MissionData) -> tuple[AiPath | None, int]:
+def normalize_edge_path(mission: MissionData, *, three_point_bbox: bool = False) -> tuple[AiPath | None, int]:
     """Keep BZR's edge_path at two or four points.
 
     BZCC maps may repeat the first corner at the end to close a four-corner
@@ -636,6 +636,13 @@ def normalize_edge_path(mission: MissionData) -> tuple[AiPath | None, int]:
         if diagonal <= 0 or closure > max(1.0, diagonal * 0.01):
             raise PortError("five-point edge_path does not end near its first corner")
         boundary.points.pop()
+    elif source_count == 3 and three_point_bbox:
+        xs = [x for x, _ in boundary.points]
+        zs = [z for _, z in boundary.points]
+        if min(xs) == max(xs) or min(zs) == max(zs):
+            raise PortError("three-point edge_path has a degenerate bounding rectangle")
+        boundary.points = [(min(xs), min(zs)), (max(xs), min(zs)),
+                           (max(xs), max(zs)), (min(xs), max(zs))]
     elif source_count not in (2, 4):
         raise PortError(f"Redux edge_path needs 2 or 4 points; source has {source_count}")
     return boundary, source_count
@@ -654,10 +661,11 @@ def convert(source: bytes, template: bytes, mapping: dict, strict: bool,
             mission_file: str | None = None,
             offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
             skip_reasons: dict[str, str] | None = None,
-            team_map: dict[int, int] | None = None) -> tuple[bytes, dict]:
+            team_map: dict[int, int] | None = None,
+            edge_path_bbox: bool = False) -> tuple[bytes, dict]:
     mission = source_mission(source)
     apply_offset(mission, offset)
-    boundary, boundary_source_count = normalize_edge_path(mission)
+    boundary, boundary_source_count = normalize_edge_path(mission, three_point_bbox=edge_path_bbox)
     team_map = team_map or {}
     applied_team_map = {}
     objects = mission.objects
@@ -766,6 +774,8 @@ def convert(source: bytes, template: bytes, mapping: dict, strict: bool,
               "boundary_path": ({"name": boundary.label,
                                  "source_point_count": boundary_source_count,
                                  "point_count": len(boundary.points),
+                                 **({"adaptation": "bounding_rectangle_from_three_points"}
+                                    if boundary_source_count == 3 else {}),
                                  "bounds_xz_m": [min(x for x, _ in boundary.points),
                                                  min(z for _, z in boundary.points),
                                                  max(x for x, _ in boundary.points),
@@ -818,6 +828,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mission", help="Redux mission class (for example LuaMission)")
     parser.add_argument("--report", type=Path, help="write a JSON conversion report")
     parser.add_argument("--allow-skips", action="store_true", help="write a partial map when objects lack Redux prototypes")
+    parser.add_argument("--three-point-edge-bbox", action="store_true",
+                        help="replace a three-point edge_path with its bounding rectangle")
     parser.add_argument("--offset", nargs=3, type=float, metavar=("X", "Y", "Z"),
                         help="add this world offset to object positions and path points")
     parser.add_argument("--offset-from", type=Path, metavar="PORT_JSON",
@@ -861,7 +873,8 @@ def main(argv: list[str] | None = None) -> int:
         output, report = convert(source, template, mapping, not args.allow_skips,
                                  terrain_name=args.terrain, mission_name=args.mission,
                                  mission_file=args.output.name, offset=offset,
-                                 skip_reasons=skip_reasons, team_map=team_map)
+                                 skip_reasons=skip_reasons, team_map=team_map,
+                                 edge_path_bbox=args.three_point_edge_bbox)
         if classes is not None:
             report["class_labels"] = classes
         args.output.write_bytes(output)
