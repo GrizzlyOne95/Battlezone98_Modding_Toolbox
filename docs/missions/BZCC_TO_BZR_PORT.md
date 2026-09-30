@@ -5,7 +5,8 @@ Part of the Battlezone BZN Toolbox. Run it from the repository root.
 `bzcc_port.py` is a standalone Python 3.10+ command line utility. It transfers
 object transforms, teams, labels, paths, AOIs and the terrain reference from a
 Battlezone II or Battlezone Combat Commander BZN into a Battlezone 98 Redux
-BZN. It reads ASCII sources and binary BZ2/BZCC sources version 1103 or newer.
+BZN. It reads ASCII sources and binary BZ2/BZCC sources, including the original
+BZ2 demo's version 1070 format (which stores object sequence IDs in two bytes).
 It uses only the Python standard library.
 
 It is the BZN half of a BZCC to Redux map port. The terrain half (TER to
@@ -47,6 +48,7 @@ python bzcc_port.py source.bzn redux_template.bzn out.bzn \
 | `--offset-from PORT_JSON` | Read that offset from the WorldBuilder terrain report (`object_offset_m`). |
 | `--report` | Write a JSON report of counts, substitutions, skips and the offset applied. |
 | `--allow-skips` | Write a partial map when objects lack a prototype (listed in the report). |
+| `--three-point-edge-bbox` | For an old BZ2 map with a three-point `edge_path`, replace it with the smallest axis-aligned four-corner rectangle containing those points. This expands a triangular boundary and requires gameplay review. |
 | `--source-odfs DIR` | BZ2/BZCC ODF folder for the class check. Repeatable, searched recursively; the first match wins. |
 | `--redux-odfs DIR` | Redux ODF folder, mod before stock. Repeatable. Turns the class check on. |
 | `--auto-map` | Pick a class-compatible template prototype for ODFs not in `--map`. |
