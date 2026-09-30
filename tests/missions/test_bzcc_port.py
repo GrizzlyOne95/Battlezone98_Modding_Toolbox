@@ -96,6 +96,15 @@ class PortTests(unittest.TestCase):
             with self.assertRaises(PortError):
                 normalize_edge_path(mission)
 
+    def test_three_point_edge_path_can_use_bounding_rectangle(self):
+        mission = MissionData([], "demo01", "", [
+            AiPath(1, "edge_path", [(-10, 20), (15, -5), (2, 30)], 0)
+        ], [])
+        boundary, source_count = normalize_edge_path(mission, three_point_bbox=True)
+        self.assertEqual(source_count, 3)
+        self.assertEqual(boundary.points,
+                         [(-10, -5), (15, -5), (15, 30), (-10, 30)])
+
     def test_isdf01_five_point_closure_becomes_four_corners(self):
         points = [(2031.660034, -2030.140015), (2039.410034, 663.893982),
                   (-495.808990, 666.960999), (-492.128998, -2041.849976),
@@ -203,6 +212,33 @@ class PortTests(unittest.TestCase):
         objects = read_binary_source(header + payload)
         self.assertEqual(objects[0].odf, "ivscout")
         self.assertEqual(objects[0].matrix[9:], (10, 20, 30))
+
+    def test_demo_1070_binary_sequence_width(self):
+        def token(kind, value):
+            return bytes([kind]) + struct.pack("<H", len(value)) + value
+
+        header = (b"version [1] =\r\n1070\r\nsaveType [1] =\r\n0\r\n"
+                  b"binarySave [1] =\r\ntrue\r\n")
+        matrix = struct.pack("<16f", 1, 0, 0, 0, 0, 1, 0, 0,
+                             0, 0, 1, 0, 10, 20, 30, 1)
+        payload = b"".join([
+            token(2, b"demo01.bzn\0".ljust(16, b"\0")),
+            token(4, struct.pack("<I", 2)), token(4, struct.pack("<I", 0)),
+            token(2, b"demo01\0".ljust(100, b"\0")), token(4, struct.pack("<I", 2)),
+            token(2, b"ivtank\0".ljust(16, b"\0")),
+            token(3, struct.pack("<H", 1577)), token(4, struct.pack("<I", 1)),
+            token(2, b"player\0".ljust(40, b"\0")),
+            token(4, struct.pack("<I", 1)), token(8, b"\0" * 4), token(12, matrix),
+            token(2, b"fvturr\0".ljust(16, b"\0")),
+            token(3, struct.pack("<H", 1578)), token(4, struct.pack("<I", 2)),
+            token(2, b"turr0\0".ljust(40, b"\0")),
+            token(4, struct.pack("<I", 0)), token(8, b"\0" * 4), token(12, matrix),
+            token(2, b"demo01.dll\0".ljust(40, b"\0")),
+            token(4, struct.pack("<I", 0)), token(4, struct.pack("<I", 0)),
+        ])
+        objects = read_binary_source(header + payload)
+        self.assertEqual([(o.odf, o.seqno, o.team, o.label) for o in objects],
+                         [("ivtank", 1577, 1, "player"), ("fvturr", 1578, 2, "turr0")])
 
 
 if __name__ == "__main__":
