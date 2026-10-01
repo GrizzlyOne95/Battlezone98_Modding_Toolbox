@@ -68,6 +68,7 @@ Then use the workspace like this:
 - One saved local upload profile per content folder under `profiles/`
 - Folder selection automatically opens or creates the corresponding profile
 - Automatic profile autosave while editing
+- Select a profile and click **DELETE PROFILE** to remove its saved settings after confirmation; content files and the Steam Workshop item are kept. Deleting the open profile also closes the toolbox project. Selecting its folder again creates a new profile.
 - Persistent Workshop-item association by local content folder
 - Last publish timestamp and changed-file tracking
 - Selecting a folder here also makes it the toolbox project, so Overview, Validation and the other pages follow
