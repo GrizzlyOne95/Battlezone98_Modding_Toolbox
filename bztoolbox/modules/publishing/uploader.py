@@ -400,6 +400,8 @@ class WorkshopUploader:
         # Set by the toolbox shell: called after this page saved the shared
         # project profile, so other pages (Overview) show the new values.
         self.on_profile_saved = None
+        # Deleting a shared profile also closes it in the toolbox shell.
+        self.on_profile_deleted = None
         # Set by the toolbox shell: opens another toolbox page by id.
         self.open_toolbox_page = None
         self.access_advanced_expanded = False
@@ -704,6 +706,80 @@ class WorkshopUploader:
         self.log(f"Opened local upload profile: {os.path.basename(tags[0])}")
         self._notify_folder_selected(self.mod_path.get())
         return True
+
+    def delete_selected_project(self):
+        if not hasattr(self, "project_tree"):
+            return False
+        if self._active_operations:
+            messagebox.showinfo("Delete Upload Profile", "Wait for the current Workshop operation to finish before deleting a profile.")
+            return False
+        selected = self.project_tree.selection()
+        if not selected:
+            messagebox.showinfo("Delete Upload Profile", "Select a local upload profile to delete.")
+            return False
+        tags = self.project_tree.item(selected[0]).get("tags", [])
+        if not tags:
+            return False
+        profile_path = tags[0]
+        try:
+            data = self.project_store.load_project(profile_path)
+        except Exception as e:
+            messagebox.showerror("Delete Upload Profile", f"Failed to read the upload profile: {e}")
+            return False
+        name = data.get("project_name") or os.path.basename(data.get("mod_path", "")) or "(unnamed)"
+        if not messagebox.askyesno(
+            "Delete Upload Profile",
+            f'Delete the local profile "{name}"?\n\n'
+            f'Content folder: {data.get("mod_path", "")}\n\n'
+            "This removes its saved project and upload settings, including its Workshop link and publish history.\n"
+            "Your content files and Steam Workshop item will be kept.\n"
+            "Selecting the folder again will create a new profile.",
+            icon="warning",
+            default="no",
+        ):
+            return False
+        try:
+            self.project_store.delete_project(profile_path)
+        except Exception as e:
+            messagebox.showerror("Delete Upload Profile", f"Failed to delete the upload profile: {e}")
+            return False
+
+        if self.current_project_profile_path and os.path.normcase(os.path.abspath(profile_path)) == \
+                os.path.normcase(os.path.abspath(self.current_project_profile_path)):
+            self._clear_current_project()
+        callback = self.on_profile_deleted
+        if callback is not None:
+            callback(profile_path)
+        self.refresh_recent_projects()
+        self.log(f"Deleted local upload profile: {os.path.basename(profile_path)}")
+        return True
+
+    def _clear_current_project(self):
+        """Clear the editor and cancel autosave so a deleted profile stays deleted."""
+        if self.project_autosave_token:
+            self.root.after_cancel(self.project_autosave_token)
+            self.project_autosave_token = None
+        self.autosave_suspended = True
+        try:
+            self.current_project_profile_path = ""
+            self.current_project_data = {}
+            self.current_inventory = []
+            self.current_findings = None
+            self.current_readiness = None
+            self.current_project_signature = None
+            self.mod_path.set("")
+            self.preview_path.set("")
+            self.title_var.set("")
+            self._set_desc_text_value("")
+            self.visibility_var.set("0 (Public)")
+            self.item_id_var.set("0")
+            self.note_var.set("")
+            self.tags_var.set("")
+        finally:
+            self.autosave_suspended = False
+        self.project_name_var.set("NO UPLOAD PROFILE")
+        self.project_hint_var.set("Select a content folder to begin.")
+        self.refresh_current_project_readiness()
 
     def _activate_content_folder(self, folder, quiet=False):
         raw_folder = (folder or "").strip()
@@ -1451,6 +1527,7 @@ class WorkshopUploader:
             "resolve_owner_btn",
             "test_api_key_btn",
             "test_steam_login_btn",
+            "delete_profile_btn",
         ):
             widget = getattr(self, name, None)
             if widget is not None:
@@ -1687,7 +1764,7 @@ class WorkshopUploader:
 
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=True)
-        self.project_tree = ttk.Treeview(tree_frame, columns=("Name", "Item", "Updated"), show="headings", height=10)
+        self.project_tree = ttk.Treeview(tree_frame, columns=("Name", "Item", "Updated"), show="headings", height=10, selectmode="browse")
         self.project_tree.heading("Name", text="Profile")
         self.project_tree.heading("Item", text="Workshop ID")
         self.project_tree.heading("Updated", text="Last Opened")
@@ -1704,6 +1781,10 @@ class WorkshopUploader:
         btn_row.pack(fill="x", pady=(8, 0))
         ttk.Button(btn_row, text="OPEN", command=self.open_selected_project).pack(side="left")
         ttk.Button(btn_row, text="SELECT FOLDER", command=self.browse_content).pack(side="left", padx=4)
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill="x", pady=(4, 0))
+        self.delete_profile_btn = ttk.Button(btn_row, text="DELETE PROFILE", command=self.delete_selected_project)
+        self.delete_profile_btn.pack(side="left")
         ttk.Button(btn_row, text="EXPORT", command=self.save_profile).pack(side="right")
         ttk.Button(btn_row, text="IMPORT", command=self.load_profile).pack(side="right", padx=4)
 

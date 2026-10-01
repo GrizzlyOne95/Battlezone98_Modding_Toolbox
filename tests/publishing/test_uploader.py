@@ -709,6 +709,101 @@ class TestWorkshopUploader(unittest.TestCase):
         self.assertEqual(loaded["title"], "Sample Mod")
         self.assertEqual(loaded["item_id"], "123")
 
+    def _profile_delete_setup(self, active=True, missing_folder=False):
+        u = self.uploader
+        u.project_store = ProjectStore(os.path.join(self.test_dir, "profiles"), AppFileManager())
+        folder = os.path.join(self.test_dir, "mod")
+        if not missing_folder:
+            os.makedirs(folder)
+            with open(os.path.join(folder, "mymod.ini"), "w", encoding="utf-8") as f:
+                f.write("content")
+        path = u.project_store.save_project({"project_name": "mod", "mod_path": folder, "item_id": "123"})
+        u.project_tree = MagicMock()
+        u.project_tree.selection.return_value = ["profile"]
+        u.project_tree.item.return_value = {"tags": [path]}
+        u.current_project_profile_path = path if active else "another-profile.json"
+        u.current_project_data = {"mod_path": folder, "item_id": "123"}
+        for name, value in (("mod_path", folder), ("preview_path", "preview.jpg"),
+                            ("title_var", "Mod"), ("visibility_var", "0 (Public)"),
+                            ("item_id_var", "123"), ("note_var", "Update"), ("tags_var", "Map"),
+                            ("project_name_var", "MOD"), ("project_hint_var", folder)):
+            setattr(u, name, DummyVar(value))
+        u.desc_text = MagicMock()
+        u.desc_text.get.return_value = "description"
+        u.refresh_current_project_readiness = MagicMock()
+        u.refresh_recent_projects = MagicMock()
+        u.on_profile_deleted = MagicMock()
+        u.project_autosave_token = "pending-autosave"
+        return path, folder
+
+    def test_delete_open_profile_cancels_autosave_and_keeps_content(self):
+        path, folder = self._profile_delete_setup()
+        u = self.uploader
+        self.assertTrue(u.delete_selected_project())
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(os.path.isfile(os.path.join(folder, "mymod.ini")))
+        self.assertEqual(u.current_project_profile_path, "")
+        self.assertEqual(u.current_project_data, {})
+        self.assertEqual(u.mod_path.get(), "")
+        self.assertEqual(u.item_id_var.get(), "0")
+        self.assertEqual(u.title_var.get(), "")
+        self.assertEqual(u.preview_path.get(), "")
+        u.root.after_cancel.assert_called_with("pending-autosave")
+        self.assertIsNone(u.project_autosave_token)
+        u.on_profile_deleted.assert_called_once_with(path)
+        u.refresh_recent_projects.assert_called_once()
+        # Even an already queued autosave callback cannot recreate it.
+        u._autosave_project_state()
+        self.assertFalse(os.path.exists(path))
+        self.assertIsNone(u.project_store.find_by_mod_path(folder))
+        self.assertIn(folder, uploader.messagebox.askyesno.call_args.args[1])
+
+    def test_delete_stale_profile_preserves_other_open_profile(self):
+        path, folder = self._profile_delete_setup(active=False, missing_folder=True)
+        self.assertTrue(self.uploader.delete_selected_project())
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(self.uploader.current_project_profile_path, "another-profile.json")
+        self.assertEqual(self.uploader.mod_path.get(), folder)
+        self.assertEqual(self.uploader.item_id_var.get(), "123")
+        self.assertEqual(self.uploader.project_autosave_token, "pending-autosave")
+        self.uploader.on_profile_deleted.assert_called_once_with(path)
+
+    def test_cancel_profile_deletion_keeps_profile_and_editor(self):
+        path, folder = self._profile_delete_setup()
+        uploader.messagebox.askyesno.return_value = False
+        self.assertFalse(self.uploader.delete_selected_project())
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(self.uploader.mod_path.get(), folder)
+        self.assertEqual(self.uploader.project_autosave_token, "pending-autosave")
+        self.uploader.on_profile_deleted.assert_not_called()
+
+    def test_failed_profile_deletion_keeps_profile_and_editor(self):
+        path, folder = self._profile_delete_setup()
+        with patch.object(self.uploader.project_store, "delete_project", side_effect=PermissionError("locked")):
+            self.assertFalse(self.uploader.delete_selected_project())
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(self.uploader.mod_path.get(), folder)
+        self.uploader.on_profile_deleted.assert_not_called()
+        uploader.messagebox.showerror.assert_called_once()
+
+    def test_profile_deletion_requires_selection_and_idle_workshop(self):
+        path, _ = self._profile_delete_setup()
+        self.uploader.project_tree.selection.return_value = []
+        self.assertFalse(self.uploader.delete_selected_project())
+        self.uploader.project_tree.selection.return_value = ["profile"]
+        self.uploader._active_operations.add("Upload")
+        self.assertFalse(self.uploader.delete_selected_project())
+        self.assertTrue(os.path.exists(path))
+        self.uploader.on_profile_deleted.assert_not_called()
+
+    def test_project_store_delete_rejects_files_outside_profiles(self):
+        store = ProjectStore(os.path.join(self.test_dir, "profiles"), AppFileManager())
+        outside = os.path.join(self.test_dir, "export.json")
+        AppFileManager().save_profile(outside, {"title": "Export"})
+        with self.assertRaises(ValueError):
+            store.delete_project(outside)
+        self.assertTrue(os.path.exists(outside))
+
     def test_changed_file_count_uses_last_publish_snapshot(self):
         tracked = os.path.join(self.test_dir, "tracked.txt")
         added = os.path.join(self.test_dir, "added.txt")

@@ -239,6 +239,15 @@ class Shell:
             if page is not source:
                 page.project_reloaded(fresh)
 
+    def project_deleted_elsewhere(self, profile_path: str) -> None:
+        """Close a deleted shared profile so other pages cannot save it again."""
+        current = self.project
+        if current is None:
+            return
+        current_path = current.profile_path or str(self.projects.profile_path_for(current.mod_path))
+        if os.path.normcase(os.path.abspath(profile_path)) == os.path.normcase(os.path.abspath(current_path)):
+            self.set_project(None)
+
     def _restore_last_project(self) -> None:
         last = self.settings.get("last_project", "")
         if last and os.path.isdir(last):
@@ -451,6 +460,8 @@ class PageFrame(ttk.Frame):
                     self.app.set_toolbox_page_opener(self.shell.navigate)
                 if hasattr(self.app, "on_profile_saved"):
                     self.app.on_profile_saved = self._tool_profile_saved
+                if hasattr(self.app, "on_profile_deleted"):
+                    self.app.on_profile_deleted = self.shell.project_deleted_elsewhere
             else:
                 self.widget = factory(self.content, self.shell)
                 self.widget.pack(fill="both", expand=True)
