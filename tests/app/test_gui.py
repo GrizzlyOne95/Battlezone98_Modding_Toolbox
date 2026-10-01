@@ -257,6 +257,92 @@ class ColumnResizeTests(unittest.TestCase):
             root.destroy()
 
 
+class ProfileDeletionTests(unittest.TestCase):
+    def test_delete_button_removes_profile_without_autosave_recreating_it(self):
+        root = _make_root()
+        try:
+            from unittest import mock
+            from bztoolbox.app.shell import Shell
+            from bztoolbox.modules.publishing.uploader import WorkshopUploader
+            from bztoolbox.settings import Settings
+
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.multiple(
+                WorkshopUploader,
+                _bootstrap_steam_environment=mock.DEFAULT,
+                _start_watch=mock.DEFAULT,
+                _auto_sync_from_steam=mock.DEFAULT,
+                _load_api_key_from_secure_store=mock.DEFAULT,
+                _save_api_key_to_secure_store=mock.DEFAULT,
+            ):
+                mod = Path(tmp) / "mod"
+                mod.mkdir()
+                content = mod / "mymod.ini"
+                content.write_text('[WORKSHOP]\nmapType = "mod"\n')
+                shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                shell.open_project(str(mod))
+                shell.navigate("project.publish")
+                publish = shell._pages["project.publish"].app
+                self.assertIsNotNone(publish)
+                pump(root)
+                # winfo_ismapped() is not reliable for nested ttk widgets on
+                # Windows CI. Verify that the real control was constructed;
+                # invoking it below exercises the button command end to end.
+                self.assertTrue(publish.delete_profile_btn.winfo_exists())
+                self.assertEqual(publish.delete_profile_btn.cget("text"), "DELETE PROFILE")
+                profile_path = Path(publish.current_project_profile_path)
+                self.assertTrue(profile_path.is_file())
+                publish.title_var.set("Pending edit")
+                self.assertIsNotNone(publish.project_autosave_token)
+                with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+                    publish.delete_profile_btn.invoke()
+                pump(root, 1)
+                self.assertFalse(profile_path.exists())
+                self.assertTrue(content.is_file())
+                self.assertIsNone(shell.project)
+                self.assertEqual(publish.mod_path.get(), "")
+                self.assertEqual(publish.project_tree.get_children(), ())
+                self.assertEqual(publish.readiness_tree.get_children(), ())
+                self.assertIsNone(publish.project_autosave_token)
+                # Opening the folder later creates a fresh local profile.
+                shell.open_project(str(mod))
+                pump(root)
+                self.assertTrue(profile_path.is_file())
+                self.assertEqual(publish.mod_path.get(), str(mod))
+                self.assertEqual(publish.item_id_var.get(), "0")
+                shell.close(confirm=False)
+        finally:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+
+    def test_deleted_profile_closes_matching_shell_project(self):
+        root = _make_root()
+        try:
+            from bztoolbox.app.shell import Shell
+            from bztoolbox.settings import Settings
+
+            with tempfile.TemporaryDirectory() as tmp:
+                mod = Path(tmp) / "mod"
+                mod.mkdir()
+                shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                shell.open_project(str(mod))
+                path = shell.project.profile_path
+                # Deleting a different profile leaves the open project alone.
+                shell.project_deleted_elsewhere(str(Path(tmp) / "other.json"))
+                self.assertIsNotNone(shell.project)
+                shell.project_deleted_elsewhere(path)
+                self.assertIsNone(shell.project)
+                self.assertEqual(shell.settings.get("last_project"), "")
+                self.assertEqual(shell.project_label.cget("text"), "No project open")
+                shell.close(confirm=False)
+        finally:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+
+
 class ValidationFixTests(unittest.TestCase):
     def test_apply_fix_edits_the_file_and_revalidates(self):
         root = _make_root()
