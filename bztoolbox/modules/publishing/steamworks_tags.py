@@ -8,6 +8,9 @@ import struct
 import subprocess
 import time
 
+from bztoolbox.modules.publishing.steam_errors import (
+    describe_eresult, describe_init_result, explain_steamworks_message)
+
 # The DLL has to match this process: 64-bit Python can only load
 # steam_api64.dll, and Battlezone 98 Redux ships just the 32-bit steam_api.dll.
 IS_64BIT = struct.calcsize("P") == 8
@@ -25,19 +28,6 @@ UPDATE_STATUS = {
     5: "Committing changes",
 }
 
-# EResult values Steam returns for Workshop submissions, in words.
-ERESULT_TEXT = {
-    2: "generic failure",
-    3: "no connection to Steam",
-    8: "invalid parameter (check the title, description length and tags)",
-    9: "file not found (content folder or preview image)",
-    15: "access denied (the item belongs to another account, or the Workshop legal agreement is not accepted)",
-    16: "timed out",
-    17: "the Steam account is banned from the Workshop",
-    25: "limit exceeded (preview images must be under 1 MB)",
-    33: "not logged on",
-    44: "the Steam client is not signed in to Steam",
-}
 UPLOADER_TOOL_FOLDER = "Battlezone 98 Redux - Uploader Tool"
 
 
@@ -282,15 +272,14 @@ class SteamworksTagUpdater:
                 proc.kill()
 
         if payload is None:
-            raise RuntimeError(
-                f"Steamworks helper exited with code {proc.returncode}" + (f": {other[-1]}" if other else ""))
+            raise RuntimeError(explain_steamworks_message(
+                f"Steamworks helper exited with code {proc.returncode}" + (f": {other[-1]}" if other else "")))
         if not payload.get("ok"):
             error = payload.get("error") or ""
             if not error and "eresult" in payload:
-                code = int(payload["eresult"])
-                error = f"Steam rejected the item {payload.get('stage', 'update')} (EResult {code}: " \
-                        f"{ERESULT_TEXT.get(code, 'see Steamworks EResult codes')})."
-            raise RuntimeError(error.replace("NOT_LOGGED_ON: ", "") or "Steamworks helper reported a failure.")
+                error = describe_eresult(int(payload["eresult"]), payload.get("stage", "update"))
+            error = error.replace("NOT_LOGGED_ON: ", "") or "Steamworks helper reported a failure."
+            raise RuntimeError(explain_steamworks_message(error))
         payload["ugc_version"] = ugc_version
         payload["dll_path"] = dll_path
         return payload
@@ -448,9 +437,10 @@ class SteamworksTagUpdater:
     def _init_steam_api(self, dll):
         """Start the Steam API with whichever entry point this DLL exports; raises on failure."""
         err = ctypes.create_string_buffer(1024)
+        init_result = None
         if hasattr(dll, "SteamAPI_InitFlat"):
-            result = dll.SteamAPI_InitFlat(err)
-            ok = result == 0
+            init_result = dll.SteamAPI_InitFlat(err)
+            ok = init_result == 0
         elif hasattr(dll, "SteamAPI_Init"):
             ok = bool(dll.SteamAPI_Init())
         elif hasattr(dll, "SteamInternal_SteamAPI_Init"):
@@ -459,6 +449,8 @@ class SteamworksTagUpdater:
             raise RuntimeError("This steam_api DLL exports no known SteamAPI init function.")
         if not ok:
             detail = err.value.decode("utf-8", "replace").strip()
+            if isinstance(init_result, int):
+                raise RuntimeError(describe_init_result(init_result, detail))
             raise RuntimeError(
                 "SteamAPI init failed"
                 + (f": {detail}" if detail else "")
@@ -511,9 +503,9 @@ class SteamworksTagUpdater:
                 if not ok:
                     raise RuntimeError("Steamworks submit completed but no SubmitItemUpdateResult was returned.")
                 if io_failure.value:
-                    raise RuntimeError("Steamworks submit completed with I/O failure.")
+                    raise RuntimeError(explain_steamworks_message("Steamworks submit completed with I/O failure."))
                 if result.result != self.ERESULT_OK:
-                    raise RuntimeError(f"Steamworks submit returned EResult {result.result}.")
+                    raise RuntimeError(describe_eresult(result.result, "submit"))
                 return {
                     "publishedfileid": str(result.published_file_id),
                     "needs_legal_agreement": bool(result.needs_legal_agreement),

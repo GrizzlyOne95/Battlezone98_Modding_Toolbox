@@ -1272,8 +1272,25 @@ class TestWorkshopUploader(unittest.TestCase):
                 patch.object(steamworks_tags.subprocess, "Popen", return_value=proc):
             with self.assertRaises(RuntimeError) as ctx:
                 updater.publish_item("301650", "0", title="T", description="", content_folder=self.test_dir)
-        self.assertIn("file not found", str(ctx.exception))
+        self.assertIn("EResult 9: FileNotFound", str(ctx.exception))
+        self.assertIn("What to do:", str(ctx.exception))
         self.assertEqual(ctx.exception.created_item_id, "999")
+
+    def test_steamcmd_failure_explains_what_steam_reported(self):
+        self.uploader.steamcmd_path = DummyVar(os.path.join(self.test_dir, "steamcmd.exe"))
+        self.uploader.game_var = DummyVar(next(iter(self.uploader.games)))
+        os.makedirs(os.path.join(self.test_dir, "logs"))
+        with open(os.path.join(self.test_dir, "logs", "console_log.txt"), "w") as f:
+            f.write("ERROR! Failed to update workshop item (Access Denied).\n")
+
+        hidden = self.uploader._steamcmd_reported_error()   # SteamCMD exited 0 anyway
+        self.assertIn("rejected the upload", hidden)
+        self.assertIn("EResult 15", hidden)
+        self.assertIn("What to do:", hidden)
+
+        msg = self.uploader._steamcmd_failure_message(5, use_cached=False)
+        self.assertIn("code 5", msg)
+        self.assertIn("Access Denied (EResult 15)", msg)
 
     def test_publishing_through_steamworks_needs_no_steamcmd_login(self):
         preview = os.path.join(self.test_dir, "p.jpg")
