@@ -48,6 +48,18 @@ class ProjectStore:
         data["profile_path"] = profile_path
         return data
 
+    def delete_project(self, profile_path):
+        """Remove a saved profile, never its content folder or an exported copy."""
+        path = os.path.realpath(profile_path)
+        directory = os.path.realpath(self.profiles_dir)
+        if (os.path.normcase(os.path.dirname(path)) != os.path.normcase(directory)
+                or not path.lower().endswith(".json")):
+            raise ValueError("Only saved profiles in the toolbox profiles folder can be deleted.")
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
     def find_by_mod_path(self, mod_path):
         if not mod_path:
             return None
