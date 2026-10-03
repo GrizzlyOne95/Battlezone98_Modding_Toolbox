@@ -72,9 +72,11 @@ def geometry_for(source: SourceTerrain, *, target_min_x: int | None = None,
         raise ValueError("Padded HG2 exceeds the safe 32-million-sample limit")
     low, high = float(source.heights_m.min()), float(source.heights_m.max())
     # Offset only as much as needed; no rescaling or normalization.
-    offset_dm = max(0, math.ceil(-low * 10 - 1e-6))
-    if math.ceil((high * 10) + offset_dm - 1e-6) > SAFE_MAX_DM:
+    minimum_offset_dm = math.ceil(-low * 10 - 1e-6)
+    maximum_offset_dm = math.floor(SAFE_MAX_DM - high * 10 + 1e-6)
+    if minimum_offset_dm > maximum_offset_dm:
         raise ValueError(f"Source elevation span {high-low:.2f} m cannot fit the 0..409.5 m safe Redux range")
+    offset_dm = min(max(0, minimum_offset_dm), maximum_offset_dm)
     return PortGeometry(min_x, min_z, width, depth, width // ZONE_M, depth // ZONE_M,
                         x0, z0, x1 - x0, z1 - z0, offset_dm / 10)
 

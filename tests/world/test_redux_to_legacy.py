@@ -278,8 +278,8 @@ class PortTests(unittest.TestCase):
     def _mat_with_undefined_slots(src: Path) -> None:
         entries = np.zeros(64 * 64, dtype="<u2")
         entries[:10] = (7 << 12) | (7 << 8)                  # type 7: no [TextureType7]
-        entries[10:15] = (1 << 12) | (0 << 8) | 0x80         # 1 -> 0 cap: TextureType1 only has CapTo0
-        entries[15:20] = (0 << 12) | (1 << 8) | 0x80         # 0 -> 1 cap: not defined
+        entries[10:15] = (1 << 12) | (0 << 8)                # 1 -> 0 cap: TextureType1 only has CapTo0
+        entries[15:20] = (0 << 12) | (1 << 8)                # 0 -> 1 cap: not defined
         entries[20:25] = (1 << 12) | (1 << 8) | 3            # type 1 solid, variant D: covered by SolidA
         entries.tofile(src / "ttworld.mat")
 

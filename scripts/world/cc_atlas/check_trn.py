@@ -12,6 +12,9 @@ import os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
+from battlezone.terrain.atlas import validate_tile_name
+from battlezone.terrain.trn import TRNDocument
 from worlds2 import MOD_DIR
 
 MAPS = re.compile(r"=\s*([A-Za-z0-9_]+)\.map", re.I)
@@ -24,7 +27,8 @@ def split(path):
     [Sky] and [Stars] name .map files too -- sky boxes, moons, nebulae, god
     rays -- and none of those are atlas tiles, so only the second half is the
     atlas's business."""
-    t = open(path, "r", encoding="latin-1", newline="").read()
+    with open(path, "r", encoding="latin-1", newline="") as source:
+        t = source.read()
     m = HEAD.search(t)
     return (t, "") if not m else (t[:m.start()], t[m.start():])
 
@@ -37,26 +41,41 @@ def main(new_trn_dir, atlas_root, mod_dir=MOD_DIR):
         new = os.path.join(new_trn_dir, fn)
         old = os.path.join(mod_dir, fn)
         nhead, nbody = split(new)
-        mat = re.search(r"MaterialName\s*=\s*(\S+)", nhead, re.I).group(1).lower()
+        doc = TRNDocument.read(new)
+        if len(doc.sections_named("Atlases")) != 1 or not doc.material_name:
+            print(f"{fn}: FAIL: requires one [Atlases] section with a non-empty first binding")
+            bad += 1
+            continue
+        mat = doc.material_name.lower()
         csv = os.path.join(atlas_root, mat, mat + ".csv")
-        cells = {l.split(",")[0].replace(".map", "").lower()
-                 for l in open(csv) if l.split(",")[0].strip()}
+        with open(csv, encoding="latin-1") as source:
+            cells = {l.split(",")[0].strip().lower().removesuffix(".map")
+                     for l in source if l.split(",")[0].strip()}
         named = {n.lower() for n in MAPS.findall(nbody)}
+
+        invalid = []
+        for name in sorted(named | cells):
+            try:
+                validate_tile_name(name + ".map")
+            except ValueError as exc:
+                invalid.append(str(exc))
 
         miss = sorted(named - cells)
         unused = sorted(cells - named)
         drift = os.path.exists(old) and split(old)[0] != nhead
-        ok = not miss and not drift
+        ok = not miss and not drift and not invalid
         print("%-14s %-22s %3d named / %3d cells   %s" % (
             fn, mat, len(named), len(cells), "OK" if ok else "FAIL"))
         for n in miss:
             print("      names %s.map, not in the atlas" % n)
+        for error in invalid:
+            print("      " + error)
         if drift:
             print("      header above [TextureType0] differs from the original")
         if unused:
             print("      %d atlas cells unnamed: %s" % (
                 len(unused), ", ".join(unused[:6]) + ("..." if len(unused) > 6 else "")))
-        bad += len(miss) + (1 if drift else 0)
+        bad += len(miss) + len(invalid) + (1 if drift else 0)
     print("\n%s" % ("all clean" if not bad else "%d problems" % bad))
     return 1 if bad else 0
 

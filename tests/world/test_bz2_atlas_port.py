@@ -5,6 +5,8 @@ from pathlib import Path
 from PIL import Image
 
 from bztoolbox.modules.world.bz2_atlas_port import build_bz2_direct_atlas
+from battlezone.terrain.atlas import read_atlas_csv
+from battlezone.terrain.trn import TRNDocument
 
 
 def resolved_manifest(root: Path):
@@ -41,6 +43,34 @@ def resolved_manifest(root: Path):
 
 
 class BZ2DirectAtlasTests(unittest.TestCase):
+    def test_long_prefix_keeps_asset_names_and_emits_engine_safe_aliases(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            manifest = resolved_manifest(root)
+            for prefix in ("jvquarry", "jvquarrz"):
+                out = root / prefix
+                result = build_bz2_direct_atlas(
+                    manifest, out, prefix, tile_res=8,
+                    export_dds=False, export_png=True,
+                    cap_pairs={(0, 10)}, diagonal_pairs={(10, 15)},
+                )
+                self.assertEqual(result["prefix"], prefix.upper())
+                self.assertEqual(result["maps"]["DiffuseMap"], prefix + "_atlas_d.png")
+                self.assertTrue((out / (prefix + "_detail_atlas.material")).is_file())
+                doc = TRNDocument.read(out / (prefix.upper() + "_CONFIG.TRN"))
+                self.assertEqual(doc.material_name, prefix.upper() + "_DETAIL_ATLAS")
+                cells = read_atlas_csv(result["mapping_file"])
+                self.assertEqual(len(cells), 5)
+                self.assertTrue(all(len(name.encode("ascii")) <= 15 for name in cells))
+                references = {e.value for s in doc.texture_types().values()
+                              for e in s.entries if e.key.lower() != "flatcolor"}
+                self.assertEqual(references, set(cells))
+                self.assertTrue(set(result["slot_to_atlas_alias"].values()) <= references)
+                if prefix == "jvquarry":
+                    first = result["tile_prefix"]
+                else:
+                    self.assertNotEqual(first, result["tile_prefix"])
+
     def test_sparse_high_slots_preserve_texture_type_ids(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
