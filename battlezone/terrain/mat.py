@@ -3,9 +3,10 @@
 One little-endian uint16 per terrain tile, 64x64 tiles per zone, stored zone
 by zone (row-major zones, each zone row-major, south first). Entry bits::
 
-    15-12 base material   11-8 next material   7 cap   6 flip   5-4 rotation
+    15-12 base material   11-8 next material   7 cap/diagonal   6 flip   5-4 rotation
     3-0   variant (documented: bits 0-1 variant, bits 2-3 reserved)
 
+Bit 7 is 0 for CapTo, 1 for DiagonalTo (the historical field is named ``cap``).
 ``mix`` is bits 7-4 (cap/flip/rotation). The MakeTRN-compatible painter that
 chooses entries lives in WorldBuilder; this module is only the file format.
 """
@@ -110,7 +111,7 @@ def mat_slot_usage(entries: np.ndarray) -> _Dict[_Tuple[int, str, int, int], int
     entries = np.asarray(entries, dtype=np.uint16)
     base, other = entries >> 12, (entries >> 8) & 15
     cap, variant = (entries >> 7) & 1, entries & 3
-    kind = np.where(base == other, 0, np.where(cap == 1, 1, 2))
+    kind = np.where(base == other, 0, np.where(cap == 0, 1, 2))
     code = ((base.astype(np.int64) * 16 + other) * 4 + kind) * 4 + variant
     values, counts = np.unique(code, return_counts=True)
     out = {}
@@ -119,5 +120,4 @@ def mat_slot_usage(entries: np.ndarray) -> _Dict[_Tuple[int, str, int, int], int
         kind, value = "SCD"[value % 4], value // 4
         out[(value // 16, kind, value % 16, variant)] = count
     return out
-
 
