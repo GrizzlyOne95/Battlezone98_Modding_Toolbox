@@ -188,6 +188,7 @@ def build_bz2_terrain_bundle(
     })
     report["atlas"] = {
         "prefix": atlas["prefix"],
+        "tile_prefix": atlas["tile_prefix"],
         "tile_count": atlas["tile_count"],
         "source_to_redux_material": atlas["source_to_redux_material"],
         "mapping_file": Path(atlas["mapping_file"]).name if atlas["mapping_file"] else None,

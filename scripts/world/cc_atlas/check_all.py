@@ -14,6 +14,8 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
+from battlezone.terrain.atlas import validate_tile_name
 import bc1
 from verify_atlas import verify
 
@@ -48,6 +50,10 @@ def check(d):
         fails.append(f"{mat}: {len(named)} named tiles for {grid*grid} cells -- not full")
     seen = {}
     for r in named:
+        try:
+            validate_tile_name(r[0])
+        except ValueError as exc:
+            fails.append(f"{mat}: {exc}")
         key = (r[1], r[2])
         if key in seen:
             fails.append(f"{mat}: {r[0]} and {seen[key]} share cell {key}")

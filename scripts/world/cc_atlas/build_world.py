@@ -15,7 +15,7 @@ import bc1, masks as maskgen
 from ddswrite import write_dxt1
 
 Image.MAX_IMAGE_PIXELS = None
-TILE = re.compile(r"^([a-z]+)(\d)(\d)([scd])(\d)$", re.I)
+TILE = re.compile(r"^([a-z][a-z0-9]*?)(\d)(\d)([scd])(\d)$", re.I)
 CHANNELS = ("D", "N", "S", "E")
 SUFFIX = {"D": "", "N": "_n", "S": "_s", "E": "_e"}
 DEFAULT = {"D": (128, 128, 128), "N": (128, 128, 255), "S": (128, 128, 128), "E": (0, 0, 0)}

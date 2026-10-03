@@ -34,6 +34,16 @@ def fixture(version=5, flags=0, minimum_x=0, minimum_z=0, height=12.5, info=0x65
 
 
 class BZ2TerrainPortTests(unittest.TestCase):
+    def test_high_absolute_elevation_is_shifted_without_flattening(self):
+        source = decode_ter(fixture(height=430.0))
+        source.heights_m[0, 0] = 450.0
+        geometry = geometry_for(source)
+        self.assertEqual(geometry.vertical_offset_m, -40.5)
+        self.assertEqual(geometry.object_offset_m[1], -40.5)
+        heights = resample_hg2(source, geometry)
+        self.assertEqual(int(heights[0, 0]), 4095)
+        self.assertEqual(int(heights[-1, -1]), 3895)
+
     def test_geometry_can_rehome_source_into_existing_mission_world(self):
         source = SourceTerrain(
             version=5, grid_min_x=-1024, grid_min_z=-1024,

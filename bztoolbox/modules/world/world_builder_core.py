@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageDraw, ImageFilter, ImageTk, ImageOps, ImageEnhance
 from battlezone.terrain.hg2 import read_hg2, write_hg2
 from battlezone.terrain.trn import TRNDocument
+from bztoolbox.modules.world.bz2_sky_environment import read_sky_environment
 from bztoolbox.modules.world.custom_atlas_builder import (
     build_custom_atlas,
     generate_normal_map as atlas_generate_normal_map,
@@ -1966,13 +1967,14 @@ class BZ98TRNArchitect:
                 c_hex = colors[col]
                 l = ttk.Label(sub, text=col, foreground=c_hex)
                 l.pack(side="left", padx=(5, 0))
-                s = tk.Scale(sub, variable=var, from_=0.0, to=3.0, resolution=0.05, orient="horizontal", showvalue=1,
+                s = tk.Scale(sub, variable=var, from_=0.0, to=3.0, resolution=-1, digits=7, orient="horizontal", showvalue=1,
                              bg=BZ_BG, fg=BZ_FG, troughcolor="#1a1a1a", activebackground=c_hex, highlightthickness=0)
                 s.pack(side="left", fill="x", expand=True)
 
         create_rgb_slider(right_col, "Sun / Diffuse Color", self.light_diffuse)
         create_rgb_slider(right_col, "Ambient Color", self.light_ambient)
         create_rgb_slider(right_col, "Specular Color", self.light_specular)
+        ttk.Button(right_col, text="LOAD BZ2/BZCC SKY", command=self.load_source_sky_lighting).pack(fill="x", pady=5)
         ttk.Button(right_col, text="RESET LIGHTING", command=self.reset_lighting_defaults).pack(fill="x", pady=5)
 
         ttk.Separator(right_col, orient="horizontal").pack(fill="x", pady=20)
@@ -2564,6 +2566,25 @@ class BZ98TRNArchitect:
             for var in group:
                 var.set(1.0)
 
+    def load_source_sky_lighting(self):
+        path = filedialog.askopenfilename(title="Load source time and ambient/diffuse lighting",
+                                         filetypes=[("BZ2/BZCC sky", "*.sky"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            env = read_sky_environment(path)
+            if any(v > 3 for v in env['sun_diffuse_rgb'] + env['sun_ambient_rgb']):
+                raise ValueError("Source lighting exceeds the creator's 0–3 RGB range")
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Source SKY", str(error))
+            return
+        self.stock_time.set(env['redux_time_hhmm'])
+        for variables, values in ((self.light_diffuse, env['sun_diffuse_rgb']),
+                                  (self.light_ambient, env['sun_ambient_rgb'])):
+            for variable, value in zip(variables, values):
+                variable.set(value)
+        self.log(f"Loaded time {env['redux_time_hhmm']:04d} and ambient/diffuse lighting from {path}", "success")
+
     def validate_map_name(self, P):
         if len(P) > 8: return False
         if not P.isalpha() and P != "": return False
@@ -2651,14 +2672,14 @@ class BZ98TRNArchitect:
                 f.write(f"MusicLoopLast={self.audio_loop_last.get()}\n")
                 f.write(f"MusicLoopSkip={self.audio_loop_skip.get()}\n\n")
                 f.write("[Sun_Ambient]\n")
-                f.write(f"Red = {self.light_ambient[0].get():.4f}f\n")
-                f.write(f"Green = {self.light_ambient[1].get():.4f}f\n")
-                f.write(f"Blue = {self.light_ambient[2].get():.4f}f\n\n")
+                f.write(f"Red = {self.light_ambient[0].get():.6f}f\n")
+                f.write(f"Green = {self.light_ambient[1].get():.6f}f\n")
+                f.write(f"Blue = {self.light_ambient[2].get():.6f}f\n\n")
 
                 f.write("[Sun_Diffuse]\n")
-                f.write(f"Red = {self.light_diffuse[0].get():.4f}f\n")
-                f.write(f"Green = {self.light_diffuse[1].get():.4f}f\n")
-                f.write(f"Blue = {self.light_diffuse[2].get():.4f}f\n\n")
+                f.write(f"Red = {self.light_diffuse[0].get():.6f}f\n")
+                f.write(f"Green = {self.light_diffuse[1].get():.6f}f\n")
+                f.write(f"Blue = {self.light_diffuse[2].get():.6f}f\n\n")
 
                 f.write("[Sun_Specular]\n")
                 f.write(f"Red = {self.light_specular[0].get():.4f}f\n")

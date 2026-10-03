@@ -82,6 +82,25 @@ giving it the volcano art is an upgrade rather than a change.
 
 ## Things that cost a day each
 
+**Tile-local mip generation alone does not prevent filtering bleed.** Adjacent
+packed cells still leak through bilinear/trilinear and anisotropic sampling.
+For new source ports, set `gutter_px=64, mip_floor_px=32` with 512-pixel cells.
+`build2.py` downsamples each tile independently, extrudes its edges into a gutter
+at every retained mip, and writes CSV rectangles for the interior only (384 px
+at mip 0, with a four-pixel gutter at the last mip). The reduced mip chain keeps
+filtering away from unrelated cells. Copy the CSV together with all channels.
+The checker reads this layout and mip floor from `build_report.json`; omitted
+options retain the older packed layout for existing worlds.
+
+**MAP aliases must fit 15 ASCII bytes including `.map`.** Redux stores terrain
+texture names in 16-byte records including the terminator. `jvquarry00s1.map`
+is too long; use a short `cfg["tile"]`, such as `jq`, independently of the
+DDS/material prefix. Planning rejects oversized aliases before building, and
+the CSV/TRN checks catch existing ones. The TRN checker also requires exactly
+one real `[Atlases]` section with a non-empty first binding; comments mentioning
+the section are ignored. Extract fragments by anchored section headers,
+never by the first text occurrence of `[Atlases]`.
+
 **The tile size is a property of the `.trn` key, not the filename.** Stock sets
 make the two agree (`SolidA0 = ac00sA0.map`), but an author naming their own
 tiles is under no obligation to.
