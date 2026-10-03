@@ -1069,12 +1069,13 @@ class BZReduxSuite:
             out("No .dds files in that folder.")
             return
         out(f"{'DRY RUN: ' if dry else ''}{len(names)} DDS file(s) to examine...")
+        trn = recompress.terrain_textures(folder)
 
         before = after = 0
         done = skipped = 0
         for i, n in enumerate(names, 1):
             try:
-                r = recompress.convert(os.path.join(folder, n), backup, dry, ui)
+                r = recompress.convert(os.path.join(folder, n), backup, dry, ui, trn)
             except Exception as e:
                 out(f"  {n}: FAILED ({e})")
                 continue
@@ -1084,9 +1085,10 @@ class BZReduxSuite:
                 done += 1
                 before += r["before"]
                 after += r["after"]
-                out("  %-34s %7.1f -> %6.2f MB  %s%s" % (
+                out("  %-34s %7.1f -> %6.2f MB  %s%s%s" % (
                     r["file"], r["before"] / 1048576, r["after"] / 1048576, r["fmt"],
-                    "" if dry else "  rmse %.2f" % r["rmse"]))
+                    "" if dry else "  rmse %.2f" % r["rmse"],
+                    "  (%s)" % r["gated"] if r.get("gated") else ""))
             self.root.after(0, lambda p=i / len(names) * 100:
                             self.tex_progress.configure(value=p))
 
