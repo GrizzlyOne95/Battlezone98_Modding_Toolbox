@@ -35,7 +35,7 @@ from worlds2 import MOD_DIR, WORLDS
 SLOT = "ABCD"
 HEAD_RE = re.compile(r"^\[TextureType(\d+)\](.*)$", re.I)
 KEY_RE = re.compile(r"^\s*(Solid|CapTo\d+_|DiagonalTo\d+_)([A-D])(\d)\s*=\s*(\S+)", re.I)
-TILE_RE = re.compile(r"^([a-z]+)(\d)(\d)([scd])(\d)$", re.I)
+TILE_RE = re.compile(r"^([a-z][a-z0-9]*?)(\d)(\d)([scd])(\d)$", re.I)
 def painted_types(mat_path):
     """{type index: cells painted}, or None when there is no .mat.
 
