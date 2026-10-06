@@ -64,7 +64,7 @@ class PublishGuardTests(unittest.TestCase):
         other.mkdir()
         projects = [{"mod_path": str(other), "item_id": "3001"}, {"mod_path": str(self.mod), "item_id": "3001"}]
         self.assertEqual(other_folders_for_item("3001", str(self.mod), projects), [str(other)])
-        self.assertIn("linked to another folder", self.check("3001", projects=projects).blocks[0])
+        self.assertIn("also linked by another local upload profile", self.check("3001", projects=projects).blocks[0])
         gone = [{"mod_path": str(Path(self._tmp.name) / "deleted"), "item_id": "3001"}]
         self.assertTrue(self.check("3001", projects=gone).ok)   # a folder that no longer exists does not block
 
@@ -75,6 +75,28 @@ class PublishGuardTests(unittest.TestCase):
         self.assertIn("removes 40 of the 52 files", result.confirms[0])
         same = {e["rel_path"]: {} for e in inventory(self.mod)}
         self.assertEqual(self.check("3001", snapshot=same).confirms, [])
+
+    def test_guard_reports_the_other_profile_and_stops_blocking_after_unlink(self):
+        from bztoolbox.modules.publishing.app_file_manager import AppFileManager
+        from bztoolbox.modules.publishing.project_store import ProjectStore
+        other = Path(self._tmp.name) / "old_copy"
+        other.mkdir()
+        store = ProjectStore(os.path.join(self._tmp.name, "profiles"), AppFileManager())
+        other_profile = store.save_project({"project_name": "content", "mod_path": str(other), "item_id": "3001",
+                                            "title": "Keep me"})
+        mine = store.save_project({"project_name": "content", "mod_path": str(self.mod), "item_id": "3001"})
+        guard = self.check("3001", projects=store.list_projects())
+        self.assertFalse(guard.ok)
+        self.assertEqual([p["profile_path"] for p in guard.linked_elsewhere], [other_profile])
+        self.assertIn(other_profile, guard.link_block)
+
+        unlinked = store.unlink_item("3001", str(self.mod))
+        self.assertEqual([p["profile_path"] for p in unlinked], [other_profile])
+        self.assertTrue(self.check("3001", projects=store.list_projects()).ok)
+        kept = store.load_project(other_profile)
+        self.assertEqual((kept["item_id"], kept["title"], kept["mod_path"]), ("0", "Keep me", str(other)))
+        self.assertEqual(store.load_project(mine)["item_id"], "3001")   # the folder being linked is untouched
+
 
 
 if __name__ == "__main__":
