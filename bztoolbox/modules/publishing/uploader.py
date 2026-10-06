@@ -956,6 +956,10 @@ class WorkshopUploader:
                 "action": "delete_legacy",
             })
 
+        # Blockers first: hundreds of warnings otherwise push them out of view.
+        severity_order = {"Blocking": 0, "Fixable": 1, "Warning": 2}
+        rows.sort(key=lambda row: severity_order.get(row["severity"], 3))
+
         if not rows:
             rows.append({
                 "severity": "Ready",

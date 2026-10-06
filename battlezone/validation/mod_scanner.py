@@ -585,11 +585,19 @@ class ModScanner:
         missing = [ext for ext in self.TERRAIN_EXTS if f"{base_name}{ext}".lower() not in files_lower]
         bzn = next((name for name in os.listdir(mod_dir) if name.lower() == f"{base_name}.bzn".lower()), None)
         terrain = bzn_terrain_name(os.path.join(mod_dir, bzn)) if bzn else None
-        if not terrain or terrain.lower() == base_name.lower():
-            for ext in missing:
-                errors.append(f"Missing essential file: {base_name}{ext}")
-            return
         stock_trn = stock_models().get("trn", frozenset())
+        if not terrain or terrain.lower() == base_name.lower():
+            if missing:
+                names = ", ".join(base_name + ext for ext in missing)
+                if f"{base_name}.trn".lower() in stock_trn:
+                    errors.append(f"{base_name}.ini is a map on the stock '{base_name}' terrain, but {names} "
+                                  f"{'is' if len(missing) == 1 else 'are'} not in the content folder. The game "
+                                  f"loads the stock copies, but Workshop uploads need the same-named files "
+                                  f"beside the .ini: copy them from the stock game into the mod.")
+                else:
+                    errors.append(f"{base_name}.ini is a map, but its terrain ({names}) is missing from "
+                                  f"the content folder.")
+            return
         if f"{terrain}.trn".lower() not in files_lower and f"{terrain}.trn".lower() not in stock_trn:
             errors.append(f"{bzn} loads terrain '{terrain}', which is not in the mod or the stock game.")
         elif missing:
