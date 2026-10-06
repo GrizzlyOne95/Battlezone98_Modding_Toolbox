@@ -92,3 +92,19 @@ class ProjectStore:
                 payload = {**existing, **payload}
         self.file_manager.save_profile(profile_path, payload)
         return profile_path
+
+    def unlink_item(self, item_id, keep_mod_path):
+        """Clear ``item_id`` from every profile except the one for ``keep_mod_path``.
+
+        Returns the profiles that were unlinked. Their other fields (and ``last_opened``)
+        are left alone, so the profiles stay usable as new, unlinked projects.
+        """
+        keep = os.path.normcase(os.path.abspath(keep_mod_path or ""))
+        unlinked = []
+        for project in self.list_projects():
+            path = project.get("mod_path", "")
+            if str(project.get("item_id", "")).strip() != str(item_id) or not path                     or os.path.normcase(os.path.abspath(path)) == keep:
+                continue
+            self.file_manager.save_profile(project["profile_path"], {**project, "item_id": "0"})
+            unlinked.append(project)
+        return unlinked

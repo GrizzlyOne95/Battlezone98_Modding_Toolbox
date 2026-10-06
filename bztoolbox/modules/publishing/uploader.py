@@ -660,7 +660,7 @@ class WorkshopUploader:
             row_id = self.project_tree.insert(
                 "",
                 "end",
-                values=(project_name, item_display, updated),
+                values=(project_name, project.get("mod_path", ""), item_display, updated),
                 tags=(project.get("profile_path", ""),),
             )
             if project.get("profile_path", "") == self.current_project_profile_path:
@@ -1772,11 +1772,13 @@ class WorkshopUploader:
 
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=True)
-        self.project_tree = ttk.Treeview(tree_frame, columns=("Name", "Item", "Updated"), show="headings", height=10, selectmode="browse")
+        self.project_tree = ttk.Treeview(tree_frame, columns=("Name", "Folder", "Item", "Updated"), show="headings", height=10, selectmode="browse")
         self.project_tree.heading("Name", text="Profile")
+        self.project_tree.heading("Folder", text="Folder")
         self.project_tree.heading("Item", text="Workshop ID")
         self.project_tree.heading("Updated", text="Last Opened")
         self.project_tree.column("Name", width=180)
+        self.project_tree.column("Folder", width=220)
         self.project_tree.column("Item", width=90, anchor="center")
         self.project_tree.column("Updated", width=120, anchor="center")
         prj_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.project_tree.yview)
@@ -2933,9 +2935,10 @@ class WorkshopUploader:
                  "Publish will then REPLACE that item's content with this folder."]
         if publish_guard.is_item_id(current) and current != str(item_id):
             lines.append(f"\nThis folder is currently linked to #{current}.")
-        others = publish_guard.other_folders_for_item(item_id, mod_path, self.project_store.list_projects())
+        others = publish_guard.other_profiles_for_item(item_id, mod_path, self.project_store.list_projects())
         if others:
-            lines.append("\nThis item is already linked to another folder:\n  " + "\n  ".join(others))
+            lines.append("\nThis item is also linked by another upload profile. The other profile(s) will be "
+                         "unlinked:\n" + publish_guard.describe_profiles(others))
         installed = publish_guard.installed_copy(item_id, self._workshop_dirs())
         if installed:
             local, remote = publish_guard.root_ini_names(mod_path), publish_guard.root_ini_names(installed)
@@ -2943,6 +2946,16 @@ class WorkshopUploader:
                 lines.append(f"\nWARNING: the installed copy of #{item_id} has different mission files "
                              f"({', '.join(sorted(remote)[:4])}). It looks like a different mod.")
         return bool(messagebox.askyesno("Link Workshop item", "\n".join(lines), icon="warning", default="no"))
+
+    def _unlink_other_profiles(self, item_id, mod_path):
+        """Clear ``item_id`` from every other upload profile, so only ``mod_path`` targets it."""
+        unlinked = self.project_store.unlink_item(item_id, mod_path)
+        for project in unlinked:
+            self.log(f"Unlinked Workshop item #{item_id} from upload profile {project.get('profile_path', '')} "
+                     f"({project.get('mod_path', '')})")
+        if unlinked and hasattr(self, "project_tree"):
+            self.refresh_recent_projects()
+        return unlinked
 
     def suggest_workshop_link(self, folder=None):
         """Offer to link a folder with no Workshop item to the installed item with the same mission files."""
@@ -3054,6 +3067,22 @@ class WorkshopUploader:
 
         inventory = self._build_mod_inventory(content)
         guard = self._check_publish(content, inventory)
+        if guard.linked_elsewhere:
+            from bztoolbox.modules.publishing import publish_guard
+
+            item_id_text = self.item_id_var.get().strip()
+            if not messagebox.askyesno(
+                    "Workshop item linked twice",
+                    f"Another local upload profile also targets Workshop item #{item_id_text}:\n\n"
+                    + publish_guard.describe_profiles(guard.linked_elsewhere)
+                    + f"\n\nThis folder:\n  {content}\n\n"
+                    "Unlink the other profile and publish from this folder?\n"
+                    "(The other profile and its folder are kept, but no longer point at the item.)",
+                    icon="warning", default="no"):
+                self.log("Publish cancelled: Workshop item is linked to another upload profile.")
+                return
+            self._unlink_other_profiles(item_id_text, content)
+            guard = self._check_publish(content, inventory)
         if guard.blocks:
             messagebox.showerror("Publish blocked", "\n\n".join(guard.blocks))
             self.log("Publish blocked: " + " | ".join(b.splitlines()[0] for b in guard.blocks))
@@ -3614,6 +3643,7 @@ class WorkshopUploader:
             return False
         if not self._confirm_link(item_id, title, mod_path):
             return False
+        self._unlink_other_profiles(item_id, mod_path)
         self.item_id_var.set(item_id)
         # Publish sends visibility every time; keep the item's current one
         # instead of the folder default (Public) so linking can't unhide it.
