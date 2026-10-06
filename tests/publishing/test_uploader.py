@@ -1531,6 +1531,36 @@ class TestWorkshopUploader(unittest.TestCase):
         self.uploader.notebook.select.assert_called_once()
         self.uploader.save_current_project_state.assert_called_once_with(quiet=True)
 
+    def test_linking_a_folder_unlinks_other_profiles_targeting_the_item(self):
+        u = self.uploader
+        u.project_store = ProjectStore(os.path.join(self.test_dir, "profiles"), AppFileManager())
+        mine, other = (os.path.join(self.test_dir, n, "content") for n in ("a", "b"))
+        os.makedirs(mine)
+        os.makedirs(other)
+        other_profile = u.project_store.save_project({"project_name": "content", "mod_path": other, "item_id": "999"})
+        u.mod_path = DummyVar(mine)
+        u.item_id_var = DummyVar("0")
+        u.tree = MagicMock()
+        u.tree.selection.return_value = ["item1"]
+        u.tree.item.return_value = {"values": ["My Mod", "999"]}
+        u.notebook = MagicMock()
+        u.upload_tab = MagicMock()
+        u.save_current_project_state = MagicMock()
+        u.log = MagicMock()
+        u.refresh_recent_projects = MagicMock()
+
+        with patch.object(uploader.messagebox, "askyesno", return_value=False) as ask:
+            self.assertFalse(u.use_selected_item_id_for_upload())
+            self.assertIn(other_profile, ask.call_args.args[1])   # the dialog names what will be unlinked
+        self.assertEqual(u.project_store.load_project(other_profile)["item_id"], "999")   # declined: untouched
+
+        with patch.object(uploader.messagebox, "askyesno", return_value=True):
+            self.assertTrue(u.use_selected_item_id_for_upload())
+        self.assertEqual(u.item_id_var.get(), "999")
+        self.assertEqual(u.project_store.load_project(other_profile)["item_id"], "0")
+        self.assertTrue(any(other_profile in c.args[0] for c in u.log.call_args_list))
+        self.assertEqual(u._check_publish(mine, [{"rel_path": "x.ini"}]).linked_elsewhere, [])
+
     def test_start_upload_cached_credentials_does_not_require_username(self):
         sc_path = os.path.join(self.test_dir, "steamcmd.exe")
         with open(sc_path, "w", encoding="utf-8") as f:
