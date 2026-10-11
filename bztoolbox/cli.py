@@ -109,6 +109,8 @@ DELEGATES: Sequence[Delegate] = (
              True),
     Delegate("fonts", "dump-st", "bztoolbox.modules.fonts.dump_bzfont_st:main",
              "Dump stock bzfont.st sprite coordinates.", False, "Font Generator"),
+    Delegate("fonts", "build", "bztoolbox.modules.fonts.build_cli:main",
+             "Build bzfont.dds and bzfont_ru.dds from a font, fitted to the stock slots.", True),
 )
 
 _DELEGATE_INDEX = {(d.group, d.name): d for d in DELEGATES}
