@@ -37,6 +37,8 @@ OriginalFilename: BZFontGenerator.exe
 - **Auto-Nudge Presets:** Quick-access buttons for common vertical alignment settings.
 - **Dual Font Support:** Use one font for letters and another for numbers/symbols.
 - **Auto-Alignment:** Automatically sit characters on the correct baseline for the BZ98 engine.
+- **Fit to Stock Slots:** Size letters by their visible capital height, use a shared baseline, and condense wide glyphs into the engine's fixed slots without bleeding into neighboring characters.
+- **Fitted Stroke Weight:** Thicken thin fonts before rasterizing for better readability at small HUD sizes.
 - **Modern Resolution:** Generates a 1024x1024 RGBA texture from scratch.
 - **Drag-and-Drop Ready:** Outputs as `bzfont.dds` for immediate use in game assets.
 - **Manual Tweak Options:** Adjust font size, horizontal/vertical alignment, show the coordinate grid, and force snapping characters.
@@ -57,6 +59,8 @@ OriginalFilename: BZFontGenerator.exe
 <img width="700" height="225" alt="image" src="https://github.com/user-attachments/assets/0ed2a0a2-1d5c-473e-bc2f-80557a5dd336" />
 
 ### Troubleshooting
+- For fonts with short capitals or wide letters (such as Bank Gothic), enable **Fit to Stock Slots**, reset all nudges, and start with capital height **56** and fitted stroke weight **2**. Size then controls visible capital height rather than the font's point size. Lowercase and punctuation retain their font's relative size and baseline; the manual lowercase-centering option is ignored in fitted mode.
+- The stock atlas uses 40-by-72-pixel slots for most letters, and 8-by-72-pixel slots for `I`, `i`, and some punctuation. A higher-resolution texture alone does not enlarge on-screen text. Fitting fills the existing slots; use the game's HUD Size option if the whole HUD needs to be larger.
 - If characters generate missing or with rectangles/invalid symbols, your font most likely is missing those characters. Try another font file.
 - If characters are clipping or cut off in game, try adjusting them to be perfectly aligned in the grid. Use the "Show Layout Grid" option.
 - If you run into a bug or problem please create a Github issue.
