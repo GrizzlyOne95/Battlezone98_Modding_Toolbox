@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 import webbrowser
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
 from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.widgets import ScrollableFrame
 
 APP_TITLE = "BZ98 Redux Font Generator"
 STOCK_REFERENCE_SIZE = 128
@@ -145,9 +146,47 @@ def get_render_font(font_cache, font_path, font_size):
     return font
 
 
-def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, center_lower, show_grid, font_cache=None):
+def render_fitted_glyph(font, char, target_w, target_h, cap_height, stroke_width, h_nudge, v_nudge):
+    """Fit visible ink to a stock slot, preserving a shared font baseline.
+
+    Font point sizes include whitespace and vary between families. Measure the
+    capital H instead, then condense wide glyphs to the engine's fixed widths.
+    Drawing into an individual slot keeps oversized glyphs out of their neighbors.
+    """
+    cap_bbox = font.getbbox("H", anchor="ls")
+    scale = cap_height / max(1, cap_bbox[3] - cap_bbox[1])
+    source_stroke = max(0, round(stroke_width / scale))
+    cap_bbox = font.getbbox("H", anchor="ls", stroke_width=source_stroke)
+    scale = cap_height / max(1, cap_bbox[3] - cap_bbox[1])
+    bbox = font.getbbox(char, anchor="ls", stroke_width=source_stroke)
+    glyph = Image.new("L", (max(1, bbox[2] - bbox[0]), max(1, bbox[3] - bbox[1])))
+    ImageDraw.Draw(glyph).text(
+        (-bbox[0], -bbox[1]), char, font=font, anchor="ls",
+        fill=255, stroke_width=source_stroke, stroke_fill=255,
+    )
+    ink = glyph.getbbox()
+    slot = Image.new("L", (target_w, target_h))
+    if ink is None:
+        return slot
+    glyph = glyph.crop(ink)
+    # Preserve thin glyphs; only condense those exceeding their stock width.
+    max_width = target_w if target_w <= ATLAS_SCALE else target_w - 2
+    new_width = min(max_width, max(1, round(glyph.width * scale)))
+    new_height = min(target_h - 4, max(1, round(glyph.height * scale)))
+    glyph = glyph.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    baseline = target_h - ATLAS_SCALE // 2
+    top = baseline + round((bbox[1] + ink[1] - cap_bbox[3]) * scale)
+    # Some fonts put underscores below the baseline or accents above the cell.
+    # Keep their ink visible before applying intentional manual nudges.
+    top = max(2, min(top, target_h - 2 - new_height)) - v_nudge
+    left = (target_w - new_width) // 2 + h_nudge
+    slot.paste(glyph, (left, top))
+    return slot
+
+
+def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, center_lower, show_grid, font_cache=None, fit_to_slots=False, stroke_width=0):
     width, height = ATLAS_SIZE, ATLAS_SIZE
-    work_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    work_layer = Image.new("RGBA", (width, height), (255, 255, 255, 0) if fit_to_slots else (0, 0, 0, 0))
     draw = ImageDraw.Draw(work_layer)
 
     if font_cache is None:
@@ -161,6 +200,19 @@ def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, cent
             x_base, y_base, target_w, target_h = GLYPH_LAYOUT[char]
 
             v_val = u_v if char.isupper() else l_v if char.islower() else n_v if char.isdigit() else s_v
+
+            if fit_to_slots:
+                font_path = let_f if char.isalpha() else sym_f
+                font = get_render_font(font_cache, font_path, max(128, f_size * 4))
+                mask = render_fitted_glyph(
+                    font, char, target_w, target_h, f_size, stroke_width, h_nudge, v_val,
+                )
+                glyph_layer = Image.new("RGBA", (target_w, target_h), (255, 255, 255, 0))
+                glyph_layer.putalpha(mask)
+                work_layer.paste(glyph_layer, (x_base, y_base))
+                if show_grid:
+                    draw.rectangle([x_base, y_base, x_base + target_w - 1, y_base + target_h - 1], outline=(0, 255, 255, 120))
+                continue
 
             if show_grid:
                 draw.rectangle([x_base, y_base, x_base + target_w, y_base + target_h], outline=(0, 255, 255, 120))
@@ -224,6 +276,8 @@ class BzoneApp:
         self.f_size = tk.IntVar(value=55)
         self.center_lower = tk.BooleanVar(value=False)
         self.show_grid = tk.BooleanVar(value=False)
+        self.fit_to_slots = tk.BooleanVar(value=False)
+        self.stroke_width = tk.IntVar(value=0)
         self.overlay_enabled = tk.BooleanVar(value=False)
         self.overlay_opacity = tk.IntVar(value=DEFAULT_OVERLAY_OPACITY)
         self.letter_font_var = tk.StringVar()
@@ -275,8 +329,11 @@ class BzoneApp:
         content = ttk.Frame(main)
         content.pack(fill="both", expand=True)
 
-        left = ttk.Frame(content, width=350)
-        left.pack(side="left", fill="y", padx=(0, 10))
+        self.settings_panel = ScrollableFrame(content, style="TFrame")
+        self.settings_panel.canvas.configure(width=365, bg=self.colors["bg"])
+        self.settings_panel.scrollbar.configure(style="Vertical.TScrollbar")
+        self.settings_panel.pack(side="left", fill="y", padx=(0, 10))
+        left = self.settings_panel.body
 
         prof_frame = ttk.LabelFrame(left, text=" PROFILE ", padding=10)
         prof_frame.pack(fill="x", pady=(0, 10))
@@ -300,11 +357,18 @@ class BzoneApp:
 
         set_frame = ttk.LabelFrame(left, text=" FONT SETTINGS ", padding=10)
         set_frame.pack(fill="x")
-        ttk.Label(set_frame, text="Global Font Size").pack()
+        ttk.Label(set_frame, text="Font Size / Fitted Capital Height").pack()
         s_size = tk.Scale(set_frame, from_=30, to=70, orient="horizontal", variable=self.f_size, 
                          bg=self.colors["bg"], fg=self.colors["fg"], highlightthickness=0,
                          command=lambda x: self.update_preview())
         s_size.pack(fill="x")
+        fit_check = ttk.Checkbutton(set_frame, text="Fit to Stock Slots (shared baseline)", variable=self.fit_to_slots, command=self.update_preview)
+        fit_check.pack(anchor="w")
+        ToolTip(fit_check, "Size sets visible capital height in atlas pixels. Wide letters are condensed to their stock slots. Lowercase uses the font baseline; Force Center Lowercase only applies in manual mode. Reset nudges when switching modes.")
+        ttk.Label(set_frame, text="Fitted Stroke Weight (atlas pixels)").pack()
+        tk.Scale(set_frame, from_=0, to=4, orient="horizontal", variable=self.stroke_width,
+                 bg=self.colors["bg"], fg=self.colors["fg"], highlightthickness=0,
+                 command=lambda x: self.update_preview()).pack(fill="x")
 
         nudge_frame = ttk.LabelFrame(left, text=" VERTICAL NUDGES ", padding=10)
         nudge_frame.pack(fill="x", pady=10)
@@ -459,7 +523,8 @@ class BzoneApp:
             "u_v": self.u_v.get(), "l_v": self.l_v.get(), "n_v": self.n_v.get(), "s_v": self.s_v.get(),
             "h_n": self.h_n.get(), "f_size": self.f_size.get(),
             "center_lower": self.center_lower.get(),
-            "let_f": self.let_f, "sym_f": self.sym_f
+            "let_f": self.let_f, "sym_f": self.sym_f,
+            "fit_to_slots": self.fit_to_slots.get(), "stroke_width": self.stroke_width.get(),
         }
         try:
             with open(f, 'w', encoding="utf-8") as outfile:
@@ -484,6 +549,8 @@ class BzoneApp:
                 self.h_n.set(data.get("h_n", 0))
                 self.f_size.set(data.get("f_size", 55))
                 self.center_lower.set(data.get("center_lower", False))
+                self.fit_to_slots.set(data.get("fit_to_slots", False))
+                self.stroke_width.set(data.get("stroke_width", 0))
                 self.let_f = data.get("let_f", self.let_f)
                 self.sym_f = data.get("sym_f", self.sym_f)
             self.last_profile_path = f
@@ -535,7 +602,8 @@ class BzoneApp:
         final_img, generated_layer = generate_sheet_image(let_font, sym_font, self.u_v.get(), self.l_v.get(),
                                                           self.n_v.get(), self.s_v.get(), self.h_n.get(),
                                                           self.f_size.get(),
-                                                          self.center_lower.get(), self.show_grid.get(), self.font_cache)
+                                                          self.center_lower.get(), self.show_grid.get(), self.font_cache,
+                                                          self.fit_to_slots.get(), self.stroke_width.get())
         if self.overlay_enabled.get():
             overlay_preview = self.build_overlay_preview(generated_layer)
             if overlay_preview is not None:
@@ -553,7 +621,8 @@ class BzoneApp:
         _, export_img = generate_sheet_image(let_font, sym_font, self.u_v.get(), self.l_v.get(),
                                              self.n_v.get(), self.s_v.get(), self.h_n.get(),
                                              self.f_size.get(),
-                                             self.center_lower.get(), False, self.font_cache)
+                                             self.center_lower.get(), False, self.font_cache,
+                                             self.fit_to_slots.get(), self.stroke_width.get())
         f_path = filedialog.asksaveasfilename(defaultextension=".dds", initialfile="bzfont.dds", filetypes=[("DDS", "*.dds")])
         if f_path:
             try:
