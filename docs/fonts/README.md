@@ -37,10 +37,13 @@ OriginalFilename: BZFontGenerator.exe
 - **Auto-Nudge Presets:** Quick-access buttons for common vertical alignment settings.
 - **Dual Font Support:** Use one font for letters and another for numbers/symbols.
 - **Auto-Alignment:** Automatically sit characters on the correct baseline for the BZ98 engine.
-- **Fit to Stock Slots:** Size letters by their visible capital height, use a shared baseline, and condense wide glyphs into the engine's fixed slots without bleeding into neighboring characters.
-- **Fitted Stroke Weight:** Thicken thin fonts before rasterizing for better readability at small HUD sizes.
+- **Fit to Stock Slots:** Size letters by their visible capital height, use a shared baseline, and condense wide glyphs into the engine's fixed slots without bleeding into neighboring characters. Condensed letters keep their vertical stems at the font's stroke weight instead of turning into hairlines.
+- **German, French, Russian and more:** Fit mode fills every slot of both stock tables: `bzfont.dds` (Windows-1252: umlauts, ß, accented letters, €) and `bzfont_ru.dds` (Windows-1251: Russian, Ukrainian, Belarusian, Serbian and Macedonian Cyrillic). The game picks `bzfont_ru` when its language is Russian.
+- **Built glyphs:** Letters the font lacks are assembled from its own glyphs so they match its weight and proportions, for example Cyrillic for Latin-only fonts like Bank Gothic (И from a mirrored N, Ь from an inverted P, Ж from two Ks), the euro sign, and a single-width ß. Accents above capitals are compacted into the space above the cap line.
+- **Extra Stroke Weight:** Optionally thicken thin fonts before rasterizing.
+- **Mipmaps:** Exports carry a full mip chain like the stock sheets, so HUD text stays smooth when the 72-pixel slots are drawn at 20-30 screen pixels.
 - **Modern Resolution:** Generates a 1024x1024 RGBA texture from scratch.
-- **Drag-and-Drop Ready:** Outputs as `bzfont.dds` for immediate use in game assets.
+- **Drag-and-Drop Ready:** Outputs `bzfont.dds` (and, in fit mode, `bzfont_ru.dds`) for immediate use in game assets.
 - **Manual Tweak Options:** Adjust font size, horizontal/vertical alignment, show the coordinate grid, and force snapping characters.
 - **Real-time Feedback:** Integrated log box to monitor actions and errors.
 
@@ -50,7 +53,15 @@ OriginalFilename: BZFontGenerator.exe
 2. Run `BZFontGenerator.exe` on Windows or `BZFontGenerator` on Linux/macOS.
 3. Select your desired `.ttf` or `.otf` font files.
 4. Click **Export DDS**.
-5. Copy the resulting `bzfont.dds` into your mod's texture directory.
+5. Copy the resulting `bzfont.dds` (and `bzfont_ru.dds`, in fit mode) into your mod's texture directory.
+
+From the command line, the same fitted sheets build without the GUI:
+
+```
+bztoolbox fonts build --font "Bank Gothic Medium.otf" --out out --preview
+```
+
+It writes `bzfont.dds`, `bzfont_ru.dds` and, with `--preview`, sample-text PNGs, and lists any characters it could not produce. `--fallback-font` supplies characters that neither the font nor a built-in recipe covers; `--cap-height` and `--weight` match the GUI's sliders.
 
 <img width="1024" height="1024" alt="bzone_cyber_complete" src="https://github.com/user-attachments/assets/9fa232a9-8f9f-4e41-a79c-7efdee3ccc5c" />
 
@@ -59,7 +70,7 @@ OriginalFilename: BZFontGenerator.exe
 <img width="700" height="225" alt="image" src="https://github.com/user-attachments/assets/0ed2a0a2-1d5c-473e-bc2f-80557a5dd336" />
 
 ### Troubleshooting
-- For fonts with short capitals or wide letters (such as Bank Gothic), enable **Fit to Stock Slots**, reset all nudges, and start with capital height **56** and fitted stroke weight **2**. Size then controls visible capital height rather than the font's point size. Lowercase and punctuation retain their font's relative size and baseline; the manual lowercase-centering option is ignored in fitted mode.
+- For fonts with short capitals or wide letters (such as Bank Gothic), enable **Fit to Stock Slots**, reset all nudges, and start with capital height **56** and extra stroke weight **0** (stems are already kept at the font's weight). Size then controls visible capital height rather than the font's point size. Lowercase and punctuation retain their font's relative size and baseline; the manual lowercase-centering option is ignored in fitted mode.
 - The stock atlas uses 40-by-72-pixel slots for most letters, and 8-by-72-pixel slots for `I`, `i`, and some punctuation. A higher-resolution texture alone does not enlarge on-screen text. Fitting fills the existing slots; use the game's HUD Size option if the whole HUD needs to be larger.
 - If characters generate missing or with rectangles/invalid symbols, your font most likely is missing those characters. Try another font file.
 - If characters are clipping or cut off in game, try adjusting them to be perfectly aligned in the grid. Use the "Show Layout Grid" option.

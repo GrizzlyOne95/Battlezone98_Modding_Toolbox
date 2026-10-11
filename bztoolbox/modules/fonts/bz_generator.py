@@ -2,7 +2,6 @@ import ctypes
 import json
 import os
 from pathlib import Path
-import struct
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -10,6 +9,7 @@ import webbrowser
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
 from bztoolbox.app.fonts import bz_font
 from bztoolbox.app.widgets import ScrollableFrame
+from bztoolbox.modules.fonts import atlas
 
 APP_TITLE = "BZ98 Redux Font Generator"
 STOCK_REFERENCE_SIZE = 128
@@ -146,51 +146,40 @@ def get_render_font(font_cache, font_path, font_size):
     return font
 
 
-def render_fitted_glyph(font, char, target_w, target_h, cap_height, stroke_width, h_nudge, v_nudge):
-    """Fit visible ink to a stock slot, preserving a shared font baseline.
-
-    Font point sizes include whitespace and vary between families. Measure the
-    capital H instead, then condense wide glyphs to the engine's fixed widths.
-    Drawing into an individual slot keeps oversized glyphs out of their neighbors.
-    """
-    cap_bbox = font.getbbox("H", anchor="ls")
-    scale = cap_height / max(1, cap_bbox[3] - cap_bbox[1])
-    source_stroke = max(0, round(stroke_width / scale))
-    cap_bbox = font.getbbox("H", anchor="ls", stroke_width=source_stroke)
-    scale = cap_height / max(1, cap_bbox[3] - cap_bbox[1])
-    bbox = font.getbbox(char, anchor="ls", stroke_width=source_stroke)
-    glyph = Image.new("L", (max(1, bbox[2] - bbox[0]), max(1, bbox[3] - bbox[1])))
-    ImageDraw.Draw(glyph).text(
-        (-bbox[0], -bbox[1]), char, font=font, anchor="ls",
-        fill=255, stroke_width=source_stroke, stroke_fill=255,
-    )
-    ink = glyph.getbbox()
-    slot = Image.new("L", (target_w, target_h))
-    if ink is None:
-        return slot
-    glyph = glyph.crop(ink)
-    # Preserve thin glyphs; only condense those exceeding their stock width.
-    max_width = target_w if target_w <= ATLAS_SCALE else target_w - 2
-    new_width = min(max_width, max(1, round(glyph.width * scale)))
-    new_height = min(target_h - 4, max(1, round(glyph.height * scale)))
-    glyph = glyph.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    baseline = target_h - ATLAS_SCALE // 2
-    top = baseline + round((bbox[1] + ink[1] - cap_bbox[3]) * scale)
-    # Some fonts put underscores below the baseline or accents above the cell.
-    # Keep their ink visible before applying intentional manual nudges.
-    top = max(2, min(top, target_h - 2 - new_height)) - v_nudge
-    left = (target_w - new_width) // 2 + h_nudge
-    slot.paste(glyph, (left, top))
-    return slot
+def fitted_glyph_source(font_cache, let_f, sym_f):
+    """Glyph sources are costly to measure; keep one per font pair."""
+    key = ("glyph-source", let_f, sym_f)
+    source = font_cache.get(key)
+    if source is None:
+        source = font_cache[key] = atlas.GlyphSource(let_f, sym_f)
+    return source
 
 
-def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, center_lower, show_grid, font_cache=None, fit_to_slots=False, stroke_width=0):
-    width, height = ATLAS_SIZE, ATLAS_SIZE
-    work_layer = Image.new("RGBA", (width, height), (255, 255, 255, 0) if fit_to_slots else (0, 0, 0, 0))
-    draw = ImageDraw.Draw(work_layer)
-
+def generate_fitted_sheet(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, stroke_width, codepage="cp1252",
+                          show_grid=False, font_cache=None):
+    """Fit-to-slots sheet for a stock code page: cp1252 (bzfont) or cp1251 (bzfont_ru)."""
     if font_cache is None:
         font_cache = {}
+    options = atlas.FitOptions(
+        cap_height=f_size, weight=stroke_width, h_nudge=h_nudge,
+        v_nudges={"upper": u_v, "lower": l_v, "digit": n_v, "symbol": s_v},
+    )
+    return atlas.build_atlas(fitted_glyph_source(font_cache, let_f, sym_f), codepage, options, show_grid)
+
+
+def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, center_lower, show_grid, font_cache=None, fit_to_slots=False, stroke_width=0, codepage="cp1252"):
+    width, height = ATLAS_SIZE, ATLAS_SIZE
+    if font_cache is None:
+        font_cache = {}
+    if fit_to_slots:
+        work_layer = generate_fitted_sheet(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, stroke_width,
+                                           codepage, show_grid, font_cache).image
+        preview_bg = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        preview_bg.paste(work_layer, (0, 0), work_layer)
+        return preview_bg, work_layer
+
+    work_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(work_layer)
 
     for r_idx, row_text in enumerate(ASCII_ROWS):
         for char in row_text:
@@ -200,19 +189,6 @@ def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, cent
             x_base, y_base, target_w, target_h = GLYPH_LAYOUT[char]
 
             v_val = u_v if char.isupper() else l_v if char.islower() else n_v if char.isdigit() else s_v
-
-            if fit_to_slots:
-                font_path = let_f if char.isalpha() else sym_f
-                font = get_render_font(font_cache, font_path, max(128, f_size * 4))
-                mask = render_fitted_glyph(
-                    font, char, target_w, target_h, f_size, stroke_width, h_nudge, v_val,
-                )
-                glyph_layer = Image.new("RGBA", (target_w, target_h), (255, 255, 255, 0))
-                glyph_layer.putalpha(mask)
-                work_layer.paste(glyph_layer, (x_base, y_base))
-                if show_grid:
-                    draw.rectangle([x_base, y_base, x_base + target_w - 1, y_base + target_h - 1], outline=(0, 255, 255, 120))
-                continue
 
             if show_grid:
                 draw.rectangle([x_base, y_base, x_base + target_w, y_base + target_h], outline=(0, 255, 255, 120))
@@ -240,14 +216,8 @@ def generate_sheet_image(let_f, sym_f, u_v, l_v, n_v, s_v, h_nudge, f_size, cent
     return preview_bg, work_layer
 
 def save_as_dds_native(image, filename):
-    width, height = image.size
-    with open(filename, 'wb') as f:
-        f.write(b'DDS ')
-        f.write(struct.pack('<IIIIIII', 124, 0x1 + 0x2 + 0x4 + 0x8 + 0x1000, height, width, width * 4, 0, 0))
-        f.write(b'\x00' * 44) 
-        f.write(struct.pack('<IIIIIIII', 32, 0x41, 0, 32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000))
-        f.write(struct.pack('<IIIII', 0x1000, 0, 0, 0, 0))
-        f.write(image.tobytes())
+    """Uncompressed RGBA DDS with a full mip chain, like the stock font sheets."""
+    atlas.save_dds(image, filename, mipmaps=True)
 
 class BzoneApp:
     def __init__(self, root):
@@ -278,6 +248,7 @@ class BzoneApp:
         self.show_grid = tk.BooleanVar(value=False)
         self.fit_to_slots = tk.BooleanVar(value=False)
         self.stroke_width = tk.IntVar(value=0)
+        self.preview_ru = tk.BooleanVar(value=False)
         self.overlay_enabled = tk.BooleanVar(value=False)
         self.overlay_opacity = tk.IntVar(value=DEFAULT_OVERLAY_OPACITY)
         self.letter_font_var = tk.StringVar()
@@ -364,8 +335,11 @@ class BzoneApp:
         s_size.pack(fill="x")
         fit_check = ttk.Checkbutton(set_frame, text="Fit to Stock Slots (shared baseline)", variable=self.fit_to_slots, command=self.update_preview)
         fit_check.pack(anchor="w")
-        ToolTip(fit_check, "Size sets visible capital height in atlas pixels. Wide letters are condensed to their stock slots. Lowercase uses the font baseline; Force Center Lowercase only applies in manual mode. Reset nudges when switching modes.")
-        ttk.Label(set_frame, text="Fitted Stroke Weight (atlas pixels)").pack()
+        ToolTip(fit_check, "Size sets visible capital height in atlas pixels. Wide letters are condensed to their stock slots with their stems kept at the font's stroke weight. Covers the full Western (Windows-1252) and Russian (Windows-1251) tables; letters the font lacks, such as Cyrillic for Latin-only fonts, are built from its own glyphs. Force Center Lowercase only applies in manual mode. Reset nudges when switching modes.")
+        ru_check = ttk.Checkbutton(set_frame, text="Preview Russian sheet (bzfont_ru)", variable=self.preview_ru, command=self.update_preview)
+        ru_check.pack(anchor="w")
+        ToolTip(ru_check, "Fit mode only. Export always writes bzfont_ru.dds next to bzfont.dds; the game uses it when the language is Russian.")
+        ttk.Label(set_frame, text="Extra Stroke Weight (atlas pixels)").pack()
         tk.Scale(set_frame, from_=0, to=4, orient="horizontal", variable=self.stroke_width,
                  bg=self.colors["bg"], fg=self.colors["fg"], highlightthickness=0,
                  command=lambda x: self.update_preview()).pack(fill="x")
@@ -603,7 +577,8 @@ class BzoneApp:
                                                           self.n_v.get(), self.s_v.get(), self.h_n.get(),
                                                           self.f_size.get(),
                                                           self.center_lower.get(), self.show_grid.get(), self.font_cache,
-                                                          self.fit_to_slots.get(), self.stroke_width.get())
+                                                          self.fit_to_slots.get(), self.stroke_width.get(),
+                                                          "cp1251" if self.preview_ru.get() else "cp1252")
         if self.overlay_enabled.get():
             overlay_preview = self.build_overlay_preview(generated_layer)
             if overlay_preview is not None:
@@ -618,20 +593,34 @@ class BzoneApp:
     def export_dds(self):
         let_font = self.get_effective_font_path(self.let_f, "Letter")
         sym_font = self.get_effective_font_path(self.sym_f, "Symbol")
-        _, export_img = generate_sheet_image(let_font, sym_font, self.u_v.get(), self.l_v.get(),
-                                             self.n_v.get(), self.s_v.get(), self.h_n.get(),
-                                             self.f_size.get(),
-                                             self.center_lower.get(), False, self.font_cache,
-                                             self.fit_to_slots.get(), self.stroke_width.get())
         f_path = filedialog.asksaveasfilename(defaultextension=".dds", initialfile="bzfont.dds", filetypes=[("DDS", "*.dds")])
-        if f_path:
-            try:
+        if not f_path:
+            return
+        try:
+            if self.fit_to_slots.get():
+                written = []
+                for codepage, name in atlas.CODEPAGES.items():
+                    path = f_path if codepage == "cp1252" else os.path.join(os.path.dirname(f_path), name + ".dds")
+                    result = generate_fitted_sheet(let_font, sym_font, self.u_v.get(), self.l_v.get(), self.n_v.get(),
+                                                   self.s_v.get(), self.h_n.get(), self.f_size.get(),
+                                                   self.stroke_width.get(), codepage, False, self.font_cache)
+                    save_as_dds_native(result.image, path)
+                    written.append(os.path.basename(path))
+                    if result.constructed:
+                        self.log(f"{name}: built {len(result.constructed)} glyphs the font lacks")
+                    if result.missing:
+                        self.log(f"{name}: no glyph for {''.join(result.missing)}")
+                self.log(f"Exported DDS: {', '.join(written)}")
+            else:
+                _, export_img = generate_sheet_image(let_font, sym_font, self.u_v.get(), self.l_v.get(),
+                                                     self.n_v.get(), self.s_v.get(), self.h_n.get(),
+                                                     self.f_size.get(), self.center_lower.get(), False, self.font_cache)
                 save_as_dds_native(export_img, f_path)
                 self.log(f"Exported DDS: {os.path.basename(f_path)}")
-                messagebox.showinfo("Success", "DDS exported successfully!")
-            except Exception as e:
-                self.log(f"Export Error: {e}")
-                messagebox.showerror("Export Error", f"Failed: {e}")
+            messagebox.showinfo("Success", "DDS exported successfully!")
+        except Exception as e:
+            self.log(f"Export Error: {e}")
+            messagebox.showerror("Export Error", f"Failed: {e}")
 
     def set_let(self):
         f = filedialog.askopenfilename(filetypes=[("Fonts", "*.ttf *.otf")])
