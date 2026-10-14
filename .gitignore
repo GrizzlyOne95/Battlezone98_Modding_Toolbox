@@ -9,3 +9,6 @@ dist/
 # per-user runtime state written by legacy modules when run from source
 bztoolbox/modules/**/*_config.json
 bztoolbox/modules/**/ogre_preview.log
+
+# Personal documents do not belong in this repository
+/Ian_Stuart_Resume_*.docx
