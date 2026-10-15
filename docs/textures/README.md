@@ -8,14 +8,66 @@ A comprehensive utility suite designed for **Battlezone 98 Redux** modders. This
 The ACT Editor is purpose-built for the Battlezone `.ACT` format (256-color indexed palette). Unlike generic editors, this includes a **Quick Jump** system for critical engine-reserved indices.
 
 * **Reserved Index Awareness**: Instant access and labeling for key indices:
-    * **Index 223**: Skybox color and Sniperscope lens tint.
-    * **Index 209**: Global Fog color (horizon transition).
-    * **Indices 0-95 / 224-255**: Primary and Secondary Object ranges. These seem to be ignored by Redux.
-    * **Indices 96-222**: Planet-specific terrain smoothing range. These seem to be ignored by Redux.
+    * **Index 223**: Default sky clear color when `FogDirection` is nonzero.
+    * **Fog via LUM**: Jumps to the actual fog entry selected by the LUM editor.
+      Redux uses `ACT[LUM[223]]`, not a fixed index 209. Without LUM it uses 223.
+      With `FogDirection=0`, both defaults use ACT index 0.
+      Explicit TRN `[Color] SkyColor` and `FogColor` RGB values override these defaults.
+    * **Indices 0-95 / 224-255**: Legacy object ranges; they do not recolor Redux DDS objects.
+    * **Indices 96-222**: Legacy world colors; they do not recolor Redux DDS terrain.
+      Any palette entry can still be selected by a LUM fog mapping or numeric legacy color reference.
 * **Visual Feedback**: Selected colors are highlighted in a 16x16 grid with real-time RGB and Hex editing.
 * **Sync Logic**: Changes to the palette automatically update the preview in the MAP Converter tab.
 
 <img width="1152" height="932" alt="image" src="https://github.com/user-attachments/assets/f5c0f11f-5506-4652-b143-fe2e90e712c9" />
+
+### LUM Table & Atmosphere
+
+Create a neutral LUM, open and edit any existing 65,536-byte table, or load an
+ACT/LUM pair for any of the nine stock worlds from your game's `bzone.zfs`.
+Click the preview or enter row/column coordinates to edit any output index.
+**Jump to Redux Fog** selects row 0, column 223 (byte offset 223). Editing that
+cell changes which ACT color is used for fog; **Edit Effective Fog Color in ACT**
+changes the selected RGB value in the shared ACT workspace. The preview shows
+the palette defaults; it does not read a mission's TRN overrides or render its sky textures.
+
+PNG export preserves the raw indices as a 256 x 256 indexed image. Reimport it
+in indexed (P) or 8-bit grayscale (L) mode for a byte-exact round trip; RGB PNGs
+are rejected because different indices can have the same RGB color. A new
+identity table is an authoring starting point, not a generated 1.5 lighting curve.
+Use a stock table as the starting point when retaining legacy lighting matters.
+ALB and TBL are legacy software blending tables, with no confirmed Redux reader.
+
+The ACT editor can create blank palettes or start from any of the 33 bundled
+stock palettes. ACT load/save retains an optional four-byte Adobe footer.
+Changing ACT does not recolor Redux DDS terrain: tune the atlas/material and
+TRN sunlight separately.
+
+```console
+bztoolbox textures lum new custom.lum --fog-index 209
+bztoolbox textures lum info custom.lum --act custom.act
+bztoolbox textures lum set custom.lum tuned.lum 0 223 210
+bztoolbox textures lum to-png tuned.lum table.png --act custom.act
+bztoolbox textures lum from-png table.png restored.lum
+bztoolbox textures act tune titan titan.act
+bztoolbox textures act tune-all path/to/ACT --keep-existing
+```
+
+**Apply Tuned Atmosphere to ACT** applies the selected world's conservative
+atmosphere preset to the current palette, preserving other entries and the ACT
+footer. Load its ACT/LUM pair first. The presets are editable art direction, not
+scientifically calibrated RGB values: near-black space backgrounds, amber Venus,
+orange-brown Titan, muted teal Achilles and violet-gray Elysium. CLI `tune` accepts
+`--base existing.act` and `--fog-index N` for custom mappings. `tune-all` uses each
+world's stock mapping; `--keep-existing` preserves established palettes such as
+CR's Moon and Mars versions byte for byte. These commands write files only; they
+do not modify missions or change active rendering settings.
+
+Loader evidence: GOG Redux 2.2.301 executable SHA-256
+`8d71f56c1314e69a8ad38f4eeaf20a8ff825965a84cf196e5f77ea4cc3377413`,
+terrain environment loader at VA `0x00780160`. Palette sky comes from byte
+offset `0x29d` (223 x 3); LUM byte `0xdf` (223) selects the fog palette index.
+This is a static loader finding, not an in-game visual comparison.
 
 ### Texture Manager (DDS/TGA/PNG)
 An advanced processor for standard game textures, optimized for VRAM management and engine compatibility.

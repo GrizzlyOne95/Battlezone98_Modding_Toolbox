@@ -26,6 +26,8 @@ def _dnd_ready(widget):
 
 from battlezone.terrain import lgt as lgt_codec
 from battlezone.terrain.trn import TRNDocument
+from battlezone.terrain.lum import validate_act
+from battlezone.terrain.palettes import STOCK_ACT_NAMES, get_stock_act_bytes
 from battlezone.images import softpic
 from bztoolbox.modules.textures import bcpack
 from bztoolbox.modules.textures import uiscan
@@ -266,6 +268,7 @@ class BZReduxSuite:
         self.config = self.load_config()
         # Load the Moon Palette as default
         self.palette = [list(c) for c in BUILTIN_MOON_PALETTE]
+        self._act_footer = b""
         self.selected_index = None
         
         self.notebook = ttk.Notebook(self.root)
@@ -303,6 +306,9 @@ class BZReduxSuite:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.setup_act_tab()
+        from bztoolbox.modules.textures.lum_editor import LumaEditor
+        self.lum_editor = LumaEditor(self.notebook, self)
+        self.notebook.insert(1, self.lum_editor, text="LUM Table & Atmosphere")
         self.setup_texture_tab()
         self.setup_map_tab()
         self.setup_lgt_tab()
@@ -399,6 +405,14 @@ class BZReduxSuite:
 # --- ACT PALETTE EDITOR ---
     def setup_act_tab(self):
         ttk.Label(self.tab_act, text="Battlezone 98 Palette Editor (.ACT)", font=(self.custom_font_name, 16, "bold"), foreground=BZ_GREEN).pack(pady=10)
+        new_row = ttk.Frame(self.tab_act)
+        new_row.pack(fill="x", padx=20)
+        ttk.Label(new_row, text="New palette:").pack(side="left")
+        self.act_stock_var = tk.StringVar(value="moon.act")
+        ttk.Combobox(new_row, textvariable=self.act_stock_var, values=("Blank",) + STOCK_ACT_NAMES,
+                     state="readonly", width=22).pack(side="left", padx=6)
+        ttk.Button(new_row, text="Create from Selection", command=self.new_act).pack(side="left")
+        ttk.Label(new_row, text="Fog index is selected by LUM; TRN color overrides take precedence.").pack(side="left", padx=12)
 
         # Three top-aligned columns: the palette scales with the window, the
         # quick jumps and editor keep their width, spare width stays on the right.
@@ -417,9 +431,9 @@ class BZReduxSuite:
         jump_f = ttk.Frame(main_f)
         jump_f.grid(row=0, column=1, sticky="n", padx=10)
         ttk.Label(jump_f, text="Quick Jump", font=(self.custom_font_name, 12, "bold")).pack(pady=(0, 10))
-        tk.Button(jump_f, text="Index 209\n(Fog)", bg="#5d6d7e", fg="white", width=12, height=3,
-                  command=lambda: self.jump_to_index(209)).pack(pady=5, padx=10)
-        tk.Button(jump_f, text="Index 223\n(Sky/Scope)", bg="#d4ac0d", fg="black", width=12, height=3,
+        tk.Button(jump_f, text="Fog via LUM", bg="#5d6d7e", fg="white", width=12, height=3,
+                  command=self.jump_to_fog).pack(pady=5, padx=10)
+        tk.Button(jump_f, text="Index 223\n(Default Sky)", bg="#d4ac0d", fg="black", width=12, height=3,
                   command=lambda: self.jump_to_index(223)).pack(pady=5, padx=10)
         ttk.Label(jump_f, text="Ranges:", font=(self.custom_font_name, 10, "italic")).pack(pady=(20, 0))
         ttk.Button(jump_f, text="Terrain (96)", width=15, command=lambda: self.jump_to_index(96)).pack(pady=2)
@@ -464,19 +478,19 @@ class BZReduxSuite:
         
         # Map BZ ranges and specific indices
         if idx == 209:
-            info = "INDEX 209: GLOBAL FOG COLOR\n(Horizon transition color)"
+            info = "INDEX 209: Common stock fog entry\nEffective fog index comes from LUM[223]."
             hint = "#95a5a6"
         elif idx == 223:
-            info = "INDEX 223: SKY & SNIPERSCOPE\n(Clear-color and lens tint)"
+            info = "INDEX 223: Default sky\nAlso fog when LUM[223] = 223. TRN overrides take precedence."
             hint = "#f1c40f"
         elif 0 <= idx <= 95:
-            info = f"INDEX {idx}: Objects (Primary)\n(Unit and building textures)"
+            info = f"INDEX {idx}: Legacy Objects (Primary)\nDoes not recolor Redux DDS textures."
             hint = "#3498db"
         elif 96 <= idx <= 222:
-            info = f"INDEX {idx}: Planet-Specific\n(Terrain and rock smoothing)"
+            info = f"INDEX {idx}: Legacy World Colors\nCan also be selected by a LUM fog mapping."
             hint = "#2ecc71"
         elif 224 <= idx <= 255:
-            info = f"INDEX {idx}: Objects (Secondary)\n(Extended object range)"
+            info = f"INDEX {idx}: Legacy Objects (Secondary)\nDoes not recolor Redux DDS textures."
             hint = "#e67e22"
         else:
             info = f"INDEX {idx}: Standard"
@@ -502,6 +516,7 @@ class BZReduxSuite:
         self.pal_grid.set_color(self.selected_index, hex_code)
         self.hex_var.set(hex_code)
         if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
+        if hasattr(self, 'lum_editor'): self.lum_editor.refresh()
 
     def apply_hex(self):
         if self.selected_index is None: return
@@ -517,11 +532,27 @@ class BZReduxSuite:
         if not path: return
         try:
             with open(path, 'rb') as f:
-                raw = f.read(768)
-                self.palette = [list(struct.unpack('<3B', raw[i:i+3])) for i in range(0, 768, 3)]
-            self.pal_grid.set_palette(self.palette)
-            if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
-        except Exception as e: print(f"Load Error: {e}")
+                self.set_workspace_palette(f.read())
+        except (OSError, ValueError) as e:
+            messagebox.showerror("ACT Palette", str(e), parent=self.root)
+
+    def set_workspace_palette(self, raw):
+        raw = validate_act(raw)
+        self.palette = [list(raw[i:i+3]) for i in range(0, 768, 3)]
+        self._act_footer = raw[768:]
+        self.pal_grid.set_palette(self.palette)
+        if self.selected_index is not None:
+            self.select_palette_color(self.selected_index)
+        if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
+        if hasattr(self, 'lum_editor'): self.lum_editor.refresh()
+
+    def new_act(self):
+        name = self.act_stock_var.get()
+        self.set_workspace_palette(bytes(768) if name == "Blank" else get_stock_act_bytes(name))
+
+    def jump_to_fog(self):
+        if hasattr(self, 'lum_editor'):
+            self.lum_editor.edit_fog()
 
     def save_act(self):
         path = filedialog.asksaveasfilename(defaultextension=".act", filetypes=[("ACT Palette", "*.act")])
@@ -530,7 +561,9 @@ class BZReduxSuite:
             with open(path, 'wb') as f:
                 for color in self.palette:
                     f.write(struct.pack('<3B', *color))
-        except Exception as e: print(f"Save Error: {e}")
+                f.write(self._act_footer)
+        except (OSError, ValueError) as e:
+            messagebox.showerror("ACT Palette", str(e), parent=self.root)
 
     def import_palette_from_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.png;*.bmp;*.gif;*.tif")])
@@ -550,9 +583,7 @@ class BZReduxSuite:
             # Pad if necessary
             while len(pal_data) < 256: pal_data.append([0,0,0])
             
-            self.palette = pal_data[:256]
-            self.pal_grid.set_palette(self.palette)
-            if hasattr(self, 'update_pal_preview'): self.update_pal_preview()
+            self.set_workspace_palette(bytes(c for rgb in pal_data[:256] for c in rgb))
             messagebox.showinfo("Success", "Palette imported from image.")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to import palette: {e}")
