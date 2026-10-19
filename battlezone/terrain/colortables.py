@@ -3,8 +3,9 @@
 Every stock world palette (achilles ... venus) shares entries 0-95 and 224-255
 (interface, object and effect colours); only 96-223 are the world's own. Stock
 terrain tiles only ever use 0-223. A world palette that keeps the shared entries
-is therefore safe to drop into 1.5; one that does not (Redux never reads an ACT,
-so Redux-era ACTs are often placeholders) recolours everything else in the game.
+is therefore safe to drop into 1.5; one that does not recolours everything else
+in that game. Redux reads ACT for environment defaults and some indexed legacy
+colors, but DDS terrain is not recolored through the palette.
 
 The three 64 KB colour tables beside each stock palette are palette-specific
 256x256 lookups: ``.LUM`` (light level x colour), ``.TBL`` (colour x colour

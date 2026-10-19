@@ -51,7 +51,8 @@ tiles only use 0–223, and the port quantises to the same range.
 - `auto` (default):
   - A stock palette named by the TRN (e.g. `MARS.ACT`) is used as is.
   - An ACT in the folder that keeps the shared entries and has at least 32 world colours is used and copied.
-  - Otherwise a new palette is built. Redux never reads the ACT, so Redux-era ACTs are often placeholders.
+  - Otherwise a new palette is built. Redux reads ACT for atmosphere defaults and some indexed legacy colors,
+    but does not apply it to DDS terrain; Redux-era ACTs can therefore lack a usable terrain color ramp.
     `polrmars.act` has 4 distinct colours.
 - `rebuild`: the base world's shared entries plus 128 colours fitted to the atlas tiles and sky. Median cut seeds the
   colours, then k-means refines them while 0–95 stay fixed.
