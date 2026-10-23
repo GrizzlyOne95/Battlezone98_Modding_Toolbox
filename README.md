@@ -27,7 +27,7 @@ The toolbox is organized around the way a mod is actually built rather than arou
 
 ## Page gallery
 
-For step-by-step map construction, see the [wiki mapping guides](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/wiki): creating world files, symmetric terrain, measured PNG/OBJ edits, and map checks. The guides use the current UI and include tested settings and known limitations.
+For step-by-step instructions, see the [wiki guides](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/wiki): opening and testing a mod, fixing missing assets, textures, stock-file extraction, ODF edits, radio audio, Workshop publishing, and measured or symmetric map construction. The guides use the current UI and include tested settings and known limitations.
 
 These screenshots come from the running Toolbox with a temporary example mod.
 Select a thumbnail to view it at full size. Regenerate them on Windows with

@@ -1,6 +1,18 @@
 # Battlezone 98 Modding Toolbox guides
 
-These guides use the Toolbox **v0.1.29** UI, checked on **23 October 2026**.
+These guides use the Toolbox UI checked on **23 October 2026**: **v0.1.30** for the starter guides and **v0.1.29** for the mapping guides. The application code is the same in those two releases.
+
+## Start here
+
+Each guide completes one small task. Use a working copy of your mod.
+
+1. [Open a mod and test it](Open-and-test-a-mod): project folder, validation, deployment and logs.
+2. [Find and fix a missing asset](Fix-a-missing-asset): follow a reference and check the correction.
+3. [Replace one texture](Replace-a-texture): convert to DDS, package it and test it.
+4. [Extract a stock asset](Extract-a-stock-asset): find and extract one file from a ZFS archive.
+5. [Make a tougher tank](Change-a-unit): edit a complete stock ODF and inspect its health value.
+6. [Prepare a radio voice line](Prepare-a-radio-line): process a WAV, export timings and reference it from a unit.
+7. [Publish a Workshop item](Publish-a-Workshop-item): private first upload and updates to the same item.
 
 ## Making a measured or symmetric map
 
@@ -17,7 +29,7 @@ Start here:
 
 Download it from [GitHub Releases](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/releases/latest). For installation and running from source, see the [repository README](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox#readme).
 
-In the application, expand **World & Terrain** in the left sidebar. If the sidebar is hidden, click **☰**.
+In the application, use the left sidebar to open the pages named in each guide. If the sidebar is hidden, click **☰**.
 
 | Page | Use it for |
 | --- | --- |
