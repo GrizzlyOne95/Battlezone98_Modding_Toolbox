@@ -1,0 +1,1 @@
+Checked against [Toolbox v0.1.29](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/releases/tag/v0.1.29) on 23 October 2026. [Sources and validation notes](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/blob/main/docs/wiki/VALIDATION.md).
