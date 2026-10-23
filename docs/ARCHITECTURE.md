@@ -90,6 +90,10 @@ A page whose package is missing from a build is hidden.
   re-export these names.
 * `archives/` - ZFS archives (read, extract, verify, write; encrypted and
   legacy LZO205 archives) on a pure-Python LZO1X/LZO1Y codec.
+* `terrain/hd_tiles.py` - GUI-free independent tile discovery, portable authoring
+  bundles and OpenShim v2 manifest validation. The native `world.hd_tiles` page
+  and `terrain hd-tiles` CLI share this builder. `images/bc1.py` and `images/dds.py`
+  own the shared DDS codecs; the older Texture Manager modules re-export them.
 * `meshes/ogre.py` - Ogre binary `.mesh` reader (serializer v1.0-v1.100, both
   byte orders) that writes OgreXMLConverter's XML layout and patches normals
   back into the binary.

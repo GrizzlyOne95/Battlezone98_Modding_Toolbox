@@ -5,6 +5,13 @@
 # Battlezone World Builder
 A powerful world building tool that auto creates custom atlases, material files, TRN entries, cubemaps, HG2/HGT conversion, and more.
 
+## OpenShim HD Terrain Tiles
+
+The unified Toolbox's **World & Terrain → HD Terrain Tiles** page and
+`bztoolbox terrain hd-tiles` CLI build portable independent tile bundles with
+diffuse, normal, specular and emissive channels. Keep the ordinary atlas for
+fallback when DX11 Enhanced is off. See [HD terrain authoring](HD_TERRAIN_TILES.md).
+
 ## BZ2/BZCC Terrain Port (in progress)
 
 The dedicated **BZ2/BZCC → Redux Terrain** tab can inspect TERR v3–v5 files. Its

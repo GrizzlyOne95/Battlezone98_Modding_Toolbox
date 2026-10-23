@@ -25,6 +25,13 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **Archives** | Browse, search, extract, verify, and build ZFS archives (including supported legacy and encrypted formats) and Battlezone II / BZ2R PAK texture packs. |
 | **Workshop Publishing** | Check a mod before release, review changed files, fix common problems, and upload through your Steam client (or SteamCMD). |
 
+**HD terrain authoring:** **World & Terrain → HD Terrain Tiles** builds portable
+OpenShim diffuse/normal/specular/emissive tile bundles from independent source
+images or the ready CR source export. Includes editable masters, runtime
+manifests, full mip chains and validation. The normal atlas remains the fallback
+when DX11 Enhanced or HD tiles are off. See the
+[authoring guide](docs/world/HD_TERRAIN_TILES.md) or run `bztoolbox terrain hd-tiles --help`.
+
 ## Page gallery
 
 For step-by-step instructions, see the [wiki guides](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/wiki): opening and testing a mod, fixing missing assets, textures, stock-file extraction, ODF edits, radio audio, Workshop publishing, and measured or symmetric map construction. The guides use the current UI and include tested settings and known limitations.
