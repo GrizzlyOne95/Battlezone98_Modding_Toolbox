@@ -78,6 +78,8 @@ DELEGATES: Sequence[Delegate] = (
              "Convert a Battlezone 1 BZN between 1.5 (1045) and Redux (2016), reporting every change.", True),
     Delegate("bzn", "replace-class", "battlezone.bzn.class_replace:main",
              "Preview or apply class-aware object record replacement in a Redux mission.", True),
+    Delegate("terrain", "hd-tiles", "bztoolbox.modules.world.hd_tiles:main",
+             "Build and validate portable OpenShim HD terrain authoring bundles.", True),
     Delegate("terrain", "heightmap", "bztoolbox.modules.terrain_generator.heightmap_convert:main",
              "Convert legacy .HGT terrain to Redux .HG2 and back.", True),
     Delegate("terrain", "relight", "bztoolbox.modules.terrain_generator.relight:main",
