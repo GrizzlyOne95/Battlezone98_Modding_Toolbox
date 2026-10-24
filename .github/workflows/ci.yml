@@ -129,7 +129,9 @@ jobs:
         timeout-minutes: 15
         env:
           PYTHONUNBUFFERED: '1'
-        run: python -X faulthandler -m pytest -vv --timeout=90 --timeout-method=thread
+        # Tk is process-global on macOS. The HD integration test runs above in
+        # its own pytest process so preceding GUI tests cannot contaminate it.
+        run: python -X faulthandler -m pytest -vv --timeout=90 --timeout-method=thread --ignore=tests/app/test_hd_terrain_page.py
       - name: CLI smoke test
         run: python -m bztoolbox help
 
