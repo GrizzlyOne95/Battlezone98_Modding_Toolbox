@@ -2215,6 +2215,13 @@ class BZ98TRNArchitect:
         opaque = opaque & (eroded | (self._neighbour_count(eroded) >= 5))
         return opaque
 
+    @staticmethod
+    def _magenta_key(rgb):
+        """Pixels showing the BZ colour key (255,0,255), with a little slack
+        for 16-bit plates whose channels do not widen back to exactly 255/0."""
+        rgb = rgb.astype(np.int16)
+        return (rgb[..., 0] > 230) & (rgb[..., 1] < 30) & (rgb[..., 2] > 230)
+
     def _bleed_rgb(self, rgb, opaque, rounds=6):
         """Push opaque colour out into the keyed region so that bilinear
         filtering and mip generation cannot drag the key colour back in as a
@@ -2349,7 +2356,14 @@ class BZ98TRNArchitect:
             png_name = png_stem + ".png"
 
             rgb = np.asarray(img.convert("RGB"))
+            # BZ palettes end in the 255,0,255 colour key, which the 1.5
+            # renderer never drew. Left opaque it paints clouds and star
+            # fields neon pink, so it is a hole wherever it lands, not only
+            # in the border-connected index-0 background.
+            magenta = self._magenta_key(rgb)
             if kind == 'sky':
+                if magenta.any():
+                    rgb = np.where(magenta[..., None], self._bleed_rgb(rgb, ~magenta, rounds=64), rgb)
                 Image.fromarray(rgb, "RGB").save(os.path.join(out, png_name))
             else:
                 with open(path, 'rb') as f:
@@ -2367,7 +2381,7 @@ class BZ98TRNArchitect:
                     flat = np.asarray(img.convert('RGB')).reshape(-1, 3)
                     idx = np.where(flat.sum(axis=1) == 0, 0, 1).astype(np.uint8)
                     idx = idx.reshape(np.asarray(img).shape[:2])
-                opaque = self._key_background(idx)
+                opaque = self._key_background(idx) & ~magenta
                 bled = self._bleed_rgb(rgb, opaque)
                 alpha = np.where(opaque, 255, 0).astype(np.uint8)
                 Image.fromarray(np.dstack([bled, alpha]), "RGBA").save(
