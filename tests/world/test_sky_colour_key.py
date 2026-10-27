@@ -25,7 +25,9 @@ class SkyColourKeyTests(unittest.TestCase):
     def convert(self, trn, maps):
         app = BZ98TRNArchitect.__new__(BZ98TRNArchitect)
         app.log = Mock()
-        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = Path(tmp.name)
         src, out = folder / 'src', folder / 'out'
         src.mkdir(), out.mkdir()
         (src / 'test.trn').write_text(trn)
