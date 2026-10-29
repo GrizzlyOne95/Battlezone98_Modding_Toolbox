@@ -43,6 +43,8 @@ def cli() -> int:
     parser.add_argument("--feature-density", type=float, default=0.5)
     parser.add_argument("--symmetry", choices=["None", "Mirror X", "Mirror Z", "2-way rotational", "4-way"], default="None")
     parser.add_argument("--pads", type=int, default=0)
+    parser.add_argument("--plateaus", type=int, default=2, help="plateau count for the Simple Arena layout")
+    parser.add_argument("--plateau-height", type=float, default=300.0, help="starter-layout plateau rise in HG2 units (0.1 m)")
     parser.add_argument("--output", type=Path, help="output .hg2 path")
     parser.add_argument("--png", type=Path, help="optional lossless 16-bit PNG output")
     parser.add_argument("--preview", type=Path, help="optional hillshade JPEG/PNG preview")
@@ -84,6 +86,7 @@ def cli() -> int:
         naturalization=args.naturalization, detail=args.detail,
         plateau_bias=args.plateau_bias, feature_density=args.feature_density,
         symmetry=args.symmetry, synthetic_pads=args.pads,
+        plateaus=args.plateaus, plateau_height=args.plateau_height,
     )
     terrain = generate(args.style, settings)
     if args.output:

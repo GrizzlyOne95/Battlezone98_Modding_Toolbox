@@ -13,6 +13,7 @@
 **Mapping guides**
 
 - [Create a world](Create-a-world)
+- [Make a simple arena](Simple-arena)
 - [Symmetric terrain](Symmetric-terrain)
 - [Measured terrain](Measured-terrain)
 - [Check your map](Check-your-map)

@@ -3,9 +3,12 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 from PIL import Image, ImageTk
+
+from bztoolbox.app.widgets import register_wheel_target
 
 from .analysis import terrain_metrics
 from .gui_logic import (
@@ -15,11 +18,13 @@ from .gui_logic import (
     apply_cached_contrast,
     raw_generation_settings,
 )
+from .height_import import load_height_file
 from .hg2 import HG2Map
 from .lgt import compute_lgt_lightmap, write_lgt
 from .preview import make_hg2_height_image, make_lgt_preview_image, make_shaded_preview_fullres
 from . import RECIPES, generate
 from .settings import GeneratorSettings, random_seed
+from .starter_layouts import LAYOUT_CONTROLS
 
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.HeightmapGen"
 
@@ -106,16 +111,30 @@ def run_gui(root=None) -> None:
 
     main = ttk.Frame(root, padding=8)
     main.pack(fill="both", expand=True)
-    left = ttk.Frame(main, width=360)
-    left.pack(side="left", fill="y", padx=(0, 8))
-    left.pack_propagate(False)
+    # The left controls scroll: the open Advanced panel is taller than most windows.
+    left_box = ttk.Frame(main, width=376)
+    left_box.pack(side="left", fill="y", padx=(0, 8))
+    left_box.pack_propagate(False)
+    left_canvas = tk.Canvas(left_box, bg="#0a0a0a", highlightthickness=0, borderwidth=0)
+    scrollbar_style = "Toolbox.Vertical.TScrollbar" if style.lookup("Toolbox.Vertical.TScrollbar", "background") else "Vertical.TScrollbar"
+    left_scroll = ttk.Scrollbar(left_box, orient="vertical", command=left_canvas.yview, style=scrollbar_style)
+    left = ttk.Frame(left_canvas)
+    left_window = left_canvas.create_window((0, 0), window=left, anchor="nw")
+    left_canvas.configure(yscrollcommand=left_scroll.set)
+    left_scroll.pack(side="right", fill="y")
+    left_canvas.pack(side="left", fill="both", expand=True)
+    left.bind("<Configure>", lambda _e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+    left_canvas.bind("<Configure>", lambda e: left_canvas.itemconfigure(left_window, width=e.width))
+    register_wheel_target(left_canvas, lambda units: left_canvas.yview_scroll(units, "units"))
     right = ttk.Frame(main)
     right.pack(side="right", fill="both", expand=True)
 
     vars_ = {
-        "style": tk.StringVar(value="Terraced Labyrinth"),
+        "style": tk.StringVar(value="Simple Arena"),
         "zones_x": tk.IntVar(value=3),
         "zones_z": tk.IntVar(value=3),
+        "plateaus": tk.IntVar(value=2),
+        "plateau_height_m": tk.DoubleVar(value=30.0),
         "seed": tk.IntVar(value=random_seed()),
         "fresh_seed": tk.BooleanVar(value=True),
         "relief": tk.DoubleVar(value=1.0),
@@ -130,6 +149,8 @@ def run_gui(root=None) -> None:
 
     # Caching: raw_heights before vertical contrast, and full-res preview images.
     current: dict[str, Optional[object]] = {"map": None, "raw": None, "raw_key": None}
+    # A heightmap opened from disk shows up as its own entry in the style list.
+    imported: dict[str, Optional[object]] = {"map": None, "name": None}
     # Full-res PIL images before thumbnailing (for resize without recompute)
     preview_full = {"hg2": None, "lgt": None, "shaded": None}
     preview_ref = {"hg2": None, "lgt": None, "shaded": None}
@@ -140,16 +161,27 @@ def run_gui(root=None) -> None:
 
     # --- Left panel: Header ---
     ttk.Label(left, text="HEIGHTMAP GENERATOR", font=("Consolas", 13, "bold")).pack(anchor="w", pady=(0, 4))
-    ttk.Label(left, text="Live HG2 Height / LGT Lighting / Shaded previews.", wraplength=345).pack(anchor="w", pady=(0, 6))
-    ttk.Label(left, text="Hand-authored terrain grammar with direct HG2 export.", wraplength=345, font=("Consolas", 8), foreground="#888888").pack(anchor="w", pady=(0, 8))
+    ttk.Label(
+        left,
+        text="New map: pick a layout, set the size, press Generate, then Export HG2. "
+        "Already have a heightmap? Open it here to preview, adjust and re-export it.",
+        wraplength=345,
+    ).pack(anchor="w", pady=(0, 8))
 
     # --- Basic controls (prominent) ---
     basic = ttk.LabelFrame(left, text=" Basic ", padding=8)
     basic.pack(fill="x", pady=(0, 6))
 
-    ttk.Label(basic, text="Terrain Style").pack(anchor="w")
+    ttk.Label(basic, text="Layout / Style").pack(anchor="w")
     cb_style = ttk.Combobox(basic, textvariable=vars_["style"], values=list(RECIPES), state="readonly")
-    cb_style.pack(fill="x", pady=(2, 6))
+    cb_style.pack(fill="x", pady=(2, 0))
+    ttk.Label(
+        basic,
+        text="Flat Field, Simple Arena and Two Bases are simple starting shapes. The rest are random styles.",
+        wraplength=335,
+        font=("Consolas", 7),
+        foreground="#aaaaaa",
+    ).pack(anchor="w", pady=(0, 6))
 
     dims = ttk.Frame(basic)
     dims.pack(fill="x", pady=2)
@@ -159,19 +191,53 @@ def run_gui(root=None) -> None:
     ttk.Label(dims, text="Zones Z").pack(side="left")
     sp_z = ttk.Spinbox(dims, textvariable=vars_["zones_z"], from_=1, to=8, width=5)
     sp_z.pack(side="left", padx=5)
+    ttk.Label(basic, text="One zone is 1280 m square.", font=("Consolas", 7), foreground="#aaaaaa").pack(anchor="w")
 
-    seed_row = ttk.Frame(basic)
-    seed_row.pack(fill="x", pady=(6, 4))
-    ttk.Label(seed_row, text="Seed").pack(side="left")
-    ent_seed = ttk.Entry(seed_row, textvariable=vars_["seed"], width=12)
-    ent_seed.pack(side="left", padx=6)
-    # Seed display remains visible at all times via vars_["seed"]
-    def randomize_seed() -> None:
-        vars_["seed"].set(random_seed())
+    # Starter-layout controls; only the ones the chosen layout uses are shown.
+    starter = ttk.Frame(basic)
+    starter.pack(fill="x")
+    starter_rows: dict[str, ttk.Frame] = {}
 
-    ttk.Button(seed_row, text="Randomize", command=randomize_seed).pack(side="right")
+    row = ttk.Frame(starter)
+    ttk.Label(row, text="Plateaus").pack(side="left")
+    ttk.Spinbox(row, textvariable=vars_["plateaus"], from_=0, to=6, width=5).pack(side="right")
+    starter_rows["plateaus"] = row
 
-    ttk.Checkbutton(basic, text="Fresh random seed each Generate", variable=vars_["fresh_seed"]).pack(anchor="w", pady=(2, 4))
+    row = ttk.Frame(starter)
+    ttk.Label(row, text="Plateau height (m)").pack(anchor="w")
+    tk.Scale(
+        row,
+        variable=vars_["plateau_height_m"],
+        from_=5,
+        to=100,
+        resolution=5,
+        orient="horizontal",
+        showvalue=True,
+        bg="#0a0a0a",
+        fg="#d4d4d4",
+        highlightthickness=0,
+        troughcolor="#222222",
+        command=lambda _v: schedule_generate(preserve_seed=True),
+    ).pack(fill="x")
+    starter_rows["plateau_height"] = row
+    vars_["plateaus"].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
+
+    ttk.Label(basic, text="Symmetry").pack(anchor="w", pady=(6, 0))
+    cb_sym = ttk.Combobox(
+        basic,
+        textvariable=vars_["symmetry"],
+        values=["None", "Mirror X", "Mirror Z", "2-way rotational", "4-way"],
+        state="readonly",
+    )
+    cb_sym.pack(fill="x", pady=(2, 0))
+    cb_sym.bind("<<ComboboxSelected>>", lambda _e: schedule_generate(preserve_seed=True))
+    ttk.Label(
+        basic,
+        text="For a fair two-team map. Mirror X: left and right halves match. Mirror Z: top and bottom halves match.",
+        wraplength=335,
+        font=("Consolas", 7),
+        foreground="#aaaaaa",
+    ).pack(anchor="w")
 
     # Terrain Contrast / Vertical Relief — prominent with help
     ttk.Label(basic, text="Terrain Contrast / Vertical Relief", font=("Consolas", 9, "bold")).pack(anchor="w", pady=(6, 0))
@@ -198,21 +264,42 @@ def run_gui(root=None) -> None:
     )
     scale_contrast.pack(fill="x")
 
+    # --- Generation / Export ---
+    btns = ttk.Frame(left)
+    btns.pack(fill="x", pady=(4, 0))
+    # info line for seed visibility
+    seed_info = ttk.Label(left, text="", font=("Consolas", 8), foreground="#9cdcfe")
+    seed_info.pack(anchor="w", pady=(6, 0))
+
     # --- Advanced (collapsible via button) ---
     adv_visible = {"on": False}
+    btn_adv = ttk.Button(left, text="Advanced ▸")
     adv_frame = ttk.Frame(left)
 
     def toggle_advanced() -> None:
         adv_visible["on"] = not adv_visible["on"]
         if adv_visible["on"]:
-            adv_frame.pack(fill="x", pady=(4, 0))
+            adv_frame.pack(fill="x", pady=(4, 0), after=btn_adv)
             btn_adv.configure(text="Advanced ▾")
         else:
             adv_frame.pack_forget()
             btn_adv.configure(text="Advanced ▸")
 
-    btn_adv = ttk.Button(left, text="Advanced ▸", command=toggle_advanced)
-    btn_adv.pack(fill="x", pady=(4, 0))
+    btn_adv.configure(command=toggle_advanced)
+    btn_adv.pack(fill="x", pady=(8, 0))
+
+    seed_row = ttk.Frame(adv_frame)
+    seed_row.pack(fill="x", pady=(4, 4))
+    ttk.Label(seed_row, text="Seed").pack(side="left")
+    ent_seed = ttk.Entry(seed_row, textvariable=vars_["seed"], width=12)
+    ent_seed.pack(side="left", padx=6)
+    # Seed display remains visible at all times via vars_["seed"]
+    def randomize_seed() -> None:
+        vars_["seed"].set(random_seed())
+
+    ttk.Button(seed_row, text="Randomize", command=randomize_seed).pack(side="right")
+
+    ttk.Checkbutton(adv_frame, text="Fresh random seed each Generate", variable=vars_["fresh_seed"]).pack(anchor="w", pady=(2, 4))
 
     def slider(parent, label: str, key: str, low: float, high: float, step: float) -> None:
         ttk.Label(parent, text=label).pack(anchor="w", pady=(4, 0))
@@ -237,16 +324,6 @@ def run_gui(root=None) -> None:
     slider(adv_frame, "Plateau bias", "plateau_bias", 0.0, 1.0, 0.05)
     slider(adv_frame, "Feature density", "feature_density", 0.0, 1.0, 0.05)
 
-    ttk.Label(adv_frame, text="Synthetic Symmetry").pack(anchor="w", pady=(6, 0))
-    cb_sym = ttk.Combobox(
-        adv_frame,
-        textvariable=vars_["symmetry"],
-        values=["None", "Mirror X", "Mirror Z", "2-way rotational", "4-way"],
-        state="readonly",
-    )
-    cb_sym.pack(fill="x", pady=(2, 6))
-    cb_sym.bind("<<ComboboxSelected>>", lambda _e: schedule_generate(preserve_seed=True))
-
     pad_row = ttk.Frame(adv_frame)
     pad_row.pack(fill="x", pady=3)
     ttk.Label(pad_row, text="Objective pads").pack(side="left")
@@ -255,19 +332,50 @@ def run_gui(root=None) -> None:
     # Spinbox text changes don't fire command reliably; bind var trace for pads
     vars_["pads"].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
 
-    # --- Generation / Export ---
-    btns = ttk.Frame(left)
-    btns.pack(fill="x", pady=(10, 0))
-    # info line for seed visibility
-    seed_info = ttk.Label(left, text="", font=("Consolas", 8), foreground="#9cdcfe")
-    seed_info.pack(anchor="w", pady=(6, 0))
+    adv_btns = ttk.Frame(adv_frame)
+    adv_btns.pack(fill="x", pady=(8, 0))
+
+    def on_style_change() -> None:
+        style_name = vars_["style"].get()
+        wanted = LAYOUT_CONTROLS.get(style_name, ())
+        for key, frame in starter_rows.items():
+            frame.pack_forget()
+            if key in wanted:
+                frame.pack(fill="x", pady=(4, 0))
+        # An emptied frame keeps its last size unless told otherwise.
+        starter.configure(height=1)
+        # An opened file has its own size.
+        zone_state = "disabled" if style_name == imported["name"] else "normal"
+        sp_x.configure(state=zone_state)
+        sp_z.configure(state=zone_state)
+        schedule_generate(preserve_seed=True)
 
     # Bind style combobox and zones spinboxes to live preview
-    cb_style.bind("<<ComboboxSelected>>", lambda _e: schedule_generate(preserve_seed=True))
+    cb_style.bind("<<ComboboxSelected>>", lambda _e: on_style_change())
     # Trace zones vars also live (but clamp)
     for k in ("zones_x", "zones_z"):
         vars_[k].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
     vars_["seed"].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
+
+    # Comboboxes, spinboxes and sliders change their value on the wheel, so a
+    # wheel over one while scrolling the panel would retune the terrain.
+    # Scroll the panel instead and stop the class binding.
+    def scroll_panel(event):
+        if getattr(event, "num", None) in (4, 5):
+            units = -1 if event.num == 4 else 1
+        else:
+            units = -1 if event.delta > 0 else 1
+        left_canvas.yview_scroll(units, "units")
+        return "break"
+
+    def guard_wheel(widget) -> None:
+        for child in widget.winfo_children():
+            if isinstance(child, (ttk.Combobox, ttk.Spinbox, tk.Scale, ttk.Scale)):
+                for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                    child.bind(sequence, scroll_panel)
+            guard_wheel(child)
+
+    guard_wheel(left)
 
     # --- Right: Preview area with tabs ---
     info = ttk.Label(right, text="Generate a terrain to preview it.", font=("Consolas", 8))
@@ -307,6 +415,8 @@ def run_gui(root=None) -> None:
             feature_density=float(vars_["feature_density"].get()),
             symmetry=str(vars_["symmetry"].get()),
             synthetic_pads=max(0, int(vars_["pads"].get())),
+            plateaus=max(0, int(vars_["plateaus"].get())),
+            plateau_height=float(vars_["plateau_height_m"].get()) * 10.0,
         )
 
     def update_seed_info() -> None:
@@ -367,13 +477,19 @@ def run_gui(root=None) -> None:
         revision: int,
         cached_raw: HG2Map | None,
         cached_key: RawCacheKey | None,
+        opened: HG2Map | None,
     ) -> None:
         """Worker entry point. It never reads Tk state or calls Tk methods."""
         started = time.perf_counter()
         try:
             raw_key = RawCacheKey.from_settings(style_name, settings)
             reused_raw = cached_raw is not None and cached_key == raw_key
-            raw = cached_raw if reused_raw else generate(style_name, raw_generation_settings(settings))
+            if reused_raw:
+                raw = cached_raw
+            elif opened is not None:
+                raw = opened
+            else:
+                raw = generate(style_name, raw_generation_settings(settings))
             if raw is None:
                 raise RuntimeError("terrain generation did not produce a map")
             terrain = apply_cached_contrast(raw, settings.vertical_scale)
@@ -397,7 +513,14 @@ def run_gui(root=None) -> None:
         root.config(cursor="watch")
         threading.Thread(
             target=generate_in_worker,
-            args=(style_name, settings, revision, current.get("raw"), current.get("raw_key")),
+            args=(
+                style_name,
+                settings,
+                revision,
+                current.get("raw"),
+                current.get("raw_key"),
+                imported["map"] if style_name == imported["name"] else None,
+            ),
             daemon=True,
         ).start()
         update_seed_info()
@@ -443,7 +566,9 @@ def run_gui(root=None) -> None:
                     latest_key = RawCacheKey.from_settings(vars_["style"].get(), settings_from_ui())
                 except Exception:
                     latest_key = None
-                if raw_key == latest_key:
+                # An opened file's key has no file identity; drop a result from an earlier file.
+                from_old_file = vars_["style"].get() == imported["name"] and raw is not imported["map"]
+                if raw_key == latest_key and not from_old_file:
                     current["raw"] = raw
                     current["raw_key"] = raw_key
 
@@ -463,6 +588,33 @@ def run_gui(root=None) -> None:
         if coordinator.active_revision is None and not coordinator.pending:
             root.config(cursor="")
         poll["after_id"] = root.after(25, poll_worker_results)
+
+    def open_height_file() -> None:
+        path = filedialog.askopenfilename(
+            filetypes=[
+                ("Heightmaps", "*.hg2 *.png *.bmp *.jpg *.jpeg *.tif *.tiff"),
+                ("All files", "*.*"),
+            ]
+        )
+        if not path:
+            return
+        try:
+            opened = load_height_file(path, max(1, int(vars_["zones_x"].get())), max(1, int(vars_["zones_z"].get())))
+        except Exception as exc:
+            messagebox.showerror("Open failed", str(exc))
+            return
+        imported["map"] = opened
+        imported["name"] = f"My file: {Path(path).name}"
+        # A re-opened file of the same name must not reuse the old cached map.
+        current["raw"] = None
+        current["raw_key"] = None
+        cb_style.configure(values=[*RECIPES, imported["name"]])
+        vars_["style"].set(imported["name"])
+        vars_["zones_x"].set(opened.zones_x)
+        vars_["zones_z"].set(opened.zones_z)
+        # 1.0 shows the file unchanged; contrast clips at the safe height limit.
+        vars_["vertical_scale"].set(1.0)
+        on_style_change()
 
     # --- Exports ---
     def export_hg2() -> None:
@@ -538,15 +690,16 @@ def run_gui(root=None) -> None:
 
     # Buttons
     ttk.Button(btns, text="GENERATE  (New Terrain)", command=lambda: schedule_generate(preserve_seed=False, immediate=True)).pack(fill="x", pady=2)
+    ttk.Button(btns, text="Open HG2 / Height Image...", command=open_height_file).pack(fill="x", pady=2)
     ttk.Button(btns, text="Export HG2...", command=export_hg2).pack(fill="x", pady=2)
     ttk.Button(btns, text="Export 16-bit Height PNG...", command=export_png16).pack(fill="x", pady=2)
-    ttk.Button(btns, text="Export HG2 Height PNG...", command=export_hg2_display_png).pack(fill="x", pady=2)
-    ttk.Button(btns, text="Export LGT Preview PNG...", command=export_lgt_preview_png).pack(fill="x", pady=2)
-    ttk.Button(btns, text="Export Shaded Preview PNG...", command=export_shaded_preview_png).pack(fill="x", pady=2)
     ttk.Button(btns, text="Export LGT 256/zone (experimental)...", command=export_lgt).pack(fill="x", pady=2)
+    ttk.Button(adv_btns, text="Export HG2 Height PNG...", command=export_hg2_display_png).pack(fill="x", pady=2)
+    ttk.Button(adv_btns, text="Export LGT Preview PNG...", command=export_lgt_preview_png).pack(fill="x", pady=2)
+    ttk.Button(adv_btns, text="Export Shaded Preview PNG...", command=export_shaded_preview_png).pack(fill="x", pady=2)
 
     # Help text for exports
-    ttk.Label(left, text="HG2 stores heights. LGT preview shows terrain lighting, not height. Lowering vertical relief makes slopes less severe without blurring.", wraplength=345, font=("Consolas", 7), foreground="#777777").pack(anchor="w", pady=(8, 0))
+    ttk.Label(btns, text="Images: 16-bit PNG = HG2 x 8 (lossless); 8-bit = 1 m per grey level. HG2 stores heights; LGT is lighting.", wraplength=345, font=("Consolas", 7), foreground="#777777").pack(anchor="w", pady=(4, 0))
 
     # Canvas resize should not regenerate terrain — just re-thumbnail
     for c in canvases.values():
@@ -570,6 +723,7 @@ def run_gui(root=None) -> None:
 
     # Polling is created on the Tk thread; workers communicate only by queue.
     poll["after_id"] = root.after(25, poll_worker_results)
+    on_style_change()
     schedule_generate(preserve_seed=True, immediate=True)
     if standalone:
         root.mainloop()
