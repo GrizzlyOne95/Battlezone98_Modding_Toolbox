@@ -111,6 +111,8 @@ class TestLaunchPage(ScrollableFrame):
             side="left", padx=(8, 0))
         ttk.Button(actions, text="Check map", style="Toolbox.TButton", command=self.check_map).pack(
             side="left", padx=(8, 0))
+        ttk.Button(actions, text="Set mission class", style="Toolbox.TButton",
+                   command=self.set_mission_class).pack(side="left", padx=(8, 0))
 
         ttk.Label(body, text="RUN", style="Toolbox.Heading.TLabel").pack(anchor="w")
         self.log = LogView(body, height=16)
@@ -324,12 +326,37 @@ class TestLaunchPage(ScrollableFrame):
                        "info")
         for message in errors:
             self.log.write("  ✗ " + message, "error")
+        if any("mission class" in message for message in errors):
+            self.log.write("  Set mission class fixes a LuaMission or multiplayer class.", "info")
         for message in warnings:
             self.log.write("  ! " + message, "warning")
         if not errors:
             self.log.write("No problems found." if not warnings
                            else "Nothing blocks it; the warnings are worth a look.", "success")
         self.shell.status(f"Map check: {len(errors)} problem(s), {len(warnings)} warning(s)")
+
+    def set_mission_class(self) -> None:
+        """Give the project's maps the mission class their mapType needs, after asking."""
+        project = self.shell.project
+        if project is None:
+            messagebox.showinfo("Test in game", "Open a project to set its maps' mission class.")
+            return
+        if not messagebox.askyesno(
+                "Set mission class",
+                "Change each map's BZN in the project to the mission class its INI's mapType needs?\n\n"
+                "multiplayer: MultDMMission, or MultSTMission for gameType S\n"
+                "instant_action: LuaMission"):
+            return
+        try:
+            notes = launch.set_map_classes(project.mod_path)
+        except Exception as exc:
+            messagebox.showerror("Test in game", f"Could not set the mission class: {exc}")
+            return
+        for note in notes:
+            self.log.write(note, "info")
+        self.log.write("Every map already has the class its mapType needs." if not notes
+                       else "Click Check map to check the result.", "success")
+        self.shell.status(f"Mission class: {len(notes)} map(s) noted")
 
     def _remove_deployment(self) -> None:
         install, name = self._install(), self.deploy_name.get().strip()

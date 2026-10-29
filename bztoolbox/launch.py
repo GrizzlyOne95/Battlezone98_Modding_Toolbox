@@ -308,6 +308,63 @@ def _ini_has(text: str, section: str, key: str) -> bool:
     return False
 
 
+def _write_class(bzn, path: Path, wanted: str) -> None:
+    bzn.mission["name"] = replace(bzn.mission["name"], value=wanted.encode("latin-1"), text=None, raw=None)
+    path.write_bytes(bzn.write())
+
+
+def set_map_classes(folder) -> List[str]:
+    """Give each map in ``folder`` the mission class its INI's ``mapType`` needs.
+
+    Only the maps directly in ``folder`` (an INI with a .bzn of the same name)
+    are touched, and only between the classes that share one layout. Returns
+    what it changed or could not change, in plain words.
+    """
+    from battlezone.bzn.bz1 import LUA_MISSIONS, read_bzn
+
+    folder = Path(folder)
+    files = {p.name.lower(): p for p in folder.iterdir() if p.is_file()}
+    notes: List[str] = []
+    for ini_path in sorted(p for name, p in files.items() if name.endswith(".ini")):
+        bzn_path = files.get(ini_path.stem.lower() + ".bzn")
+        if bzn_path is None:
+            continue
+        raw = ini_path.read_bytes()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        map_type = _ini_value(text, "WORKSHOP", "mapType").lower()
+        if map_type not in ("instant_action", "multiplayer"):
+            continue
+        try:
+            bzn = read_bzn(bzn_path, odf_dirs=[folder])
+        except Exception as exc:
+            notes.append(f"{bzn_path.name}: could not read it ({exc})")
+            continue
+        current = bzn.mission_name
+        if map_type == "instant_action":
+            wanted = OFFLINE_CLASS if current in MP_CLASSES else current
+        elif current in MP_CLASSES:
+            wanted = current
+        else:
+            strategy = _ini_value(text, "MULTIPLAYER", "gameType").upper().startswith("S")
+            wanted = MP_CLASSES[1] if strategy else MP_CLASSES[0]
+        if wanted == current:
+            continue
+        if current not in LUA_MISSIONS:
+            notes.append(f"{bzn_path.name}: left as {current or 'no class'}; only "
+                         f"{', '.join(sorted(LUA_MISSIONS))} can be switched")
+            continue
+        try:
+            _write_class(bzn, bzn_path, wanted)
+        except Exception as exc:
+            notes.append(f"{bzn_path.name}: could not write {wanted} ({exc})")
+            continue
+        notes.append(f"{bzn_path.name}: mission class {current} -> {wanted}")
+    return notes
+
+
 def prepare_map_test(target, mission: str, mode: str) -> List[str]:
     """Make the deployed map in ``target`` show and load offline or in multiplayer.
 
@@ -343,8 +400,7 @@ def prepare_map_test(target, mission: str, mode: str) -> List[str]:
         if current not in LUA_MISSIONS:
             raise ValueError(f"{bzn_path.name} uses {current or 'no'} mission class; "
                              f"only {', '.join(sorted(LUA_MISSIONS))} can be switched for a test")
-        bzn.mission["name"] = replace(bzn.mission["name"], value=wanted.encode("latin-1"), text=None, raw=None)
-        bzn_path.write_bytes(bzn.write())
+        _write_class(bzn, bzn_path, wanted)
         notes.append(f"{bzn_path.name}: mission class {current} -> {wanted}")
 
     ini_path = bzn_path.with_suffix(".ini")

@@ -55,7 +55,7 @@ A multiplayer map without a spawn point cannot load from the Multiplayer menu, s
 3. Save the mission over the map's BZN.
 4. Copy the saved BZN back into your project folder. The game does not save into your project.
 
-An offline test gives a multiplayer map the `LuaMission` class, so the BZN you save has it too. **Test the map as** multiplayer switches the deployed copy back for each test. The project's BZN keeps `LuaMission`, and **Check map** reports it. The Toolbox cannot change a BZN's class yet: before you publish, edit the class name in an ASCII copy of the BZN, or copy the deployed BZN from a multiplayer test back into the project.
+An offline test gives a multiplayer map the `LuaMission` class, so the BZN you save has it too. **Test the map as** multiplayer switches the deployed copy back for each test. The project's BZN keeps `LuaMission`, and **Check map** reports it. Before you publish, click **Set mission class** on **Project → Test in Game**. It gives each map in the project the class its **mapType** needs: `MultDMMission`, or `MultSTMission` for game type `S`, for a multiplayer map, and `LuaMission` for an Instant Action map. It changes only `LuaMission` and the multiplayer classes, and the RUN log lists what it changed.
 
 ## Check the map
 
