@@ -9,6 +9,7 @@ from .builder import TerrainBuilder
 from .hg2 import HG2Map
 from .noise import meander_path, organic_loop, vary_widths
 from .settings import GeneratorSettings
+from .starter_layouts import STARTER_LAYOUTS
 
 
 def edge_point(builder: TerrainBuilder, side: str, t: float) -> Tuple[float, float]:
@@ -335,6 +336,7 @@ def escarpment_stronghold(s: GeneratorSettings) -> HG2Map:
 
 
 RECIPES: Dict[str, Callable[[GeneratorSettings], HG2Map]] = {
+    **STARTER_LAYOUTS,
     "Terraced Labyrinth": terraced_labyrinth,
     "Cratered Divide": cratered_divide,
     "Ravine Network": ravine_network,

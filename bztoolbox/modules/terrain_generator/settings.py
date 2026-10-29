@@ -42,6 +42,8 @@ class GeneratorSettings:
     feature_density: float = 0.5
     symmetry: str = "None"
     synthetic_pads: int = 0
+    plateaus: int = 2
+    plateau_height: float = 300.0
 
     @property
     def shape(self) -> Tuple[int, int]:

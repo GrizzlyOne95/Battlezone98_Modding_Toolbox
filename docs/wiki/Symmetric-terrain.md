@@ -1,14 +1,14 @@
 # Generate symmetric terrain
 
-Use **World & Terrain → Generate Terrain**. This generates new terrain; it does not mirror an existing BZN or import an existing heightmap.
+Use **World & Terrain → Generate Terrain**. This generates new terrain; it does not mirror an existing BZN. For a basic arena, [Make a simple arena](Simple-arena) is quicker.
 
 ## A tested two-player starting point
 
-1. Set **Terrain Style** to **Compartmented Plateau**.
+1. Set **Layout / Style** to **Compartmented Plateau**.
 2. Set **Zones X: 2** and **Zones Z: 2**. This makes a **2560 × 2560 m** terrain.
-3. Turn off **Fresh random seed each Generate**.
-4. Enter **Seed: 111**. Keep the other settings at their defaults.
-5. Open **Advanced ▸**.
+3. Open **Advanced ▸**. The seed and tuning controls are inside it.
+4. Turn off **Fresh random seed each Generate**.
+5. Enter **Seed: 111**. Keep the other settings at their defaults.
 6. Under **Synthetic Symmetry**, choose **Mirror X**.
 7. Click **GENERATE  (New Terrain)**. Wait for the preview to finish.
 8. Close **Advanced ▾** if you need more room. Inspect **HG2 Height**, **LGT Lighting** and **Shaded**.

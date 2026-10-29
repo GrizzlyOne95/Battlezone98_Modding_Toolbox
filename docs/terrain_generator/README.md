@@ -27,6 +27,12 @@ The generator is intended to create **playable terrain structure**, not just vis
 
 ## Current terrain styles
 
+Starter layouts (listed first; plain, predictable shapes for a first map):
+
+- Flat Field: level ground with gentle rolls
+- Simple Arena: round arena, outer wall and 0-6 flat plateaus (`--plateaus`, `--plateau-height` in HG2 units)
+- Two Bases: two raised base shelves and a centre hill (`--plateau-height`)
+
 Core Battlezone-derived styles:
 
 - Terraced Labyrinth
@@ -126,7 +132,7 @@ Python 3.10+ is recommended.
 python heightmap_generator.py --gui
 ```
 
-The GUI provides live terrain tuning with a responsive preview area (tabbed **HG2 Height / LGT Lighting / Shaded**). Basic controls are prominent — Terrain Style, Zones X/Z, Seed, Randomize, Fresh-seed toggle, Terrain Contrast / Vertical Relief, and Generate — while less-commonly used recipe controls (relief, naturalization, detail, plateau bias, feature density, symmetry, pads) live under **Advanced**. Changing style, seed, relief, contrast, naturalization, detail, plateau bias, feature density, symmetry, or pad count triggers a debounced (~200 ms) live preview update; resizing the window re-thumbnails cached previews without regenerating terrain, and changing only vertical contrast reuses the cached raw heights (re-applies `apply_vertical_scale` around the median) for a snappy slider. One background worker handles the newest request, stale results are rejected, and all Tk widgets/`PhotoImage` objects stay on the main thread. Closing the window is safe while work is active. The exact resolved seed is visible at all times. Core, planetary, and urban styles share the same canonical recipe list and therefore appear together in the GUI.
+The GUI provides live terrain tuning with a responsive preview area (tabbed **HG2 Height / LGT Lighting / Shaded**). Basic controls are prominent — Layout / Style, Zones X/Z, the starter layout's plateau controls, Terrain Contrast / Vertical Relief, Generate, Open HG2 / Height Image, and the HG2, 16-bit PNG and LGT exports — while the seed and recipe tuning controls (seed, randomize, fresh-seed toggle, relief, naturalization, detail, plateau bias, feature density, symmetry, pads) and the preview PNG exports live under **Advanced**. **Open HG2 / Height Image...** loads an existing `.hg2`, a 16-bit PNG (`height x8`, lossless) or an 8-bit image (1 m per grey level) as a **My file:** entry; images that are not whole 256-pixel zones are resized to the chosen zones. Changing style, seed, relief, contrast, naturalization, detail, plateau bias, feature density, symmetry, or pad count triggers a debounced (~200 ms) live preview update; resizing the window re-thumbnails cached previews without regenerating terrain, and changing only vertical contrast reuses the cached raw heights (re-applies `apply_vertical_scale` around the median) for a snappy slider. One background worker handles the newest request, stale results are rejected, and all Tk widgets/`PhotoImage` objects stay on the main thread. Closing the window is safe while work is active. The exact resolved seed is visible at all times. Core, planetary, and urban styles share the same canonical recipe list and therefore appear together in the GUI.
 
 Previews:
 
