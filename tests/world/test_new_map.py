@@ -79,6 +79,22 @@ class CreateNewMapTests(unittest.TestCase):
             errors, _ = ModScanner().validate_content_structure(folder, remove_system_files=False)
             self.assertTrue(any("no spawn point" in e for e in errors))
 
+    def test_map_check_warns_when_spawn_points_are_fewer_than_max_players(self):
+        from battlezone.validation.mod_scanner import ModScanner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_new_map(tmp, "nmtest", mode="multiplayer", zones=2, max_players=3).folder
+            _, warnings = ModScanner().validate_content_structure(folder, remove_system_files=False)
+            self.assertFalse(any("spawn point" in w for w in warnings))
+            ini = os.path.join(folder, "nmtest.ini")
+            with open(ini, encoding="utf-8") as stream:
+                text = stream.read()
+            with open(ini, "w", encoding="utf-8") as stream:
+                stream.write(text.replace('maxPlayers = "3"', 'maxPlayers = "5"'))
+            errors, warnings = ModScanner().validate_content_structure(folder, remove_system_files=False)
+            self.assertEqual(errors, [])
+            self.assertTrue(any("3 spawn points but maxPlayers is 5" in w for w in warnings))
+
     def test_saves_supplied_heights_at_their_own_size(self):
         from battlezone.validation.mod_scanner import ModScanner
         import numpy as np
