@@ -109,6 +109,8 @@ class TestLaunchPage(ScrollableFrame):
             side="left", padx=(8, 0))
         ttk.Button(actions, text="Open addon folder", style="Toolbox.TButton", command=self._open_addon).pack(
             side="left", padx=(8, 0))
+        ttk.Button(actions, text="Check map", style="Toolbox.TButton", command=self.check_map).pack(
+            side="left", padx=(8, 0))
 
         ttk.Label(body, text="RUN", style="Toolbox.Heading.TLabel").pack(anchor="w")
         self.log = LogView(body, height=16)
@@ -307,6 +309,27 @@ class TestLaunchPage(ScrollableFrame):
             for line in problems[:200]:
                 self.log.write("  " + line, "warning")
         self.shell.status(f"Game logs: {total} problem line(s)")
+
+    def check_map(self) -> None:
+        """List what the project's maps need before the game shows and loads them (the Workshop checks)."""
+        from battlezone.validation.mod_scanner import ModScanner
+
+        project = self.shell.project
+        if project is None:
+            messagebox.showinfo("Test in game", "Open a project to check its maps.")
+            return
+        self.log.clear()
+        errors, warnings = ModScanner().validate_content_structure(project.mod_path, remove_system_files=False)
+        self.log.write(f"Map check of {project.mod_path} as it is (a test mode changes only the deployed copy):",
+                       "info")
+        for message in errors:
+            self.log.write("  ✗ " + message, "error")
+        for message in warnings:
+            self.log.write("  ! " + message, "warning")
+        if not errors:
+            self.log.write("No problems found." if not warnings
+                           else "Nothing blocks it; the warnings are worth a look.", "success")
+        self.shell.status(f"Map check: {len(errors)} problem(s), {len(warnings)} warning(s)")
 
     def _remove_deployment(self) -> None:
         install, name = self._install(), self.deploy_name.get().strip()

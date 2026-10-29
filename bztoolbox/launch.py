@@ -329,8 +329,11 @@ def prepare_map_test(target, mission: str, mode: str) -> List[str]:
     if bzn_path is None:
         raise FileNotFoundError(f"{stem}.bzn is not in the deployed folder")
     notes: List[str] = []
-    bzn = read_bzn(bzn_path)
+    bzn = read_bzn(bzn_path, odf_dirs=[folder])
     current = bzn.mission_name
+    if mode == "multiplayer" and not any(obj.class_label == "spawnpnt" for obj in bzn.objects):
+        raise ValueError(f"{bzn_path.name} has no spawn point, so it does not load from the Multiplayer menu; "
+                         f"test it offline first and place one in the editor")
     wanted = current
     if mode == "offline" and current in MP_CLASSES:
         wanted = OFFLINE_CLASS
