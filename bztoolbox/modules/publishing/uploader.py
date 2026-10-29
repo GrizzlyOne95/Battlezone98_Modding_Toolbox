@@ -23,6 +23,8 @@ from bztoolbox.modules.publishing import steam_errors
 from bztoolbox.modules.publishing.steamworks_tags import UPDATE_STATUS, SteamworksTagUpdater, steam_client_running
 from bztoolbox.app.fonts import bz_font
 from bztoolbox.system import open_in_file_manager
+from bztoolbox.modules.terrain_generator.starter_layouts import STARTER_LAYOUTS
+from bztoolbox.modules.world.new_map import WORLDS, create_new_map, ini_text
 
 try:
     from PIL import Image
@@ -139,130 +141,129 @@ class TemplateWizard(tk.Toplevel):
         super().__init__(parent)
         apply_window_icon(self)
         self.title("New Content Wizard")
-        self.geometry("500x550")
+        self.geometry("500x600")
         self.configure(bg=colors["bg"])
         self.colors = colors
         self.on_success = on_success
         self.resizable(False, False)
-        
+
         # Variables
-        self.name_var = tk.StringVar(value="my_new_map")
-        self.type_var = tk.StringVar(value="multiplayer")
+        self.name_var = tk.StringVar(value="newmap")
+        self.type_var = tk.StringVar(value="instant_action")
+        self.world_var = tk.StringVar(value="Moon")
+        self.size_var = tk.StringVar(value="3")
+        self.layout_var = tk.StringVar(value="Flat Field")
         self.min_p_var = tk.StringVar(value="2")
         self.max_p_var = tk.StringVar(value="4")
-        self.game_type_var = tk.StringVar(value="S")
-        
+        self.game_type_var = tk.StringVar(value="D (Deathmatch)")
+
         self.setup_ui()
         self.transient(parent)
         self.grab_set()
 
     def setup_ui(self):
-        style = ttk.Style()
         c = self.colors
-        
+
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill="both", expand=True)
-        
+
         ttk.Label(frame, text="CREATE NEW BZR CONTENT", font=("Consolas", 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
-        
+
         # Name
-        ttk.Label(frame, text="Content Name:").pack(anchor="w")
+        ttk.Label(frame, text="Content Name (a map: 1-8 letters or digits):").pack(anchor="w")
         ttk.Entry(frame, textvariable=self.name_var).pack(fill="x", pady=(0, 15))
-        
+
         # Map Type
         ttk.Label(frame, text="Map Type:").pack(anchor="w")
         type_combo = ttk.Combobox(frame, textvariable=self.type_var, values=["instant_action", "multiplayer", "mod"], state="readonly")
         type_combo.pack(fill="x", pady=(0, 15))
-        type_combo.bind("<<ComboboxSelected>>", self._toggle_mp_fields)
-        
-        # MP Specifics
-        self.mp_frame = ttk.LabelFrame(frame, text=" MULTIPLAYER SETTINGS ", padding=10)
-        self.mp_frame.pack(fill="x", pady=5)
-        
+        type_combo.bind("<<ComboboxSelected>>", self._toggle_fields)
+
+        # Both map types build a playable starter map; a mod gets only its INI.
+        self.options = ttk.Frame(frame)
+        self.options.pack(fill="x")
+        self.map_frame = ttk.LabelFrame(self.options, text=" STARTER MAP ", padding=10)
+        ttk.Label(self.map_frame, text="World:").grid(row=0, column=0, sticky="w")
+        ttk.Combobox(self.map_frame, textvariable=self.world_var, values=list(WORLDS), state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
+        ttk.Label(self.map_frame, text="Size (km per side):").grid(row=1, column=0, sticky="w", pady=5)
+        ttk.Combobox(self.map_frame, textvariable=self.size_var, values=[str(z) for z in range(2, 9)], state="readonly", width=5).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(self.map_frame, text="Layout:").grid(row=2, column=0, sticky="w")
+        ttk.Combobox(self.map_frame, textvariable=self.layout_var, values=list(STARTER_LAYOUTS), state="readonly", width=25).grid(row=2, column=1, sticky="ew", padx=5)
+
+        self.mp_frame = ttk.LabelFrame(self.options, text=" MULTIPLAYER SETTINGS ", padding=10)
         ttk.Label(self.mp_frame, text="Game Type:").grid(row=0, column=0, sticky="w")
-        ttk.Combobox(self.mp_frame, textvariable=self.game_type_var, values=["D (Deathmatch)", "S (Strategy)", "K (King Of The Hill)", "M (Multiplayer Instant)", "A (Multiplayer Action)"], state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
-        
+        ttk.Combobox(self.mp_frame, textvariable=self.game_type_var, values=["D (Deathmatch)", "S (Strategy)"], state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
         ttk.Label(self.mp_frame, text="Min Players:").grid(row=1, column=0, sticky="w", pady=5)
         ttk.Entry(self.mp_frame, textvariable=self.min_p_var, width=5).grid(row=1, column=1, sticky="w", padx=5, pady=5)
-        
         ttk.Label(self.mp_frame, text="Max Players:").grid(row=2, column=0, sticky="w")
         ttk.Entry(self.mp_frame, textvariable=self.max_p_var, width=5).grid(row=2, column=1, sticky="w", padx=5)
-        
+        self._toggle_fields()
+
         # Actions
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", side="bottom", pady=20)
-        
+
         ttk.Button(btn_frame, text="CREATE CONTENT", command=self.create_project, style="Success.TButton").pack(side="right", padx=5)
         ttk.Button(btn_frame, text="CANCEL", command=self.destroy).pack(side="right")
 
-    def _toggle_mp_fields(self, event=None):
-        if self.type_var.get() == "multiplayer":
-            self.mp_frame.pack(fill="x", pady=5, after=self.mp_frame.master.children.get("type_combo")) # Helper logic
-            # Actually just simple pack/unpack
+    def _toggle_fields(self, event=None):
+        m_type = self.type_var.get()
+        self.map_frame.pack_forget()
+        self.mp_frame.pack_forget()
+        if m_type != "mod":
+            self.map_frame.pack(fill="x", pady=5)
+        if m_type == "multiplayer":
             self.mp_frame.pack(fill="x", pady=5)
-        else:
-            self.mp_frame.pack_forget()
 
     def create_project(self):
         name = self.name_var.get().strip()
+        m_type = self.type_var.get()
         if not name:
             messagebox.showerror("Error", "Content name cannot be empty.")
             return
-            
+        if m_type != "mod" and (len(name) > 8 or not (name.isascii() and name.isalnum())):
+            messagebox.showerror("Error", "A map name must be 1-8 letters or digits (the game's limit).")
+            return
+        min_p, max_p = 2, 4
+        if m_type == "multiplayer":
+            try:
+                min_p, max_p = int(self.min_p_var.get()), int(self.max_p_var.get())
+            except ValueError:
+                messagebox.showerror("Error", "Player counts must be whole numbers.")
+                return
+
         target_dir = filedialog.askdirectory(title="Select Parent Folder for New Content")
         if not target_dir: return
-        
+
         project_path = os.path.join(target_dir, name)
         if os.path.exists(project_path):
             if not messagebox.askyesno("Warning", f"Folder '{name}' already exists. Overwrite?"):
                 return
-        
+
         try:
-            os.makedirs(project_path, exist_ok=True)
-            
-            # 1. Create .INI file
-            m_type = self.type_var.get()
-            g_type = self.game_type_var.get()[0]
-            
-            ini_content = f"""[DESCRIPTION]
-missionName = "{name}"
+            if m_type == "mod":
+                os.makedirs(project_path, exist_ok=True)
+                with open(os.path.join(project_path, f"{name}.ini"), "w", encoding="utf-8") as f:
+                    f.write(ini_text(name, m_type))
+            else:
+                self.config(cursor="watch")
+                self.update()
+                create_new_map(target_dir, name, mode=m_type, world=self.world_var.get(),
+                               zones=int(self.size_var.get()), layout=self.layout_var.get(),
+                               min_players=min_p, max_players=max_p, game_type=self.game_type_var.get()[0])
 
-[WORKSHOP]
-mapType = "{m_type}"
-;customtags = ""
-
-"""
-            if m_type == "multiplayer":
-                ini_content += f"""[MULTIPLAYER]
-minPlayers = "{self.min_p_var.get()}"
-maxPlayers = "{self.max_p_var.get()}"
-gameType = "{g_type}"
-; D=Deathmatch, S=Strategy, K=KOTH, M=MP Instant, A=MP Action
-"""
-            
-            with open(os.path.join(project_path, f"{name}.ini"), "w", encoding="utf-8") as f:
-                f.write(ini_content)
-                
-            # 2. Create placeholder map files
-            exts = [".hg2", ".trn", ".mat", ".bzn", ".lgt"]
-            if m_type == "multiplayer":
-                exts.extend([".bmp", ".des", ".vxt"])
-                
-            for ext in exts:
-                with open(os.path.join(project_path, f"{name}{ext}"), "w", encoding="utf-8") as f:
-                    if ext == ".trn":
-                        f.write("[Size]\nTileSize = 8\nSizeX = 128\nSizeZ = 128\n")
-                    elif ext == ".des":
-                        f.write(f"Description for {name}")
-                    else:
-                        f.write("") # Just touch the file
-            
             self.on_success(project_path)
             self.destroy()
-            messagebox.showinfo("Success", f"Content '{name}' created successfully!")
-            
+            if m_type == "mod":
+                messagebox.showinfo("Success", f"Content '{name}' created successfully!")
+            else:
+                messagebox.showinfo("Success", f"Map '{name}' is ready: terrain, mission and INI are written.\n"
+                                               "Use Test offline or Test multiplayer to play it.")
+
         except Exception as e:
+            self.config(cursor="")
             messagebox.showerror("Error", f"Failed to create project: {e}")
+
 
 class WorkshopUploader:
     def __init__(self, root):
