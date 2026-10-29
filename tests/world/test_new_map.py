@@ -1,0 +1,67 @@
+import math
+import os
+import tempfile
+import unittest
+
+from battlezone.bzn.bz1 import read_bzn, write_bzn
+from bztoolbox.modules.world.hg2_codec import read_hg2
+from bztoolbox.modules.world.mat_codec import parse_trn_painter
+from bztoolbox.modules.world.new_map import STOCK_MIN_Z, create_new_map
+from bztoolbox.modules.world.new_map_bzn import new_map_bzn, spawn_points
+
+
+class NewMapBznTests(unittest.TestCase):
+    def test_instant_action_holds_only_the_player_tank(self):
+        bzn = read_bzn(new_map_bzn("arena", "instant_action", (0, 99840, 2560, 2560), lambda x, z: 50.0).write())
+        self.assertEqual((bzn.version, bzn.mission_name, bzn.terrain_name), (2016, "LuaMission", "arena"))
+        self.assertEqual([(o.class_label, o.prjid) for o in bzn.objects], [("wingman", "avtank")])
+        player = bzn.objects[0].fields
+        self.assertEqual(player["isUser"].value, 1)
+        self.assertEqual(player["pos"].value, [(1280.0, 51.0, 101120.0)])
+
+    def test_multiplayer_adds_spawn_points_and_survives_binary(self):
+        bzn = new_map_bzn("arena", "multiplayer", (0, 0, 1280, 1280), lambda x, z: 0.0, players=4,
+                          mission_class="MultSTMission")
+        back = read_bzn(write_bzn(read_bzn(bzn.write()), 2016, binary=True))
+        self.assertEqual(back.mission_name, "MultSTMission")
+        self.assertEqual([o.class_label for o in back.objects], ["wingman"] + ["spawnpnt"] * 4)
+        addrs = [o.fields["obj_addr"].value for o in back.objects]
+        self.assertEqual(len(set(addrs)), len(addrs))
+        # The player starts on the first spawn point.
+        self.assertEqual(back.objects[0].fields["pos"].value, back.objects[1].fields["pos"].value)
+
+    def test_spawn_points_face_the_centre(self):
+        for x, z, yaw in spawn_points((0.0, 0.0), 100.0, 3):
+            self.assertAlmostEqual(x + 100.0 * math.sin(yaw), 0.0, places=6)
+            self.assertAlmostEqual(z + 100.0 * math.cos(yaw), 0.0, places=6)
+
+
+class CreateNewMapTests(unittest.TestCase):
+    def test_writes_a_complete_multiplayer_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = create_new_map(tmp, "nmtest", mode="multiplayer", world="Mars", zones=2,
+                                    layout="Simple Arena", max_players=3)
+            names = sorted(os.path.basename(f) for f in result.files)
+            self.assertEqual(names, sorted(f"nmtest.{e}" for e in ("trn", "hg2", "mat", "lgt", "bmp", "des", "ini", "bzn")))
+            self.assertEqual(sorted(os.listdir(result.folder)), names)
+            header, heights = read_hg2(os.path.join(result.folder, "nmtest.hg2"))
+            self.assertEqual(heights.shape, (512, 512))
+            trn = parse_trn_painter(os.path.join(result.folder, "nmtest.trn"))
+            self.assertEqual((trn.min_z, trn.width), (STOCK_MIN_Z, 2560))
+            bzn = read_bzn(os.path.join(result.folder, "nmtest.bzn"))
+            self.assertEqual((bzn.mission_name, bzn.terrain_name, len(bzn.objects)), ("MultDMMission", "nmtest", 4))
+            ini = open(os.path.join(result.folder, "nmtest.ini"), encoding="utf-8").read()
+            self.assertIn('mapType = "multiplayer"', ini)
+            self.assertIn('maxPlayers = "3"', ini)
+
+    def test_rejects_bad_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for kwargs in ({"mode": "mod"}, {"layout": "Nope"}, {"game_type": "K"}, {"min_players": 5}, {"max_players": 17}):
+                with self.assertRaises(ValueError):
+                    create_new_map(tmp, "nmtest", **kwargs)
+            with self.assertRaises(ValueError):
+                create_new_map(tmp, "too_long_name")
+
+
+if __name__ == "__main__":
+    unittest.main()
