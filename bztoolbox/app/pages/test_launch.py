@@ -32,6 +32,8 @@ class TestLaunchPage(ScrollableFrame):
         self.deploy = tk.BooleanVar(value=saved.get("deploy", True))
         self.deploy_name = tk.StringVar()
         self.via_steam = tk.BooleanVar(value=saved.get("via_steam", False))
+        mode = saved.get("test_mode", "as is")
+        self.test_mode = tk.StringVar(value=mode if mode in launch.TEST_MODES else "as is")
         self.flag_vars: dict = {}
         self._saved_flags = set(saved.get("flags", ["win", "nointro"]))
 
@@ -81,6 +83,18 @@ class TestLaunchPage(ScrollableFrame):
         ttk.Entry(row, textvariable=self.deploy_name, style="Toolbox.TEntry", width=28).pack(side="left", padx=(4, 6))
         ttk.Button(row, text="Remove deployed copy", style="Toolbox.TButton",
                    command=self._remove_deployment).pack(side="left")
+        row = ttk.Frame(form, style="Toolbox.Surface.TFrame")
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Test the map as", style="Toolbox.Surface.TLabel", width=18).pack(side="left")
+        self.mode_box = mode_box = ttk.Combobox(row, textvariable=self.test_mode, values=launch.TEST_MODES, state="readonly",
+                                style="Toolbox.TCombobox", width=14)
+        mode_box.pack(side="left")
+        mode_box.bind("<<ComboboxSelected>>", lambda _e: self._refresh_command())
+        ttk.Label(form, text="offline: the deployed copy shows in Instant Action and its mission class becomes "
+                             "LuaMission if it was a multiplayer one. multiplayer: it shows in the Multiplayer "
+                             "menu with a multiplayer class; the game starts at its menu. Only the deployed copy "
+                             "changes, never the project.",
+                  style="Toolbox.SurfaceMuted.TLabel", wraplength=900, justify="left").pack(anchor="w")
 
         ttk.Label(form, text="Command", style="Toolbox.CardTitle.TLabel").pack(anchor="w", pady=(8, 2))
         self.command_label = ttk.Label(form, text="", style="Toolbox.SurfaceMuted.TLabel", wraplength=900,
@@ -125,6 +139,7 @@ class TestLaunchPage(ScrollableFrame):
             self.shell.settings.set("test_launch", {
                 "install": str(install.path) if install else "", "mission": self.mission.get(),
                 "extra": self.extra.get(), "deploy": self.deploy.get(), "via_steam": self.via_steam.get(),
+                "test_mode": self.test_mode.get(),
                 "flags": [key for key, var in self.flag_vars.items() if var.get()]})
         except Exception:
             pass
@@ -187,10 +202,18 @@ class TestLaunchPage(ScrollableFrame):
         if install is None:
             raise ValueError("Choose a game install.")
         flags = [key for key, var in self.flag_vars.items() if var.get()]
-        return install, launch.build_launch(install, self.mission.get(), flags, self.extra.get(),
+        # A multiplayer map is started from the game's Multiplayer menu, not the command line.
+        mission = "" if self._map_mode() == "multiplayer" else self.mission.get()
+        return install, launch.build_launch(install, mission, flags, self.extra.get(),
                                             via_steam=self.via_steam.get())
 
+    def _map_mode(self) -> str:
+        return self.test_mode.get() if self.deploy.get() and self.shell.project is not None else "as is"
+
     def _refresh_command(self) -> None:
+        # The mode rewrites the deployed copy, so it means nothing without a project to deploy.
+        if hasattr(self, "mode_box"):
+            self.mode_box.configure(state="readonly" if self.deploy.get() and self.shell.project else "disabled")
         try:
             install, plan = self._plan()
             text = plan.command_line()
@@ -224,6 +247,17 @@ class TestLaunchPage(ScrollableFrame):
                 return
             self.log.write(f"Deployed to {result.target}: {len(result.copied)} copied, {result.unchanged} unchanged"
                            + (f", {len(result.skipped)} editor files skipped" if result.skipped else ""), "info")
+            mode = self._map_mode()
+            if mode != "as is":
+                try:
+                    notes = launch.prepare_map_test(result.target, self.mission.get(), mode)
+                except (OSError, ValueError) as exc:
+                    messagebox.showerror("Test in game", f"Could not set the map up for a {mode} test: {exc}")
+                    return
+                for note in notes:
+                    self.log.write("  " + note, "info")
+                if mode == "multiplayer":
+                    self.log.write("Open Multiplayer in the game's menu to find the map.", "muted")
         self._save()
         self.watch = launch.LogWatch(install)
         try:
