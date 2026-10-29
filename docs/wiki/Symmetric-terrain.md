@@ -6,19 +6,19 @@ Use **World & Terrain → Generate Terrain**. This generates new terrain; it doe
 
 1. Set **Layout / Style** to **Compartmented Plateau**.
 2. Set **Zones X: 2** and **Zones Z: 2**. This makes a **2560 × 2560 m** terrain.
-3. Open **Advanced ▸**. The seed and tuning controls are inside it.
-4. Turn off **Fresh random seed each Generate**.
-5. Enter **Seed: 111**. Keep the other settings at their defaults.
-6. Under **Synthetic Symmetry**, choose **Mirror X**.
+3. Set **Symmetry** to **Mirror X**. It is in the **Basic** box.
+4. Open **Advanced ▸**. The seed and tuning controls are inside it.
+5. Turn off **Fresh random seed each Generate**.
+6. Enter **Seed: 111**. Keep the other settings at their defaults.
 7. Click **GENERATE  (New Terrain)**. Wait for the preview to finish.
 8. Close **Advanced ▾** if you need more room. Inspect **HG2 Height**, **LGT Lighting** and **Shaded**.
 9. Click **Export HG2...**. Save it using your world's terrain name, such as `symdemo.hg2`.
 
-If the bottom controls are out of view, make the window taller or collapse **Advanced** after setting symmetry.
+The left panel scrolls. If the bottom controls are out of view, scroll it or collapse **Advanced**.
 
 <img src="https://raw.githubusercontent.com/wiki/GrizzlyOne95/Battlezone98_Modding_Toolbox/images/symmetry-options.png" width="440" alt="Running Toolbox: Compartmented Plateau, 2 by 2 zones, seed 111, Synthetic Symmetry set to Mirror X">
 
-The screenshot shows the controls with the sidebar collapsed.
+The screenshot shows the controls with the sidebar collapsed. It was taken before **Symmetry** moved to the **Basic** box.
 
 ## Choose a symmetry mode
 

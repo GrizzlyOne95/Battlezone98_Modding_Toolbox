@@ -8,6 +8,8 @@ from typing import Optional
 
 from PIL import Image, ImageTk
 
+from bztoolbox.app.widgets import register_wheel_target
+
 from .analysis import terrain_metrics
 from .gui_logic import (
     DEBOUNCE_MS,
@@ -109,9 +111,21 @@ def run_gui(root=None) -> None:
 
     main = ttk.Frame(root, padding=8)
     main.pack(fill="both", expand=True)
-    left = ttk.Frame(main, width=360)
-    left.pack(side="left", fill="y", padx=(0, 8))
-    left.pack_propagate(False)
+    # The left controls scroll: the open Advanced panel is taller than most windows.
+    left_box = ttk.Frame(main, width=376)
+    left_box.pack(side="left", fill="y", padx=(0, 8))
+    left_box.pack_propagate(False)
+    left_canvas = tk.Canvas(left_box, bg="#0a0a0a", highlightthickness=0, borderwidth=0)
+    scrollbar_style = "Toolbox.Vertical.TScrollbar" if style.lookup("Toolbox.Vertical.TScrollbar", "background") else "Vertical.TScrollbar"
+    left_scroll = ttk.Scrollbar(left_box, orient="vertical", command=left_canvas.yview, style=scrollbar_style)
+    left = ttk.Frame(left_canvas)
+    left_window = left_canvas.create_window((0, 0), window=left, anchor="nw")
+    left_canvas.configure(yscrollcommand=left_scroll.set)
+    left_scroll.pack(side="right", fill="y")
+    left_canvas.pack(side="left", fill="both", expand=True)
+    left.bind("<Configure>", lambda _e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+    left_canvas.bind("<Configure>", lambda e: left_canvas.itemconfigure(left_window, width=e.width))
+    register_wheel_target(left_canvas, lambda units: left_canvas.yview_scroll(units, "units"))
     right = ttk.Frame(main)
     right.pack(side="right", fill="both", expand=True)
 
@@ -208,6 +222,23 @@ def run_gui(root=None) -> None:
     starter_rows["plateau_height"] = row
     vars_["plateaus"].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
 
+    ttk.Label(basic, text="Symmetry").pack(anchor="w", pady=(6, 0))
+    cb_sym = ttk.Combobox(
+        basic,
+        textvariable=vars_["symmetry"],
+        values=["None", "Mirror X", "Mirror Z", "2-way rotational", "4-way"],
+        state="readonly",
+    )
+    cb_sym.pack(fill="x", pady=(2, 0))
+    cb_sym.bind("<<ComboboxSelected>>", lambda _e: schedule_generate(preserve_seed=True))
+    ttk.Label(
+        basic,
+        text="For a fair two-team map. Mirror X: left and right halves match. Mirror Z: top and bottom halves match.",
+        wraplength=335,
+        font=("Consolas", 7),
+        foreground="#aaaaaa",
+    ).pack(anchor="w")
+
     # Terrain Contrast / Vertical Relief — prominent with help
     ttk.Label(basic, text="Terrain Contrast / Vertical Relief", font=("Consolas", 9, "bold")).pack(anchor="w", pady=(6, 0))
     ttk.Label(
@@ -293,16 +324,6 @@ def run_gui(root=None) -> None:
     slider(adv_frame, "Plateau bias", "plateau_bias", 0.0, 1.0, 0.05)
     slider(adv_frame, "Feature density", "feature_density", 0.0, 1.0, 0.05)
 
-    ttk.Label(adv_frame, text="Synthetic Symmetry").pack(anchor="w", pady=(6, 0))
-    cb_sym = ttk.Combobox(
-        adv_frame,
-        textvariable=vars_["symmetry"],
-        values=["None", "Mirror X", "Mirror Z", "2-way rotational", "4-way"],
-        state="readonly",
-    )
-    cb_sym.pack(fill="x", pady=(2, 6))
-    cb_sym.bind("<<ComboboxSelected>>", lambda _e: schedule_generate(preserve_seed=True))
-
     pad_row = ttk.Frame(adv_frame)
     pad_row.pack(fill="x", pady=3)
     ttk.Label(pad_row, text="Objective pads").pack(side="left")
@@ -335,6 +356,26 @@ def run_gui(root=None) -> None:
     for k in ("zones_x", "zones_z"):
         vars_[k].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
     vars_["seed"].trace_add("write", lambda *_: schedule_generate(preserve_seed=True))
+
+    # Comboboxes, spinboxes and sliders change their value on the wheel, so a
+    # wheel over one while scrolling the panel would retune the terrain.
+    # Scroll the panel instead and stop the class binding.
+    def scroll_panel(event):
+        if getattr(event, "num", None) in (4, 5):
+            units = -1 if event.num == 4 else 1
+        else:
+            units = -1 if event.delta > 0 else 1
+        left_canvas.yview_scroll(units, "units")
+        return "break"
+
+    def guard_wheel(widget) -> None:
+        for child in widget.winfo_children():
+            if isinstance(child, (ttk.Combobox, ttk.Spinbox, tk.Scale, ttk.Scale)):
+                for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                    child.bind(sequence, scroll_panel)
+            guard_wheel(child)
+
+    guard_wheel(left)
 
     # --- Right: Preview area with tabs ---
     info = ttk.Label(right, text="Generate a terrain to preview it.", font=("Consolas", 8))

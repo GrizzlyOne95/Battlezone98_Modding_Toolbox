@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 from bztoolbox.modules import terrain_generator as hmg
 from bztoolbox.modules.terrain_generator.height_import import load_height_file
@@ -28,6 +29,17 @@ class StarterLayoutTests(unittest.TestCase):
         maps = [hmg.generate("Simple Arena", replace(base, plateaus=n)).heights for n in (0, 2, 4)]
         self.assertFalse(np.array_equal(maps[0], maps[1]))
         self.assertFalse(np.array_equal(maps[1], maps[2]))
+
+
+    def test_mirrored_arena_keeps_whole_plateaus(self):
+        for symmetry, flip in (("Mirror X", np.fliplr), ("Mirror Z", np.flipud)):
+            settings = hmg.GeneratorSettings(zones_x=2, zones_z=2, seed=9, plateaus=3, symmetry=symmetry)
+            heights = hmg.generate("Simple Arena", settings).heights.astype(int)
+            self.assertTrue(np.array_equal(heights, flip(heights)), symmetry)
+            yy, xx = np.mgrid[0:512, 0:512]
+            inside_wall = np.hypot(xx - 255.5, yy - 255.5) < 0.7 * 256
+            tops = (heights > int(heights[256, 256]) + 200) & inside_wall
+            self.assertEqual(ndimage.label(tops)[1], 3, symmetry)
 
 
 class HeightImportTests(unittest.TestCase):

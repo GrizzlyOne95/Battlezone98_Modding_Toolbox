@@ -11,8 +11,9 @@ First [create the world files](Create-a-world). Note the world's zone counts: a 
 3. Set **Zones X** and **Zones Z** to match your world, such as **2** and **2**.
 4. Set **Plateaus** to the number you want (0–6). One plateau sits in the centre. Two or more are spaced evenly around the middle of the arena.
 5. Move **Plateau height (m)** to set how far the plateau tops rise above the arena floor.
-6. Click **GENERATE  (New Terrain)** to try a new random layout. Each click turns the plateau ring to a new angle.
-7. Click **Export HG2...**. Save it over your world's HG2, such as `symdemo.hg2`. Keep a copy of the original first.
+6. For a fair two-team map, set **Symmetry**. **Mirror X** makes the left and right halves match. **Mirror Z** makes the top and bottom halves match. Plateaus are lined up with the mirror line, so each one stays whole. **2-way rotational** and **4-way** round an odd plateau count up to the next even number.
+7. Click **GENERATE  (New Terrain)** to try a new random layout. With **Symmetry** set to **None**, each click turns the plateau ring to a new angle.
+8. Click **Export HG2...**. Save it over your world's HG2, such as `symdemo.hg2`. Keep a copy of the original first.
 
 The plateau tops and the arena floor are flat. A wall rises around the edge of the arena.
 

@@ -53,7 +53,15 @@ def simple_arena(s: GeneratorSettings) -> HG2Map:
     if count:
         ring = 0.0 if count == 1 else m * 0.24
         size = m * 0.09 if count == 1 else min(m * 0.09, math.tau * ring / (2.8 * count))
-        start = float(b.rng.uniform(0.0, math.tau))
+        # Under symmetry, line the ring up with the mirror axis so finalize's
+        # mirror maps whole plateaus onto plateaus instead of slicing them.
+        symmetry = (s.symmetry or "None").lower()
+        if symmetry == "mirror x":
+            start = math.pi / 2
+        elif symmetry in ("mirror z", "2-way rotational", "4-way"):
+            start = 0.0
+        else:
+            start = float(b.rng.uniform(0.0, math.tau))
         for i in range(count):
             angle = start + i * math.tau / count
             cx = (b.w - 1) / 2 + math.cos(angle) * ring
