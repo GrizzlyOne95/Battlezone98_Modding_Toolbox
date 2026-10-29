@@ -263,7 +263,7 @@ class TemplateWizard(tk.Toplevel):
                 messagebox.showinfo("Success", f"Content '{name}' created successfully!")
             else:
                 messagebox.showinfo("Success", f"Map '{name}' is ready: terrain, mission and INI are written.\n"
-                                               "Use Test offline or Test multiplayer to play it.")
+                                               "Play it from Project → Test in Game, with Test the map as offline or multiplayer.")
 
         except Exception as e:
             self.config(cursor="")

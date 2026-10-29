@@ -14,6 +14,10 @@ Each guide completes one small task. Use a working copy of your mod.
 6. [Prepare a radio voice line](Prepare-a-radio-line): process a WAV, export timings and reference it from a unit.
 7. [Publish a Workshop item](Publish-a-Workshop-item): private first upload and updates to the same item.
 
+## Make a playable map
+
+[Make a playable map](Make-a-playable-map): start a map or save generated terrain as one, test it offline or in multiplayer, and check its spawn points.
+
 ## Making a measured or symmetric map
 
 The Toolbox can generate symmetric terrain, set world dimensions in metres, and exchange heightmaps with image and 3D editors. It does **not** have a general object-placement editor with X/Z entry boxes. Terrain symmetry does not place or mirror bases, scrap, spawns, or mission paths.
@@ -24,7 +28,8 @@ Start here:
 2. [Make a simple arena](Simple-arena): a round arena with plateaus, or open a heightmap you already have.
 3. [Generate symmetric terrain](Symmetric-terrain).
 4. [Make measured terrain edits](Measured-terrain): the 5 m grid, 16-bit PNG editing, and OBJ editing.
-5. [Check the finished map](Check-your-map).
+5. [Save it as a playable map](Make-a-playable-map).
+6. [Check the finished map](Check-your-map).
 
 ## Get the Toolbox
 

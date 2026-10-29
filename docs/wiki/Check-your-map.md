@@ -29,6 +29,8 @@ Open the mod folder with **Open mod folder…**, then go to **Project → Valida
 
 Validation does not compare the two halves for symmetry or measure travel times.
 
+For a map's menu, mission class and spawn points, click **Check map** on **Project → Test in Game**; see [Make a playable map](Make-a-playable-map#check-the-map).
+
 ## Test in Battlezone
 
 Load the mission in the game. Drive both sides and check:

@@ -48,4 +48,4 @@ An image whose width and height are multiples of 256 pixels keeps its size, at o
 
 ## Next
 
-[Check your map](Check-your-map): repaint textures and rebake lighting for the new heights. For a fair two-team map, see [Generate symmetric terrain](Symmetric-terrain).
+[Save it as a playable map](Make-a-playable-map#save-generated-terrain-as-a-map) with **Save as Map...**, or [check your map](Check-your-map): repaint textures and rebake lighting for the new heights. For a fair two-team map, see [Generate symmetric terrain](Symmetric-terrain).
