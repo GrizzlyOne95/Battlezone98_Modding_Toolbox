@@ -79,6 +79,24 @@ class CreateNewMapTests(unittest.TestCase):
             errors, _ = ModScanner().validate_content_structure(folder, remove_system_files=False)
             self.assertTrue(any("no spawn point" in e for e in errors))
 
+    def test_saves_supplied_heights_at_their_own_size(self):
+        from battlezone.validation.mod_scanner import ModScanner
+        import numpy as np
+
+        heights = np.zeros((512, 768), dtype=np.uint16)     # 3 zones wide, 2 deep
+        heights[:, 384:] = 400                              # a 40 m step on the east half
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_new_map(tmp, "nmsave", mode="multiplayer", heights=heights, max_players=2).folder
+            _, saved = read_hg2(os.path.join(folder, "nmsave.hg2"))
+            self.assertTrue(np.array_equal(saved, heights))
+            trn = parse_trn_painter(os.path.join(folder, "nmsave.trn"))
+            self.assertEqual((trn.width, trn.depth), (3840, 2560))
+            self.assertEqual(ModScanner().validate_content_structure(folder, remove_system_files=False)[0], [])
+            with self.assertRaises(ValueError):
+                create_new_map(tmp, "nmbad", heights=np.zeros((300, 512), dtype=np.uint16))
+            with self.assertRaises(ValueError):
+                create_new_map(tmp, "nmbad", heights=np.full((256, 256), 6000, dtype=np.uint16))
+
     def test_rejects_bad_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             for kwargs in ({"mode": "mod"}, {"layout": "Nope"}, {"game_type": "K"}, {"min_players": 5}, {"max_players": 17}):

@@ -137,10 +137,13 @@ class ToolTip:
             self.tip_window = None
 
 class TemplateWizard(tk.Toplevel):
-    def __init__(self, parent, colors, on_success):
+    def __init__(self, parent, colors, on_success, heights=None):
+        """``heights`` (HG2 samples) makes this save that terrain as a map
+        instead of building a starter one."""
         super().__init__(parent)
         apply_window_icon(self)
-        self.title("New Content Wizard")
+        self.heights = heights
+        self.title("New Content Wizard" if heights is None else "Save Terrain as Map")
         self.geometry("500x600")
         self.configure(bg=colors["bg"])
         self.colors = colors
@@ -167,7 +170,7 @@ class TemplateWizard(tk.Toplevel):
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="CREATE NEW BZR CONTENT", font=("Consolas", 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
+        ttk.Label(frame, text="CREATE NEW BZR CONTENT" if self.heights is None else "SAVE TERRAIN AS MAP", font=("Consolas", 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
 
         # Name
         ttk.Label(frame, text="Content Name (a map: 1-8 letters or digits):").pack(anchor="w")
@@ -175,20 +178,21 @@ class TemplateWizard(tk.Toplevel):
 
         # Map Type
         ttk.Label(frame, text="Map Type:").pack(anchor="w")
-        type_combo = ttk.Combobox(frame, textvariable=self.type_var, values=["instant_action", "multiplayer", "mod"], state="readonly")
+        type_combo = ttk.Combobox(frame, textvariable=self.type_var, values=["instant_action", "multiplayer"] + (["mod"] if self.heights is None else []), state="readonly")
         type_combo.pack(fill="x", pady=(0, 15))
         type_combo.bind("<<ComboboxSelected>>", self._toggle_fields)
 
         # Both map types build a playable starter map; a mod gets only its INI.
         self.options = ttk.Frame(frame)
         self.options.pack(fill="x")
-        self.map_frame = ttk.LabelFrame(self.options, text=" STARTER MAP ", padding=10)
+        self.map_frame = ttk.LabelFrame(self.options, text=" STARTER MAP " if self.heights is None else " MAP ", padding=10)
         ttk.Label(self.map_frame, text="World:").grid(row=0, column=0, sticky="w")
         ttk.Combobox(self.map_frame, textvariable=self.world_var, values=list(WORLDS), state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
-        ttk.Label(self.map_frame, text="Size (km per side):").grid(row=1, column=0, sticky="w", pady=5)
-        ttk.Combobox(self.map_frame, textvariable=self.size_var, values=[str(z) for z in range(2, 9)], state="readonly", width=5).grid(row=1, column=1, sticky="w", padx=5, pady=5)
-        ttk.Label(self.map_frame, text="Layout:").grid(row=2, column=0, sticky="w")
-        ttk.Combobox(self.map_frame, textvariable=self.layout_var, values=list(STARTER_LAYOUTS), state="readonly", width=25).grid(row=2, column=1, sticky="ew", padx=5)
+        if self.heights is None:        # saved terrain brings its own size and shape
+            ttk.Label(self.map_frame, text="Size (km per side):").grid(row=1, column=0, sticky="w", pady=5)
+            ttk.Combobox(self.map_frame, textvariable=self.size_var, values=[str(z) for z in range(2, 9)], state="readonly", width=5).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+            ttk.Label(self.map_frame, text="Layout:").grid(row=2, column=0, sticky="w")
+            ttk.Combobox(self.map_frame, textvariable=self.layout_var, values=list(STARTER_LAYOUTS), state="readonly", width=25).grid(row=2, column=1, sticky="ew", padx=5)
 
         self.mp_frame = ttk.LabelFrame(self.options, text=" MULTIPLAYER SETTINGS ", padding=10)
         ttk.Label(self.mp_frame, text="Game Type:").grid(row=0, column=0, sticky="w")
@@ -203,7 +207,7 @@ class TemplateWizard(tk.Toplevel):
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", side="bottom", pady=20)
 
-        ttk.Button(btn_frame, text="CREATE CONTENT", command=self.create_project, style="Success.TButton").pack(side="right", padx=5)
+        ttk.Button(btn_frame, text="CREATE CONTENT" if self.heights is None else "SAVE MAP", command=self.create_project, style="Success.TButton").pack(side="right", padx=5)
         ttk.Button(btn_frame, text="CANCEL", command=self.destroy).pack(side="right")
 
     def _toggle_fields(self, event=None):
@@ -250,7 +254,8 @@ class TemplateWizard(tk.Toplevel):
                 self.update()
                 create_new_map(target_dir, name, mode=m_type, world=self.world_var.get(),
                                zones=int(self.size_var.get()), layout=self.layout_var.get(),
-                               min_players=min_p, max_players=max_p, game_type=self.game_type_var.get()[0])
+                               min_players=min_p, max_players=max_p, game_type=self.game_type_var.get()[0],
+                               heights=self.heights)
 
             self.on_success(project_path)
             self.destroy()
