@@ -54,6 +54,31 @@ class CreateNewMapTests(unittest.TestCase):
             self.assertIn('mapType = "multiplayer"', ini)
             self.assertIn('maxPlayers = "3"', ini)
 
+    def test_map_check_passes_new_maps_and_catches_a_wrong_class(self):
+        from battlezone.validation.mod_scanner import ModScanner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_new_map(tmp, "nmtest", mode="multiplayer", zones=2, max_players=3).folder
+            self.assertEqual(ModScanner().validate_content_structure(folder, remove_system_files=False)[0], [])
+            ini = os.path.join(folder, "nmtest.ini")
+            with open(ini, encoding="utf-8") as stream:
+                text = stream.read()
+            with open(ini, "w", encoding="utf-8") as stream:
+                stream.write(text.replace('"multiplayer"', '"instant_action"'))
+            errors, _ = ModScanner().validate_content_structure(folder, remove_system_files=False)
+            self.assertTrue(any("MultDMMission" in e and "Instant Action" in e for e in errors))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = create_new_map(tmp, "nmtest", zones=2).folder
+            self.assertEqual(ModScanner().validate_content_structure(folder, remove_system_files=False)[0], [])
+            ini = os.path.join(folder, "nmtest.ini")
+            with open(ini, encoding="utf-8") as stream:
+                text = stream.read()
+            with open(ini, "w", encoding="utf-8") as stream:
+                stream.write(text.replace('"instant_action"', '"multiplayer"'))
+            errors, _ = ModScanner().validate_content_structure(folder, remove_system_files=False)
+            self.assertTrue(any("no spawn point" in e for e in errors))
+
     def test_rejects_bad_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             for kwargs in ({"mode": "mod"}, {"layout": "Nope"}, {"game_type": "K"}, {"min_players": 5}, {"max_players": 17}):

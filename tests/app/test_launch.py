@@ -6,6 +6,7 @@ from pathlib import Path
 
 from battlezone.bzn.bz1 import read_bzn, write_bzn
 from bztoolbox import launch
+from bztoolbox.modules.world.new_map_bzn import new_map_bzn
 from tests.missions.test_bzn_version_convert import redux_bzn
 
 
@@ -93,7 +94,9 @@ class MapTestModeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _map(self, mission_class, binary=False, ini=None):
-        bzn = read_bzn(redux_bzn().replace(b"LuaMission", mission_class.encode()))
+        # One spawn point: a multiplayer test refuses a map without one.
+        data = new_map_bzn("arena", "multiplayer", (0, 0, 1280, 1280), lambda x, z: 0.0, players=1).write()
+        bzn = read_bzn(data.replace(b"MultDMMission", mission_class.encode()))
         (self.dir / "arena.bzn").write_bytes(write_bzn(bzn, bzn.version, binary=binary))
         if ini is not None:
             (self.dir / "arena.ini").write_text(ini, encoding="utf-8")
@@ -155,6 +158,12 @@ class MapTestModeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             launch.prepare_map_test(self.dir, "arena.bzn", "multiplayer")
         self.assertEqual(launch.prepare_map_test(self.dir, "arena.bzn", "as is"), [])
+
+    def test_multiplayer_refuses_a_map_without_a_spawn_point(self):
+        (self.dir / "arena.bzn").write_bytes(redux_bzn())
+        with self.assertRaisesRegex(ValueError, "no spawn point"):
+            launch.prepare_map_test(self.dir, "arena.bzn", "multiplayer")
+        self.assertEqual(read_bzn(self.dir / "arena.bzn").mission_name, "LuaMission")
 
 
 if __name__ == "__main__":
