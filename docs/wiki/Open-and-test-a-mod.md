@@ -11,7 +11,7 @@ Start with a working mod or mission. This guide opens its folder, checks it, and
 
 Opening a folder creates a local Toolbox profile. It does not create a playable mission or change the mod's files.
 
-If you are starting from scratch, the [world guide](Create-a-world) creates terrain files. You still need a valid BZN and mission setup before you can launch that new mission.
+If you are starting from scratch, [Make a playable map](Make-a-playable-map) creates a complete map folder: terrain, mission and INI.
 
 ## Check the files
 
@@ -29,9 +29,10 @@ Some findings have **Apply fix**. Read the proposed fix before applying it. A mi
 3. Under **Mission**, choose a BZN from your project. You can also enter a stock mission such as `misn01.bzn` to test an asset replacement. Leaving this field empty starts the game at its menu.
 4. Leave **Windowed** and **Skip intro movie** selected for a quick test. Leave **Extra arguments** empty initially.
 5. Keep **Copy the project into addon\** selected. Use a distinct folder name such as `StarterTest`.
-6. Check **Command**. It shows the destination folder and launch command.
-7. Click **Launch**.
-8. Test the change, close the game, and read **RUN**. Click **Read logs now** if needed. When launching through Steam, use **Read logs now** after finishing the test.
+6. For a map, with copying selected, **Test the map as** can deploy it for Instant Action (**offline**) or the Multiplayer menu (**multiplayer**); see [Make a playable map](Make-a-playable-map#test-it).
+7. Check **Command**. It shows the destination folder and launch command.
+8. Click **Launch**.
+9. Test the change, close the game, and read **RUN**. Click **Read logs now** if needed. When launching through Steam, use **Read logs now** after finishing the test.
 
 <img src="https://raw.githubusercontent.com/wiki/GrizzlyOne95/Battlezone98_Modding_Toolbox/images/test-in-game.png" width="440" alt="Test in Game page showing mission, options, deployment folder, command and launch controls">
 

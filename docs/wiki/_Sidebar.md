@@ -12,6 +12,7 @@
 
 **Mapping guides**
 
+- [Make a playable map](Make-a-playable-map)
 - [Create a world](Create-a-world)
 - [Make a simple arena](Simple-arena)
 - [Symmetric terrain](Symmetric-terrain)

@@ -653,12 +653,13 @@ class ModScanner:
                     if game_type and game_type[:1].upper() not in self.VALID_GAME_TYPES:
                         errors.append(f"{target_ini}: gameType '{game_type}' is not one of D, S, A, M or K "
                                       "(Deathmatch, Strategy, MP Action, MP Instant, King of the Hill).")
-            self._check_map_mission(mod_dir, base_name, map_type, errors)
+            max_players = config["MULTIPLAYER"].get("maxplayers", "") if "MULTIPLAYER" in config else ""
+            self._check_map_mission(mod_dir, base_name, map_type, errors, warnings, max_players)
         return map_type
 
     MP_MISSION_CLASSES = ("MultDMMission", "MultSTMission")
 
-    def _check_map_mission(self, mod_dir, base_name, map_type, errors):
+    def _check_map_mission(self, mod_dir, base_name, map_type, errors, warnings, max_players=""):
         """The .bzn's mission class must suit the menu its .ini puts it in."""
         from battlezone.bzn.bz1 import read_bzn
 
@@ -677,6 +678,17 @@ class ModScanner:
         elif map_type == "instant_action" and mp_class:
             errors.append(f"{bzn} uses multiplayer mission class {mission.mission_name}, which does not load from "
                           f"Instant Action; LuaMission does.")
-        if map_type == "multiplayer" and not any(obj.class_label == "spawnpnt" for obj in mission.objects):
+        if map_type != "multiplayer":
+            return
+        spawns = sum(obj.class_label == "spawnpnt" for obj in mission.objects)
+        if not spawns:
             errors.append(f"{bzn} has no spawn point, so it does not load from the Multiplayer menu; load it "
                           f"offline (test mode Offline) and place one in the editor.")
+        try:
+            wanted = int(str(max_players).strip().strip('"').strip("'"))
+        except ValueError:
+            return
+        # The host only hands out free spawn points; a player past the last one waits for a spawn forever.
+        if 0 < spawns < wanted:
+            warnings.append(f"{bzn} has {spawns} spawn point{'s' if spawns != 1 else ''} but maxPlayers is "
+                            f"{wanted}; players past {spawns} may never spawn. Place more in the editor.")

@@ -166,5 +166,46 @@ class MapTestModeTests(unittest.TestCase):
         self.assertEqual(read_bzn(self.dir / "arena.bzn").mission_name, "LuaMission")
 
 
+class SetMapClassesTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _map(self, name, mission_class, ini):
+        data = new_map_bzn(name, "multiplayer", (0, 0, 1280, 1280), lambda x, z: 0.0, players=1).write()
+        (self.dir / f"{name}.bzn").write_bytes(data.replace(b"MultDMMission", mission_class.encode()))
+        (self.dir / f"{name}.ini").write_text(ini, encoding="utf-8")
+
+    def test_classes_follow_each_maps_map_type(self):
+        self._map("mpst", "LuaMission", '[WORKSHOP]\nmapType = "multiplayer"\n[MULTIPLAYER]\ngameType = "S"\n')
+        self._map("mpdm", "LuaMission", '[WORKSHOP]\nmapType = "multiplayer"\n')
+        self._map("ia", "MultDMMission", '[WORKSHOP]\nmapType = "instant_action"\n')
+        self._map("ok", "MultDMMission", '[WORKSHOP]\nmapType = "multiplayer"\n')
+        self._map("asset", "LuaMission", '[WORKSHOP]\nmapType = "mod"\n')
+        notes = launch.set_map_classes(self.dir)
+        self.assertEqual(len(notes), 3)
+        classes = {n: read_bzn(self.dir / f"{n}.bzn").mission_name for n in ("mpst", "mpdm", "ia", "ok", "asset")}
+        self.assertEqual(classes, {"mpst": "MultSTMission", "mpdm": "MultDMMission", "ia": "LuaMission",
+                                   "ok": "MultDMMission", "asset": "LuaMission"})
+        self.assertEqual(launch.set_map_classes(self.dir), [])
+
+    def test_other_classes_are_reported_not_changed(self):
+        self._map("misn", "Misn05Mission", '[WORKSHOP]\nmapType = "multiplayer"\n')
+        notes = launch.set_map_classes(self.dir)
+        self.assertIn("left as Misn05Mission", notes[0])
+        self.assertEqual(read_bzn(self.dir / "misn.bzn").mission_name, "Misn05Mission")
+
+    def test_an_unreadable_bzn_does_not_stop_the_others(self):
+        (self.dir / "bad.bzn").write_bytes(b"not a bzn")
+        (self.dir / "bad.ini").write_text('[WORKSHOP]\nmapType = "multiplayer"\n', encoding="utf-8")
+        self._map("good", "LuaMission", '[WORKSHOP]\nmapType = "multiplayer"\n')
+        notes = launch.set_map_classes(self.dir)
+        self.assertIn("bad.bzn: could not read", notes[0])
+        self.assertEqual(read_bzn(self.dir / "good.bzn").mission_name, "MultDMMission")
+
+
 if __name__ == "__main__":
     unittest.main()

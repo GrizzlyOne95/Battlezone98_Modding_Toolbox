@@ -12,6 +12,10 @@ import json
 # environment. The stubs are only installed while the uploader modules are
 # imported so they cannot leak into the other suites of the unified toolbox
 # (a mocked ``ctypes`` breaks SciPy, for example).
+# The map writer the uploader uses needs the real PIL and SciPy, so it is
+# imported before the stubs go in; otherwise it would keep the stubs for good.
+import bztoolbox.modules.world.new_map  # noqa: E402,F401
+
 _HEADLESS_STUBS = {name: MagicMock() for name in (
     'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox',
     'PIL', 'requests', 'ctypes', 'keyring',

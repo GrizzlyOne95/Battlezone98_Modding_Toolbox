@@ -688,8 +688,22 @@ def run_gui(root=None) -> None:
             except Exception as exc:
                 messagebox.showerror("Export failed", str(exc))
 
+    def save_as_map() -> None:
+        m = current.get("map")
+        if not isinstance(m, HG2Map):
+            return
+        if coordinator.active_revision is not None or coordinator.pending:
+            messagebox.showinfo("Still generating", "Wait for the terrain to finish generating, then save it.")
+            return
+        # The New Content wizard asks the name, menu, world and players, then writes a playable map folder.
+        from bztoolbox.modules.publishing.uploader import TemplateWizard
+
+        TemplateWizard(root.winfo_toplevel(), {"bg": "#0a0a0a", "highlight": "#00ff00"},
+                       on_success=lambda _path: None, heights=m.heights.copy())
+
     # Buttons
     ttk.Button(btns, text="GENERATE  (New Terrain)", command=lambda: schedule_generate(preserve_seed=False, immediate=True)).pack(fill="x", pady=2)
+    ttk.Button(btns, text="Save as Map...", command=save_as_map).pack(fill="x", pady=2)
     ttk.Button(btns, text="Open HG2 / Height Image...", command=open_height_file).pack(fill="x", pady=2)
     ttk.Button(btns, text="Export HG2...", command=export_hg2).pack(fill="x", pady=2)
     ttk.Button(btns, text="Export 16-bit Height PNG...", command=export_png16).pack(fill="x", pady=2)

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
+from bztoolbox.modules.terrain_generator.hg2 import HG2_SAFE_MAX_HEIGHT
 from bztoolbox.modules.terrain_generator.lgt import compute_lgt_lightmap, write_lgt
 from bztoolbox.modules.terrain_generator.settings import GeneratorSettings
 from bztoolbox.modules.terrain_generator.starter_layouts import STARTER_LAYOUTS
@@ -47,12 +48,14 @@ def ini_text(name: str, mode: str, *, min_players: int = 2, max_players: int = 4
 
 def create_new_map(parent_dir: str, name: str, *, mode: str = "instant_action", world: str = "Moon",
                    zones: int = 3, layout: str = "Flat Field", seed: int = 1,
-                   min_players: int = 2, max_players: int = 4, game_type: str = "D") -> NewMap:
+                   min_players: int = 2, max_players: int = 4, game_type: str = "D",
+                   heights: Optional[np.ndarray] = None) -> NewMap:
     """Write a new map folder ``<parent_dir>/<name>`` and return what was written.
 
     ``mode`` is "instant_action" or "multiplayer"; ``zones`` is the side of the
     square map in 1280 m zones; ``layout`` is a starter layout name. A
-    multiplayer map gets ``max_players`` spawn points.
+    multiplayer map gets ``max_players`` spawn points. ``heights`` (HG2 samples,
+    256 per zone on each side) replaces the layout, and its shape sets the size.
     """
     if mode not in ("instant_action", "multiplayer"):
         raise ValueError(f"unknown map mode {mode!r}")
@@ -64,11 +67,19 @@ def create_new_map(parent_dir: str, name: str, *, mode: str = "instant_action", 
         raise ValueError(f"players must be 1 <= min <= max <= {MAX_PLAYERS}")
     folder = os.path.join(parent_dir, name)
 
-    hg2 = STARTER_LAYOUTS[layout](GeneratorSettings(zones_x=zones, zones_z=zones, seed=seed))
-    heights = np.asarray(hg2.heights, dtype=np.uint16)
+    if heights is None:
+        heights = STARTER_LAYOUTS[layout](GeneratorSettings(zones_x=zones, zones_z=zones, seed=seed)).heights
+    heights = np.asarray(heights)
+    rows, cols = heights.shape if heights.ndim == 2 else (0, 0)
+    if not rows or not cols or rows % 256 or cols % 256:
+        raise ValueError(f"heights must be 256 samples per zone on each side; got shape {heights.shape}")
+    if heights.max() > HG2_SAFE_MAX_HEIGHT:
+        raise ValueError(f"heights go up to {heights.max() / 10:g} m; the game's limit is "
+                         f"{HG2_SAFE_MAX_HEIGHT / 10:g} m, so lower the terrain first")
+    zones_x, zones_z = cols // 256, rows // 256
     normal_view, static_trn = _worldbuilder_template(world)
     built = build_stock_map(StockBuildConfig(
-        name=name, out_dir=folder, geometry=make_stock_geometry(zones * ZONE_METRES, zones * ZONE_METRES),
+        name=name, out_dir=folder, geometry=make_stock_geometry(zones_x * ZONE_METRES, zones_z * ZONE_METRES),
         empty_elevation=0, time_of_day=1100,
         music_track=27, music_loop_first=27, music_loop_last=27, music_loop_skip=-1,
         ambient=(1.0, 1.0, 1.0), diffuse=(1.0, 1.0, 1.0), specular=(1.0, 1.0, 1.0),
@@ -77,7 +88,7 @@ def create_new_map(parent_dir: str, name: str, *, mode: str = "instant_action", 
     files = [built.trn_path, built.hg2_path, built.mat_path]
 
     lgt_path = os.path.join(folder, f"{name}.lgt")
-    write_lgt(lgt_path, compute_lgt_lightmap(heights, zones, zones, lgt_zone_size=256), zones, zones)
+    write_lgt(lgt_path, compute_lgt_lightmap(heights, zones_x, zones_z, lgt_zone_size=256), zones_x, zones_z)
     files.append(lgt_path)
 
     previews = map_preview.write_previews(built.trn_path)
@@ -94,16 +105,14 @@ def create_new_map(parent_dir: str, name: str, *, mode: str = "instant_action", 
         stream.write(ini_text(name, mode, min_players=min_players, max_players=max_players, game_type=game_type))
     files += [des_path, ini_path]
 
-    rows, cols = heights.shape
-
     def ground(x: float, z: float) -> float:   # HG2 row 0 is the south (min z) edge
         row = min(rows - 1, max(0, int((z - STOCK_MIN_Z) / SAMPLE_METRES)))
         col = min(cols - 1, max(0, int(x / SAMPLE_METRES)))
         return float(heights[row, col]) * 0.1
 
-    size = float(zones * ZONE_METRES)
     bzn_path = os.path.join(folder, f"{name}.bzn")
-    write_new_map_bzn(bzn_path, name, mode, (0.0, float(STOCK_MIN_Z), size, size), ground,
+    bounds = (0.0, float(STOCK_MIN_Z), float(zones_x * ZONE_METRES), float(zones_z * ZONE_METRES))
+    write_new_map_bzn(bzn_path, name, mode, bounds, ground,
                       players=max_players,
                       mission_class=GAME_TYPES[game_type] if mode == "multiplayer" else None)
     files.append(bzn_path)

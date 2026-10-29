@@ -36,6 +36,6 @@ Replacing the HG2 changes heights only. Follow [Check your map](Check-your-map) 
 
 ## A world is not a complete mission
 
-You still need a BZN mission that refers to this terrain, along with the appropriate mission and multiplayer setup. Create or adapt that in the game's map/mission workflow. The Toolbox's terrain generator does not create starting bases, teams or multiplayer spawns.
+You still need a BZN mission that refers to this terrain, along with the appropriate mission and multiplayer setup. [Make a playable map](Make-a-playable-map) writes a starter BZN, INI and multiplayer spawn points; it does not create starting bases or teams.
 
 [Home](Home) · [Next: symmetric terrain](Symmetric-terrain)
