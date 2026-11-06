@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -250,6 +250,191 @@ def deploy_project(project_dir, install: GameInstall, name: Optional[str] = None
             shutil.copy2(src, dst)
             result.copied.append(rel.as_posix())
     return result
+
+
+# A map's INI (named after its .bzn) only picks the menu it shows in; the .bzn's
+# mission class decides whether it loads there. These classes share one layout,
+# so switching between them only rewrites the name.
+TEST_MODES = ("as is", "offline", "multiplayer")
+MP_CLASSES = ("MultDMMission", "MultSTMission")
+OFFLINE_CLASS = "LuaMission"
+
+
+def _ini_section(line: str):
+    """The lower-case name of a ``[section]`` header line (a trailing ``;`` comment allowed), else None."""
+    stripped = line.split(";", 1)[0].strip()
+    return stripped[1:-1].strip().lower() if stripped.startswith("[") and stripped.endswith("]") else None
+
+
+def _set_ini_value(text: str, section: str, key: str, value: str) -> str:
+    """``text`` with ``key = "value"`` in ``[section]``, replacing an existing key or adding one."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if _ini_section(line) == section.lower()), None)
+    entry = f'{key} = "{value}"'
+    if start is None:
+        lines += ([""] if lines and lines[-1].strip() else []) + [f"[{section}]", entry]
+        return "\n".join(lines) + "\n"
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("[")), len(lines))
+    for i in range(start + 1, end):
+        if lines[i].split("=", 1)[0].strip().lower() == key.lower():
+            lines[i] = entry
+            return "\n".join(lines) + "\n"
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    lines.insert(end, entry)
+    return "\n".join(lines) + "\n"
+
+
+def _ini_value(text: str, section: str, key: str) -> str:
+    """``key``'s unquoted value in ``[section]``; "" if it is not there."""
+    current = ""
+    for line in text.splitlines():
+        header = _ini_section(line)
+        if header is not None:
+            current = header
+        elif current == section.lower() and "=" in line and line.split("=", 1)[0].strip().lower() == key.lower():
+            return line.split("=", 1)[1].split(";", 1)[0].strip().strip('"')
+    return ""
+
+
+def _ini_has(text: str, section: str, key: str) -> bool:
+    current = ""
+    for line in text.splitlines():
+        header = _ini_section(line)
+        if header is not None:
+            current = header
+        elif current == section.lower() and line.split("=", 1)[0].strip().lower() == key.lower():
+            return True
+    return False
+
+
+def _write_class(bzn, path: Path, wanted: str) -> None:
+    bzn.mission["name"] = replace(bzn.mission["name"], value=wanted.encode("latin-1"), text=None, raw=None)
+    path.write_bytes(bzn.write())
+
+
+def set_map_classes(folder) -> List[str]:
+    """Give each map in ``folder`` the mission class its INI's ``mapType`` needs.
+
+    Only the maps directly in ``folder`` (an INI with a .bzn of the same name)
+    are touched, and only between the classes that share one layout. Returns
+    what it changed or could not change, in plain words.
+    """
+    from battlezone.bzn.bz1 import LUA_MISSIONS, read_bzn
+
+    folder = Path(folder)
+    files = {p.name.lower(): p for p in folder.iterdir() if p.is_file()}
+    notes: List[str] = []
+    for ini_path in sorted(p for name, p in files.items() if name.endswith(".ini")):
+        bzn_path = files.get(ini_path.stem.lower() + ".bzn")
+        if bzn_path is None:
+            continue
+        raw = ini_path.read_bytes()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        map_type = _ini_value(text, "WORKSHOP", "mapType").lower()
+        if map_type not in ("instant_action", "multiplayer"):
+            continue
+        try:
+            bzn = read_bzn(bzn_path, odf_dirs=[folder])
+        except Exception as exc:
+            notes.append(f"{bzn_path.name}: could not read it ({exc})")
+            continue
+        current = bzn.mission_name
+        if map_type == "instant_action":
+            wanted = OFFLINE_CLASS if current in MP_CLASSES else current
+        elif current in MP_CLASSES:
+            wanted = current
+        else:
+            strategy = _ini_value(text, "MULTIPLAYER", "gameType").upper().startswith("S")
+            wanted = MP_CLASSES[1] if strategy else MP_CLASSES[0]
+        if wanted == current:
+            continue
+        if current not in LUA_MISSIONS:
+            notes.append(f"{bzn_path.name}: left as {current or 'no class'}; only "
+                         f"{', '.join(sorted(LUA_MISSIONS))} can be switched")
+            continue
+        try:
+            _write_class(bzn, bzn_path, wanted)
+        except Exception as exc:
+            notes.append(f"{bzn_path.name}: could not write {wanted} ({exc})")
+            continue
+        notes.append(f"{bzn_path.name}: mission class {current} -> {wanted}")
+    return notes
+
+
+def prepare_map_test(target, mission: str, mode: str) -> List[str]:
+    """Make the deployed map in ``target`` show and load offline or in multiplayer.
+
+    Rewrites only the deployed copy: ``<mission>.ini``'s ``mapType`` (written if
+    there is no INI) and, when the class does not fit the mode, the .bzn's
+    mission class. Returns what it changed, in plain words.
+    """
+    if mode not in TEST_MODES:
+        raise ValueError(f"unknown test mode: {mode}")
+    if mode == "as is" or not mission.strip():
+        return []
+    from battlezone.bzn.bz1 import LUA_MISSIONS, read_bzn
+
+    folder = Path(target)
+    stem = Path(mission.strip()).stem
+    # The shallowest match is the one the game loads; a copy deeper in a backup folder is not.
+    bzn_path = min((p for p in folder.rglob("*") if p.is_file() and p.name.lower() == f"{stem}.bzn".lower()),
+                   key=lambda p: (len(p.parts), str(p).lower()), default=None)
+    if bzn_path is None:
+        raise FileNotFoundError(f"{stem}.bzn is not in the deployed folder")
+    notes: List[str] = []
+    bzn = read_bzn(bzn_path, odf_dirs=[folder])
+    current = bzn.mission_name
+    if mode == "multiplayer" and not any(obj.class_label == "spawnpnt" for obj in bzn.objects):
+        raise ValueError(f"{bzn_path.name} has no spawn point, so it does not load from the Multiplayer menu; "
+                         f"test it offline first and place one in the editor")
+    wanted = current
+    if mode == "offline" and current in MP_CLASSES:
+        wanted = OFFLINE_CLASS
+    elif mode == "multiplayer" and current not in MP_CLASSES:
+        wanted = MP_CLASSES[0]
+    if wanted != current:
+        if current not in LUA_MISSIONS:
+            raise ValueError(f"{bzn_path.name} uses {current or 'no'} mission class; "
+                             f"only {', '.join(sorted(LUA_MISSIONS))} can be switched for a test")
+        _write_class(bzn, bzn_path, wanted)
+        notes.append(f"{bzn_path.name}: mission class {current} -> {wanted}")
+
+    ini_path = bzn_path.with_suffix(".ini")
+    existing = next((p for p in bzn_path.parent.iterdir() if p.name.lower() == ini_path.name.lower()), None)
+    ini_path = existing or ini_path
+    # Keep the INI's own encoding, BOM and line endings, so an unchanged file reads as unchanged.
+    text, encoding, newline = "", "utf-8", "\n"
+    if existing:
+        raw = ini_path.read_bytes()
+        try:
+            text = raw.decode("utf-8-sig")
+            encoding = "utf-8-sig" if raw.startswith(b"\xef\xbb\xbf") else "utf-8"
+        except UnicodeDecodeError:
+            text, encoding = raw.decode("latin-1"), "latin-1"      # an ANSI INI; latin-1 round-trips every byte
+        newline = "\r\n" if "\r\n" in text else "\n"
+        text = text.replace("\r\n", "\n")
+    original = text
+    if _ini_value(text, "WORKSHOP", "mapType").lower() == "mod":
+        raise ValueError(f'{ini_path.name} has mapType "mod", so the game treats this addon as an asset mod, '
+                         f'not a map; set the mode to "as is" to test it')
+    if not text:
+        text = _set_ini_value(text, "DESCRIPTION", "missionName", stem)
+    text = _set_ini_value(text, "WORKSHOP", "mapType", "instant_action" if mode == "offline" else "multiplayer")
+    if mode == "multiplayer":
+        defaults = (("minPlayers", "1"), ("maxPlayers", "8"),
+                    ("gameType", "S" if wanted == "MultSTMission" else "D"))
+        for key, value in defaults:
+            if not _ini_has(text, "MULTIPLAYER", key):
+                text = _set_ini_value(text, "MULTIPLAYER", key, value)
+    if text != original:
+        ini_path.write_bytes(text.replace("\n", newline).encode(encoding))
+        notes.append(f"{ini_path.name}: " + ("written" if not existing else "updated")
+                     + f" to show in {'Instant Action' if mode == 'offline' else 'Multiplayer'}")
+    return notes
 
 
 def remove_deployment(install: GameInstall, name: str) -> bool:

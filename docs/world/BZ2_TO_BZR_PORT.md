@@ -48,6 +48,49 @@ the MAT, and writes:
   source `[Texture]`/terrain bindings, and installs the Redux atlas bindings.
 - `NAME.mat`, the final MAT with the same zero-based material IDs as the TRN.
 
+Terrain tile aliases must fit 15 ASCII bytes including `.MAP`, leaving the
+terminator in Redux's 16-byte texture-name record. Long import prefixes now
+receive a deterministic short tile prefix; terrain, DDS, material and CSV
+filenames keep the requested name. The port report records both prefixes.
+For example, a `jvquarry` import retains `jvquarry_detail_atlas.material`
+while its MAP aliases use a short prefix. The custom atlas builder rejects
+overlong aliases before writing output; its `tile_prefix` option separates
+aliases from asset names when needed.
+
+Keep staging folders and backups outside an installed mod: Redux scans addon
+subfolders and duplicate basenames can shadow the runtime files. Validate the
+installed TRN/CSV/MAT together, then check terrain variation in game. A loaded
+atlas alone does not prove that the engine resolved every tile alias.
+
+## Companion SKY fog and Redux palettes
+
+The binary companion `.SKY` contains global fog color/range and lighting;
+these are separate from local volumes in its `FOG` chunk. Inspect it or write
+an ACT with the source fog color using:
+
+```
+python -m bztoolbox.modules.world.bz2_sky_environment ground0.SKY
+python -m bztoolbox.modules.world.bz2_sky_environment ground0.SKY --base-act toxc.act --output-act ground0.act
+```
+
+The generator keeps the base world's palette ramps and sets global fog index
+209 to source RGB times its multiplier. It does not infer the remaining ACT
+colors from a single fog color. The JSON also reports fog start/end, visibility
+and ambient/diffuse sunlight, day length and source time converted to Redux HHMM
+(8.5 hours becomes 0830). In the TRN creator, **LOAD BZ2/BZCC SKY** fills time,
+ambient and diffuse controls with those authored values, including their source
+intensity multipliers. RGB sliders retain imported precision and the TRN writer
+exports six decimal places. Invalid files leave controls unchanged. This button
+imports lighting/time; use the ACT helper above for fog.
+Ground0's authored time is 0800 and fog is RGB 110/135/20,
+start -50 m, end 450 m. Write corresponding `[NormalView]` distances and
+`[Color] Palette=` into the installed TRN. This helper currently supports
+known SKY settings blocks of 168, 212 and 228 bytes, not arbitrary future formats.
+
+High absolute elevations now shift downward when their relief fits Redux's
+safe 0..409.5 m range; terrain, objects and reported vertical offset agree.
+Maps already within the range keep their height, and excessive relief is rejected.
+
 The GUI's **Target MinX / MinZ** fields default to `0,0`. Leave either field
 blank to retain that axis's source padded origin. The same values are used by
 inspection, diagnostics, and the resolved bundle, and `NAME_port.json` reports

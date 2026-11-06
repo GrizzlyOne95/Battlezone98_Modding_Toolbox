@@ -32,6 +32,8 @@ class TestLaunchPage(ScrollableFrame):
         self.deploy = tk.BooleanVar(value=saved.get("deploy", True))
         self.deploy_name = tk.StringVar()
         self.via_steam = tk.BooleanVar(value=saved.get("via_steam", False))
+        mode = saved.get("test_mode", "as is")
+        self.test_mode = tk.StringVar(value=mode if mode in launch.TEST_MODES else "as is")
         self.flag_vars: dict = {}
         self._saved_flags = set(saved.get("flags", ["win", "nointro"]))
 
@@ -81,6 +83,18 @@ class TestLaunchPage(ScrollableFrame):
         ttk.Entry(row, textvariable=self.deploy_name, style="Toolbox.TEntry", width=28).pack(side="left", padx=(4, 6))
         ttk.Button(row, text="Remove deployed copy", style="Toolbox.TButton",
                    command=self._remove_deployment).pack(side="left")
+        row = ttk.Frame(form, style="Toolbox.Surface.TFrame")
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Test the map as", style="Toolbox.Surface.TLabel", width=18).pack(side="left")
+        self.mode_box = mode_box = ttk.Combobox(row, textvariable=self.test_mode, values=launch.TEST_MODES, state="readonly",
+                                style="Toolbox.TCombobox", width=14)
+        mode_box.pack(side="left")
+        mode_box.bind("<<ComboboxSelected>>", lambda _e: self._refresh_command())
+        ttk.Label(form, text="offline: the deployed copy shows in Instant Action and its mission class becomes "
+                             "LuaMission if it was a multiplayer one. multiplayer: it shows in the Multiplayer "
+                             "menu with a multiplayer class; the game starts at its menu. Only the deployed copy "
+                             "changes, never the project.",
+                  style="Toolbox.SurfaceMuted.TLabel", wraplength=900, justify="left").pack(anchor="w")
 
         ttk.Label(form, text="Command", style="Toolbox.CardTitle.TLabel").pack(anchor="w", pady=(8, 2))
         self.command_label = ttk.Label(form, text="", style="Toolbox.SurfaceMuted.TLabel", wraplength=900,
@@ -95,6 +109,10 @@ class TestLaunchPage(ScrollableFrame):
             side="left", padx=(8, 0))
         ttk.Button(actions, text="Open addon folder", style="Toolbox.TButton", command=self._open_addon).pack(
             side="left", padx=(8, 0))
+        ttk.Button(actions, text="Check map", style="Toolbox.TButton", command=self.check_map).pack(
+            side="left", padx=(8, 0))
+        ttk.Button(actions, text="Set mission class", style="Toolbox.TButton",
+                   command=self.set_mission_class).pack(side="left", padx=(8, 0))
 
         ttk.Label(body, text="RUN", style="Toolbox.Heading.TLabel").pack(anchor="w")
         self.log = LogView(body, height=16)
@@ -125,6 +143,7 @@ class TestLaunchPage(ScrollableFrame):
             self.shell.settings.set("test_launch", {
                 "install": str(install.path) if install else "", "mission": self.mission.get(),
                 "extra": self.extra.get(), "deploy": self.deploy.get(), "via_steam": self.via_steam.get(),
+                "test_mode": self.test_mode.get(),
                 "flags": [key for key, var in self.flag_vars.items() if var.get()]})
         except Exception:
             pass
@@ -187,10 +206,18 @@ class TestLaunchPage(ScrollableFrame):
         if install is None:
             raise ValueError("Choose a game install.")
         flags = [key for key, var in self.flag_vars.items() if var.get()]
-        return install, launch.build_launch(install, self.mission.get(), flags, self.extra.get(),
+        # A multiplayer map is started from the game's Multiplayer menu, not the command line.
+        mission = "" if self._map_mode() == "multiplayer" else self.mission.get()
+        return install, launch.build_launch(install, mission, flags, self.extra.get(),
                                             via_steam=self.via_steam.get())
 
+    def _map_mode(self) -> str:
+        return self.test_mode.get() if self.deploy.get() and self.shell.project is not None else "as is"
+
     def _refresh_command(self) -> None:
+        # The mode rewrites the deployed copy, so it means nothing without a project to deploy.
+        if hasattr(self, "mode_box"):
+            self.mode_box.configure(state="readonly" if self.deploy.get() and self.shell.project else "disabled")
         try:
             install, plan = self._plan()
             text = plan.command_line()
@@ -224,6 +251,17 @@ class TestLaunchPage(ScrollableFrame):
                 return
             self.log.write(f"Deployed to {result.target}: {len(result.copied)} copied, {result.unchanged} unchanged"
                            + (f", {len(result.skipped)} editor files skipped" if result.skipped else ""), "info")
+            mode = self._map_mode()
+            if mode != "as is":
+                try:
+                    notes = launch.prepare_map_test(result.target, self.mission.get(), mode)
+                except (OSError, ValueError) as exc:
+                    messagebox.showerror("Test in game", f"Could not set the map up for a {mode} test: {exc}")
+                    return
+                for note in notes:
+                    self.log.write("  " + note, "info")
+                if mode == "multiplayer":
+                    self.log.write("Open Multiplayer in the game's menu to find the map.", "muted")
         self._save()
         self.watch = launch.LogWatch(install)
         try:
@@ -273,6 +311,52 @@ class TestLaunchPage(ScrollableFrame):
             for line in problems[:200]:
                 self.log.write("  " + line, "warning")
         self.shell.status(f"Game logs: {total} problem line(s)")
+
+    def check_map(self) -> None:
+        """List what the project's maps need before the game shows and loads them (the Workshop checks)."""
+        from battlezone.validation.mod_scanner import ModScanner
+
+        project = self.shell.project
+        if project is None:
+            messagebox.showinfo("Test in game", "Open a project to check its maps.")
+            return
+        self.log.clear()
+        errors, warnings = ModScanner().validate_content_structure(project.mod_path, remove_system_files=False)
+        self.log.write(f"Map check of {project.mod_path} as it is (a test mode changes only the deployed copy):",
+                       "info")
+        for message in errors:
+            self.log.write("  ✗ " + message, "error")
+        if any("mission class" in message for message in errors):
+            self.log.write("  Set mission class fixes a LuaMission or multiplayer class.", "info")
+        for message in warnings:
+            self.log.write("  ! " + message, "warning")
+        if not errors:
+            self.log.write("No problems found." if not warnings
+                           else "Nothing blocks it; the warnings are worth a look.", "success")
+        self.shell.status(f"Map check: {len(errors)} problem(s), {len(warnings)} warning(s)")
+
+    def set_mission_class(self) -> None:
+        """Give the project's maps the mission class their mapType needs, after asking."""
+        project = self.shell.project
+        if project is None:
+            messagebox.showinfo("Test in game", "Open a project to set its maps' mission class.")
+            return
+        if not messagebox.askyesno(
+                "Set mission class",
+                "Change each map's BZN in the project to the mission class its INI's mapType needs?\n\n"
+                "multiplayer: MultDMMission, or MultSTMission for gameType S\n"
+                "instant_action: LuaMission"):
+            return
+        try:
+            notes = launch.set_map_classes(project.mod_path)
+        except Exception as exc:
+            messagebox.showerror("Test in game", f"Could not set the mission class: {exc}")
+            return
+        for note in notes:
+            self.log.write(note, "info")
+        self.log.write("Every map already has the class its mapType needs." if not notes
+                       else "Click Check map to check the result.", "success")
+        self.shell.status(f"Mission class: {len(notes)} map(s) noted")
 
     def _remove_deployment(self) -> None:
         install, name = self._install(), self.deploy_name.get().strip()

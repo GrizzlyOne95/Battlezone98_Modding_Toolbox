@@ -105,6 +105,27 @@ def other_folders_for_item(item_id: str, folder: str, projects: Sequence[dict]) 
     return sorted(set(others))
 
 
+def other_profiles_for_item(item_id: str, folder: str, projects: Sequence[dict]) -> List[dict]:
+    """Other local upload profiles (project dicts) whose folder is not ``folder`` and that target ``item_id``."""
+    if not is_item_id(item_id):
+        return []
+    here = os.path.normcase(os.path.abspath(folder))
+    return [project for project in projects
+            if str(project.get("item_id", "")).strip() == str(item_id) and project.get("mod_path")
+            and os.path.normcase(os.path.abspath(project["mod_path"])) != here]
+
+
+def describe_profiles(profiles: Sequence[dict]) -> str:
+    """One line per profile: its content folder and the profile file that holds the link."""
+    lines = []
+    for project in profiles:
+        line = "  " + str(project.get("mod_path", ""))
+        if project.get("profile_path"):
+            line += f"\n    (profile file: {project['profile_path']})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def is_item_id(value) -> bool:
     text = str(value or "").strip()
     return text.isdigit() and text != "0"
@@ -114,6 +135,10 @@ def is_item_id(value) -> bool:
 class PublishCheck:
     blocks: List[str] = field(default_factory=list)     # never publishable
     confirms: List[str] = field(default_factory=list)   # each needs an explicit confirmation
+    # Profiles of other existing folders that target the same item; ``link_block`` is the matching
+    # entry of ``blocks``, which the uploader may replace with an "unlink and publish?" prompt.
+    linked_elsewhere: List[dict] = field(default_factory=list)
+    link_block: str = ""
 
     @property
     def ok(self) -> bool:
@@ -162,10 +187,13 @@ def check_publish(folder: str, item_id: str, inventory: Sequence[dict], last_sna
     if not is_item_id(item_id):
         return check
 
-    others = [path for path in other_folders_for_item(item_id, folder, projects) if os.path.isdir(path)]
-    if others:
-        check.blocks.append(f"Workshop item #{item_id} is linked to another folder:\n  " + "\n  ".join(others)
-                            + "\nPublish from that folder, or link this folder to the right item first.")
+    elsewhere = [p for p in other_profiles_for_item(item_id, folder, projects) if os.path.isdir(p["mod_path"])]
+    if elsewhere:
+        check.linked_elsewhere = elsewhere
+        check.link_block = (f"Workshop item #{item_id} is also linked by another local upload profile:\n"
+                            + describe_profiles(elsewhere)
+                            + "\nPublish from that folder, or unlink that profile from the item first.")
+        check.blocks.append(check.link_block)
 
     installed = installed_copy(item_id, content_dirs)
     if installed and local_ini:

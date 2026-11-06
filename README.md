@@ -25,7 +25,16 @@ The toolbox is organized around the way a mod is actually built rather than arou
 | **Archives** | Browse, search, extract, verify, and build ZFS archives (including supported legacy and encrypted formats) and Battlezone II / BZ2R PAK texture packs. |
 | **Workshop Publishing** | Check a mod before release, review changed files, fix common problems, and upload through your Steam client (or SteamCMD). |
 
+**HD terrain authoring:** **World & Terrain → HD Terrain Tiles** builds portable
+OpenShim diffuse/normal/specular/emissive tile bundles from independent source
+images or the ready CR source export. Includes editable masters, runtime
+manifests, full mip chains and validation. The normal atlas remains the fallback
+when DX11 Enhanced or HD tiles are off. See the
+[authoring guide](docs/world/HD_TERRAIN_TILES.md) or run `bztoolbox terrain hd-tiles --help`.
+
 ## Page gallery
+
+For step-by-step instructions, see the [wiki guides](https://github.com/GrizzlyOne95/Battlezone98_Modding_Toolbox/wiki): opening and testing a mod, fixing missing assets, textures, stock-file extraction, ODF edits, radio audio, Workshop publishing, and measured or symmetric map construction. The guides use the current UI and include tested settings and known limitations.
 
 These screenshots come from the running Toolbox with a temporary example mod.
 Select a thumbnail to view it at full size. Regenerate them on Windows with
@@ -269,7 +278,7 @@ Run `BZModdingToolbox-<version>-windows-setup.exe`.
 - It installs for your account without an administrator prompt, or for all users if you choose.
 - It adds a Start menu entry and registers under **Settings -> Apps** with its version and publisher.
 - It can add an **Open in BZ Modding Toolbox** entry to the right-click menu of folders, and put the `bztoolbox` command line on `PATH`.
-- To upgrade, run a newer setup (or use the toolbox's update banner). Setup recognises the installed copy and updates it in place: same folder and options, no licence or options pages, and your settings and project profiles are kept. It asks before replacing a newer version with an older one.
+- To upgrade, run a newer setup (or use the toolbox's update banner). Setup shows that version's patch notes before changing files. It recognises the installed copy and updates it in place: same folder and options, no licence or options pages, and your settings and project profiles are kept. It asks before replacing a newer version with an older one.
 - Uninstall from **Settings -> Apps**. It asks whether to delete your settings too.
 
 Prefer not to install? `BZModdingToolbox-<version>-windows-portable.zip` is the same program: extract it and run `BZModdingToolbox.exe`. The command-line version is `bztoolbox.exe` in the same folder.
@@ -288,7 +297,7 @@ You can also run `BZModdingToolbox/BZModdingToolbox` straight from the extracted
 
 ### Updates
 
-The toolbox checks for a new release at most once a day and shows a banner when there is one. An installed Windows copy can update itself from the banner; other copies get a link to the right download. Turn the check off, or check now, under **Settings -> General**.
+The toolbox checks for a new release at most once a day and shows a banner when there is one. **View patch notes** displays the release changes inside the app. On installed Windows copies, **Update now** opens the same review before downloading and running setup; cancelling leaves the current version alone. Other copies get a link to the right download. The release notes are also included in every downloaded package. Turn the check off, or check now, under **Settings -> General**.
 
 ### Where your settings live
 

@@ -23,6 +23,8 @@ from bztoolbox.modules.publishing import steam_errors
 from bztoolbox.modules.publishing.steamworks_tags import UPDATE_STATUS, SteamworksTagUpdater, steam_client_running
 from bztoolbox.app.fonts import bz_font
 from bztoolbox.system import open_in_file_manager
+from bztoolbox.modules.terrain_generator.starter_layouts import STARTER_LAYOUTS
+from bztoolbox.modules.world.new_map import WORLDS, create_new_map, ini_text
 
 try:
     from PIL import Image
@@ -135,134 +137,138 @@ class ToolTip:
             self.tip_window = None
 
 class TemplateWizard(tk.Toplevel):
-    def __init__(self, parent, colors, on_success):
+    def __init__(self, parent, colors, on_success, heights=None):
+        """``heights`` (HG2 samples) makes this save that terrain as a map
+        instead of building a starter one."""
         super().__init__(parent)
         apply_window_icon(self)
-        self.title("New Content Wizard")
-        self.geometry("500x550")
+        self.heights = heights
+        self.title("New Content Wizard" if heights is None else "Save Terrain as Map")
+        self.geometry("500x600")
         self.configure(bg=colors["bg"])
         self.colors = colors
         self.on_success = on_success
         self.resizable(False, False)
-        
+
         # Variables
-        self.name_var = tk.StringVar(value="my_new_map")
-        self.type_var = tk.StringVar(value="multiplayer")
+        self.name_var = tk.StringVar(value="newmap")
+        self.type_var = tk.StringVar(value="instant_action")
+        self.world_var = tk.StringVar(value="Moon")
+        self.size_var = tk.StringVar(value="3")
+        self.layout_var = tk.StringVar(value="Flat Field")
         self.min_p_var = tk.StringVar(value="2")
         self.max_p_var = tk.StringVar(value="4")
-        self.game_type_var = tk.StringVar(value="S")
-        
+        self.game_type_var = tk.StringVar(value="D (Deathmatch)")
+
         self.setup_ui()
         self.transient(parent)
         self.grab_set()
 
     def setup_ui(self):
-        style = ttk.Style()
         c = self.colors
-        
+
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill="both", expand=True)
-        
-        ttk.Label(frame, text="CREATE NEW BZR CONTENT", font=("Consolas", 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
-        
+
+        ttk.Label(frame, text="CREATE NEW BZR CONTENT" if self.heights is None else "SAVE TERRAIN AS MAP", font=("Consolas", 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
+
         # Name
-        ttk.Label(frame, text="Content Name:").pack(anchor="w")
+        ttk.Label(frame, text="Content Name (a map: 1-8 letters or digits):").pack(anchor="w")
         ttk.Entry(frame, textvariable=self.name_var).pack(fill="x", pady=(0, 15))
-        
+
         # Map Type
         ttk.Label(frame, text="Map Type:").pack(anchor="w")
-        type_combo = ttk.Combobox(frame, textvariable=self.type_var, values=["instant_action", "multiplayer", "mod"], state="readonly")
+        type_combo = ttk.Combobox(frame, textvariable=self.type_var, values=["instant_action", "multiplayer"] + (["mod"] if self.heights is None else []), state="readonly")
         type_combo.pack(fill="x", pady=(0, 15))
-        type_combo.bind("<<ComboboxSelected>>", self._toggle_mp_fields)
-        
-        # MP Specifics
-        self.mp_frame = ttk.LabelFrame(frame, text=" MULTIPLAYER SETTINGS ", padding=10)
-        self.mp_frame.pack(fill="x", pady=5)
-        
+        type_combo.bind("<<ComboboxSelected>>", self._toggle_fields)
+
+        # Both map types build a playable starter map; a mod gets only its INI.
+        self.options = ttk.Frame(frame)
+        self.options.pack(fill="x")
+        self.map_frame = ttk.LabelFrame(self.options, text=" STARTER MAP " if self.heights is None else " MAP ", padding=10)
+        ttk.Label(self.map_frame, text="World:").grid(row=0, column=0, sticky="w")
+        ttk.Combobox(self.map_frame, textvariable=self.world_var, values=list(WORLDS), state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
+        if self.heights is None:        # saved terrain brings its own size and shape
+            ttk.Label(self.map_frame, text="Size (km per side):").grid(row=1, column=0, sticky="w", pady=5)
+            ttk.Combobox(self.map_frame, textvariable=self.size_var, values=[str(z) for z in range(2, 9)], state="readonly", width=5).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+            ttk.Label(self.map_frame, text="Layout:").grid(row=2, column=0, sticky="w")
+            ttk.Combobox(self.map_frame, textvariable=self.layout_var, values=list(STARTER_LAYOUTS), state="readonly", width=25).grid(row=2, column=1, sticky="ew", padx=5)
+
+        self.mp_frame = ttk.LabelFrame(self.options, text=" MULTIPLAYER SETTINGS ", padding=10)
         ttk.Label(self.mp_frame, text="Game Type:").grid(row=0, column=0, sticky="w")
-        ttk.Combobox(self.mp_frame, textvariable=self.game_type_var, values=["D (Deathmatch)", "S (Strategy)", "K (King Of The Hill)", "M (Multiplayer Instant)", "A (Multiplayer Action)"], state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
-        
+        ttk.Combobox(self.mp_frame, textvariable=self.game_type_var, values=["D (Deathmatch)", "S (Strategy)"], state="readonly", width=25).grid(row=0, column=1, sticky="ew", padx=5)
         ttk.Label(self.mp_frame, text="Min Players:").grid(row=1, column=0, sticky="w", pady=5)
         ttk.Entry(self.mp_frame, textvariable=self.min_p_var, width=5).grid(row=1, column=1, sticky="w", padx=5, pady=5)
-        
         ttk.Label(self.mp_frame, text="Max Players:").grid(row=2, column=0, sticky="w")
         ttk.Entry(self.mp_frame, textvariable=self.max_p_var, width=5).grid(row=2, column=1, sticky="w", padx=5)
-        
+        self._toggle_fields()
+
         # Actions
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", side="bottom", pady=20)
-        
-        ttk.Button(btn_frame, text="CREATE CONTENT", command=self.create_project, style="Success.TButton").pack(side="right", padx=5)
+
+        ttk.Button(btn_frame, text="CREATE CONTENT" if self.heights is None else "SAVE MAP", command=self.create_project, style="Success.TButton").pack(side="right", padx=5)
         ttk.Button(btn_frame, text="CANCEL", command=self.destroy).pack(side="right")
 
-    def _toggle_mp_fields(self, event=None):
-        if self.type_var.get() == "multiplayer":
-            self.mp_frame.pack(fill="x", pady=5, after=self.mp_frame.master.children.get("type_combo")) # Helper logic
-            # Actually just simple pack/unpack
+    def _toggle_fields(self, event=None):
+        m_type = self.type_var.get()
+        self.map_frame.pack_forget()
+        self.mp_frame.pack_forget()
+        if m_type != "mod":
+            self.map_frame.pack(fill="x", pady=5)
+        if m_type == "multiplayer":
             self.mp_frame.pack(fill="x", pady=5)
-        else:
-            self.mp_frame.pack_forget()
 
     def create_project(self):
         name = self.name_var.get().strip()
+        m_type = self.type_var.get()
         if not name:
             messagebox.showerror("Error", "Content name cannot be empty.")
             return
-            
+        if m_type != "mod" and (len(name) > 8 or not (name.isascii() and name.isalnum())):
+            messagebox.showerror("Error", "A map name must be 1-8 letters or digits (the game's limit).")
+            return
+        min_p, max_p = 2, 4
+        if m_type == "multiplayer":
+            try:
+                min_p, max_p = int(self.min_p_var.get()), int(self.max_p_var.get())
+            except ValueError:
+                messagebox.showerror("Error", "Player counts must be whole numbers.")
+                return
+
         target_dir = filedialog.askdirectory(title="Select Parent Folder for New Content")
         if not target_dir: return
-        
+
         project_path = os.path.join(target_dir, name)
         if os.path.exists(project_path):
             if not messagebox.askyesno("Warning", f"Folder '{name}' already exists. Overwrite?"):
                 return
-        
+
         try:
-            os.makedirs(project_path, exist_ok=True)
-            
-            # 1. Create .INI file
-            m_type = self.type_var.get()
-            g_type = self.game_type_var.get()[0]
-            
-            ini_content = f"""[DESCRIPTION]
-missionName = "{name}"
+            if m_type == "mod":
+                os.makedirs(project_path, exist_ok=True)
+                with open(os.path.join(project_path, f"{name}.ini"), "w", encoding="utf-8") as f:
+                    f.write(ini_text(name, m_type))
+            else:
+                self.config(cursor="watch")
+                self.update()
+                create_new_map(target_dir, name, mode=m_type, world=self.world_var.get(),
+                               zones=int(self.size_var.get()), layout=self.layout_var.get(),
+                               min_players=min_p, max_players=max_p, game_type=self.game_type_var.get()[0],
+                               heights=self.heights)
 
-[WORKSHOP]
-mapType = "{m_type}"
-;customtags = ""
-
-"""
-            if m_type == "multiplayer":
-                ini_content += f"""[MULTIPLAYER]
-minPlayers = "{self.min_p_var.get()}"
-maxPlayers = "{self.max_p_var.get()}"
-gameType = "{g_type}"
-; D=Deathmatch, S=Strategy, K=KOTH, M=MP Instant, A=MP Action
-"""
-            
-            with open(os.path.join(project_path, f"{name}.ini"), "w", encoding="utf-8") as f:
-                f.write(ini_content)
-                
-            # 2. Create placeholder map files
-            exts = [".hg2", ".trn", ".mat", ".bzn", ".lgt"]
-            if m_type == "multiplayer":
-                exts.extend([".bmp", ".des", ".vxt"])
-                
-            for ext in exts:
-                with open(os.path.join(project_path, f"{name}{ext}"), "w", encoding="utf-8") as f:
-                    if ext == ".trn":
-                        f.write("[Size]\nTileSize = 8\nSizeX = 128\nSizeZ = 128\n")
-                    elif ext == ".des":
-                        f.write(f"Description for {name}")
-                    else:
-                        f.write("") # Just touch the file
-            
             self.on_success(project_path)
             self.destroy()
-            messagebox.showinfo("Success", f"Content '{name}' created successfully!")
-            
+            if m_type == "mod":
+                messagebox.showinfo("Success", f"Content '{name}' created successfully!")
+            else:
+                messagebox.showinfo("Success", f"Map '{name}' is ready: terrain, mission and INI are written.\n"
+                                               "Play it from Project → Test in Game, with Test the map as offline or multiplayer.")
+
         except Exception as e:
+            self.config(cursor="")
             messagebox.showerror("Error", f"Failed to create project: {e}")
+
 
 class WorkshopUploader:
     def __init__(self, root):
@@ -660,7 +666,7 @@ class WorkshopUploader:
             row_id = self.project_tree.insert(
                 "",
                 "end",
-                values=(project_name, item_display, updated),
+                values=(project_name, project.get("mod_path", ""), item_display, updated),
                 tags=(project.get("profile_path", ""),),
             )
             if project.get("profile_path", "") == self.current_project_profile_path:
@@ -955,6 +961,10 @@ class WorkshopUploader:
                 "line": 0,
                 "action": "delete_legacy",
             })
+
+        # Blockers first: hundreds of warnings otherwise push them out of view.
+        severity_order = {"Blocking": 0, "Fixable": 1, "Warning": 2}
+        rows.sort(key=lambda row: severity_order.get(row["severity"], 3))
 
         if not rows:
             rows.append({
@@ -1768,11 +1778,13 @@ class WorkshopUploader:
 
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=True)
-        self.project_tree = ttk.Treeview(tree_frame, columns=("Name", "Item", "Updated"), show="headings", height=10, selectmode="browse")
+        self.project_tree = ttk.Treeview(tree_frame, columns=("Name", "Folder", "Item", "Updated"), show="headings", height=10, selectmode="browse")
         self.project_tree.heading("Name", text="Profile")
+        self.project_tree.heading("Folder", text="Folder")
         self.project_tree.heading("Item", text="Workshop ID")
         self.project_tree.heading("Updated", text="Last Opened")
         self.project_tree.column("Name", width=180)
+        self.project_tree.column("Folder", width=220)
         self.project_tree.column("Item", width=90, anchor="center")
         self.project_tree.column("Updated", width=120, anchor="center")
         prj_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.project_tree.yview)
@@ -2929,9 +2941,10 @@ class WorkshopUploader:
                  "Publish will then REPLACE that item's content with this folder."]
         if publish_guard.is_item_id(current) and current != str(item_id):
             lines.append(f"\nThis folder is currently linked to #{current}.")
-        others = publish_guard.other_folders_for_item(item_id, mod_path, self.project_store.list_projects())
+        others = publish_guard.other_profiles_for_item(item_id, mod_path, self.project_store.list_projects())
         if others:
-            lines.append("\nThis item is already linked to another folder:\n  " + "\n  ".join(others))
+            lines.append("\nThis item is also linked by another upload profile. The other profile(s) will be "
+                         "unlinked:\n" + publish_guard.describe_profiles(others))
         installed = publish_guard.installed_copy(item_id, self._workshop_dirs())
         if installed:
             local, remote = publish_guard.root_ini_names(mod_path), publish_guard.root_ini_names(installed)
@@ -2939,6 +2952,16 @@ class WorkshopUploader:
                 lines.append(f"\nWARNING: the installed copy of #{item_id} has different mission files "
                              f"({', '.join(sorted(remote)[:4])}). It looks like a different mod.")
         return bool(messagebox.askyesno("Link Workshop item", "\n".join(lines), icon="warning", default="no"))
+
+    def _unlink_other_profiles(self, item_id, mod_path):
+        """Clear ``item_id`` from every other upload profile, so only ``mod_path`` targets it."""
+        unlinked = self.project_store.unlink_item(item_id, mod_path)
+        for project in unlinked:
+            self.log(f"Unlinked Workshop item #{item_id} from upload profile {project.get('profile_path', '')} "
+                     f"({project.get('mod_path', '')})")
+        if unlinked and hasattr(self, "project_tree"):
+            self.refresh_recent_projects()
+        return unlinked
 
     def suggest_workshop_link(self, folder=None):
         """Offer to link a folder with no Workshop item to the installed item with the same mission files."""
@@ -3050,6 +3073,22 @@ class WorkshopUploader:
 
         inventory = self._build_mod_inventory(content)
         guard = self._check_publish(content, inventory)
+        if guard.linked_elsewhere:
+            from bztoolbox.modules.publishing import publish_guard
+
+            item_id_text = self.item_id_var.get().strip()
+            if not messagebox.askyesno(
+                    "Workshop item linked twice",
+                    f"Another local upload profile also targets Workshop item #{item_id_text}:\n\n"
+                    + publish_guard.describe_profiles(guard.linked_elsewhere)
+                    + f"\n\nThis folder:\n  {content}\n\n"
+                    "Unlink the other profile and publish from this folder?\n"
+                    "(The other profile and its folder are kept, but no longer point at the item.)",
+                    icon="warning", default="no"):
+                self.log("Publish cancelled: Workshop item is linked to another upload profile.")
+                return
+            self._unlink_other_profiles(item_id_text, content)
+            guard = self._check_publish(content, inventory)
         if guard.blocks:
             messagebox.showerror("Publish blocked", "\n\n".join(guard.blocks))
             self.log("Publish blocked: " + " | ".join(b.splitlines()[0] for b in guard.blocks))
@@ -3610,6 +3649,7 @@ class WorkshopUploader:
             return False
         if not self._confirm_link(item_id, title, mod_path):
             return False
+        self._unlink_other_profiles(item_id, mod_path)
         self.item_id_var.set(item_id)
         # Publish sends visibility every time; keep the item's current one
         # instead of the folder default (Public) so linking can't unhide it.

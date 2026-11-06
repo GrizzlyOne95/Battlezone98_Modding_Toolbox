@@ -12,6 +12,7 @@ import random
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+from battlezone.terrain.atlas import validate_tile_name
 
 
 def generate_transition_mask(mode: str, cfg: dict) -> Image.Image:
@@ -151,6 +152,7 @@ def build_custom_atlas(cfg: dict) -> dict:
     """Build and export a Custom Atlas Creator bundle without any GUI state."""
     res = cfg["res"]
     prfx = cfg["prfx"]
+    tile_prfx = cfg.get("tile_prefix", prfx)
     prfx_upper = prfx.upper()
     mode = cfg["mode"]
 
@@ -168,7 +170,8 @@ def build_custom_atlas(cfg: dict) -> dict:
         token = _material_token(i, cfg)
         repeat_idx = f"{token}{token}"
         for idx, var in enumerate(vars_found):
-            name = f"{prfx}{repeat_idx}s{var}0.MAP".upper()
+            name = f"{tile_prfx}{repeat_idx}s{var}0.MAP".upper()
+            validate_tile_name(name)
             baked_data.append((name, cfg["groups"][i][var]))
             slot = chr(65 + idx)
             trn_blocks[i]["solids"].append((slot, name))
@@ -208,12 +211,14 @@ def build_custom_atlas(cfg: dict) -> dict:
         if want_cap:
             c_img = base_img.copy()
             c_img.paste(target_img, (0, 0), c_m)
-            c_name = f"{prfx}{i_token}{j_token}cA0.MAP".upper()
+            c_name = f"{tile_prfx}{i_token}{j_token}cA0.MAP".upper()
+            validate_tile_name(c_name)
             baked_data.append((c_name, c_img))
         if want_diagonal:
             d_img = base_img.copy()
             d_img.paste(target_img, (0, 0), d_m)
-            d_name = f"{prfx}{i_token}{j_token}dA0.MAP".upper()
+            d_name = f"{tile_prfx}{i_token}{j_token}dA0.MAP".upper()
+            validate_tile_name(d_name)
             baked_data.append((d_name, d_img))
 
         trn_blocks[i]["transitions"].append((j, c_name, d_name))
@@ -316,6 +321,7 @@ def build_custom_atlas(cfg: dict) -> dict:
 
     return {
         "prefix": prfx_upper,
+        "tile_prefix": tile_prfx.upper(),
         "grid": gs,
         "atlas_size": [at_res, at_res],
         "tile_count": len(baked_data),

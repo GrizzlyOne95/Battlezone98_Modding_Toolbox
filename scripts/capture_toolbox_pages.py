@@ -90,8 +90,10 @@ def capture(pages: list[str], output_dir: Path) -> None:
                     controls = list(descendants(frame.widget))
                     button = next(w for w in controls if isinstance(w, ttk.Button)
                                   and w.cget("text") == "GENERATE  (New Terrain)")
+                    # The page previews on load; a fast layout may already be done.
                     info = next(w for w in controls if isinstance(w, ttk.Label)
-                                and w.cget("text") == "Generate a terrain to preview it.")
+                                and (w.cget("text") == "Generate a terrain to preview it."
+                                     or "samples |" in w.cget("text")))
                     button.invoke()
                     deadline = time.monotonic() + 15
                     while "full generation" not in info.cget("text") and time.monotonic() < deadline:

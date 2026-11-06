@@ -585,11 +585,19 @@ class ModScanner:
         missing = [ext for ext in self.TERRAIN_EXTS if f"{base_name}{ext}".lower() not in files_lower]
         bzn = next((name for name in os.listdir(mod_dir) if name.lower() == f"{base_name}.bzn".lower()), None)
         terrain = bzn_terrain_name(os.path.join(mod_dir, bzn)) if bzn else None
-        if not terrain or terrain.lower() == base_name.lower():
-            for ext in missing:
-                errors.append(f"Missing essential file: {base_name}{ext}")
-            return
         stock_trn = stock_models().get("trn", frozenset())
+        if not terrain or terrain.lower() == base_name.lower():
+            if missing:
+                names = ", ".join(base_name + ext for ext in missing)
+                if f"{base_name}.trn".lower() in stock_trn:
+                    errors.append(f"{base_name}.ini is a map on the stock '{base_name}' terrain, but {names} "
+                                  f"{'is' if len(missing) == 1 else 'are'} not in the content folder. The game "
+                                  f"loads the stock copies, but Workshop uploads need the same-named files "
+                                  f"beside the .ini: copy them from the stock game into the mod.")
+                else:
+                    errors.append(f"{base_name}.ini is a map, but its terrain ({names}) is missing from "
+                                  f"the content folder.")
+            return
         if f"{terrain}.trn".lower() not in files_lower and f"{terrain}.trn".lower() not in stock_trn:
             errors.append(f"{bzn} loads terrain '{terrain}', which is not in the mod or the stock game.")
         elif missing:
@@ -645,4 +653,42 @@ class ModScanner:
                     if game_type and game_type[:1].upper() not in self.VALID_GAME_TYPES:
                         errors.append(f"{target_ini}: gameType '{game_type}' is not one of D, S, A, M or K "
                                       "(Deathmatch, Strategy, MP Action, MP Instant, King of the Hill).")
+            max_players = config["MULTIPLAYER"].get("maxplayers", "") if "MULTIPLAYER" in config else ""
+            self._check_map_mission(mod_dir, base_name, map_type, errors, warnings, max_players)
         return map_type
+
+    MP_MISSION_CLASSES = ("MultDMMission", "MultSTMission")
+
+    def _check_map_mission(self, mod_dir, base_name, map_type, errors, warnings, max_players=""):
+        """The .bzn's mission class must suit the menu its .ini puts it in."""
+        from battlezone.bzn.bz1 import read_bzn
+
+        bzn = next((name for name in os.listdir(mod_dir) if name.lower() == f"{base_name}.bzn".lower()), None)
+        if not bzn:
+            return
+        try:
+            mission = read_bzn(os.path.join(mod_dir, bzn), odf_dirs=[mod_dir])   # the map's own ODFs name custom classes
+        except Exception:
+            return      # pre-1022 and other unreadable BZNs still load in the game; nothing to check
+
+        mp_class = mission.mission_name in self.MP_MISSION_CLASSES
+        if map_type == "multiplayer" and not mp_class:
+            errors.append(f"{bzn} uses mission class {mission.mission_name or '(none)'}, which does not load from "
+                          f"the Multiplayer menu; it needs {' or '.join(self.MP_MISSION_CLASSES)}.")
+        elif map_type == "instant_action" and mp_class:
+            errors.append(f"{bzn} uses multiplayer mission class {mission.mission_name}, which does not load from "
+                          f"Instant Action; LuaMission does.")
+        if map_type != "multiplayer":
+            return
+        spawns = sum(obj.class_label == "spawnpnt" for obj in mission.objects)
+        if not spawns:
+            errors.append(f"{bzn} has no spawn point, so it does not load from the Multiplayer menu; load it "
+                          f"offline (test mode Offline) and place one in the editor.")
+        try:
+            wanted = int(str(max_players).strip().strip('"').strip("'"))
+        except ValueError:
+            return
+        # The host only hands out free spawn points; a player past the last one waits for a spawn forever.
+        if 0 < spawns < wanted:
+            warnings.append(f"{bzn} has {spawns} spawn point{'s' if spawns != 1 else ''} but maxPlayers is "
+                            f"{wanted}; players past {spawns} may never spawn. Place more in the editor.")

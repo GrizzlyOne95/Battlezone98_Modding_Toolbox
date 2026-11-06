@@ -26,6 +26,8 @@ class RawCacheKey:
     feature_density: float
     symmetry: str
     synthetic_pads: int
+    plateaus: int
+    plateau_height: float
 
     @classmethod
     def from_settings(cls, style: str, s: GeneratorSettings) -> "RawCacheKey":
@@ -41,6 +43,8 @@ class RawCacheKey:
             feature_density=s.feature_density,
             symmetry=s.symmetry,
             synthetic_pads=s.synthetic_pads,
+            plateaus=s.plateaus,
+            plateau_height=s.plateau_height,
         )
 
 
@@ -104,4 +108,4 @@ DebounceState = LatestJobCoordinator
 
 
 def raw_cache_key_for_test(style: str, zones_x: int, zones_z: int, seed: int) -> RawCacheKey:
-    return RawCacheKey(style, zones_x, zones_z, seed, 1.0, 0.65, 0.55, 0.5, 0.5, "None", 0)
+    return RawCacheKey(style, zones_x, zones_z, seed, 1.0, 0.65, 0.55, 0.5, 0.5, "None", 0, 2, 300.0)

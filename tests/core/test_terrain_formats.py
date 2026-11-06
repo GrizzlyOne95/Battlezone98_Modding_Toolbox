@@ -77,6 +77,17 @@ def test_mat_roundtrip(tmp_path):
     assert mat.decode_entry(int(entries[0, 5])).base == 5
 
 
+def test_mat_usage_follows_engine_cap_diagonal_selector():
+    # Public MAT specification and Redux FUN_0077ea10: borderName[1]
+    # (CapTo) occupies table selector 0; borderName[2] (DiagonalTo) selector 1.
+    entries = np.array([0x0100, 0x0173, 0x0180, 0x01F3, 0x11F2], np.uint16)
+    assert mat.mat_slot_usage(entries) == {
+        (0, "C", 1, 0): 1, (0, "C", 1, 3): 1,
+        (0, "D", 1, 0): 1, (0, "D", 1, 3): 1,
+        (1, "S", 1, 2): 1,
+    }
+
+
 def test_one_palette_set():
     from bztoolbox.modules.textures import stock_palettes as tex
     from bztoolbox.modules.world import stock_palettes as world

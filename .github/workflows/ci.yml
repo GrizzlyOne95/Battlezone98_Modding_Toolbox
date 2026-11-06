@@ -9,7 +9,9 @@ name: CI
 # (release: major/minor/patch/skip labels on the merged PR, patch by
 # default), the notes from the merged PRs (.github/release.yml), and the
 # downloads are attached: Windows setup + portable zip, macOS disk image, Linux
-# archive with its install script. The Windows installer and the Linux script
+# archive with its install script. Notes are generated before packaging so the
+# Windows wizard, installed files and GitHub release all contain the same notes.
+# The Windows installer and the Linux script
 # are installed and uninstalled on every run. "Run workflow" on main releases by hand.
 
 on:
@@ -85,6 +87,31 @@ jobs:
               echo "Add a \`release: minor\`, \`release: major\` or \`release: skip\` label to change that."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Generate notes before packaging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          RELEASE: ${{ steps.plan.outputs.release }}
+        run: |
+          mkdir -p build
+          if [[ "$GITHUB_REF" == "refs/heads/main" && "$RELEASE" == "true" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+              --jq .body > build/release_notes_body.md
+          else
+            printf 'CI preview only. Final patch notes are generated when this change is released from main.\n' > build/release_notes_body.md
+          fi
+          python scripts/release/render_notes.py --version "$TAG" \
+            --body build/release_notes_body.md --markdown build/RELEASE_NOTES.md \
+            --text build/RELEASE_NOTES.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: |
+            build/RELEASE_NOTES.md
+            build/RELEASE_NOTES.txt
+          if-no-files-found: error
 
   test:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -112,9 +139,26 @@ jobs:
       - name: Run tests (Linux, under Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m pytest -q
-      - name: Run tests (Windows / macOS)
-        if: runner.os != 'Linux'
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
         run: python -m pytest -q
+      - name: Install macOS test hang diagnostics
+        if: runner.os == 'macOS'
+        run: python -m pip install pytest-timeout
+      - name: Test HD terrain GUI on macOS
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python -X faulthandler -m pytest -vv -s --timeout=90 --timeout-method=thread tests/app/test_hd_terrain_page.py
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 15
+        env:
+          PYTHONUNBUFFERED: '1'
+        # Tk is process-global on macOS. The HD integration test runs above in
+        # its own pytest process so preceding GUI tests cannot contaminate it.
+        run: python -X faulthandler -m pytest -vv --timeout=90 --timeout-method=thread --ignore=tests/app/test_hd_terrain_page.py
       - name: CLI smoke test
         run: python -m bztoolbox help
 
@@ -134,6 +178,10 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: build
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -198,6 +246,11 @@ jobs:
           if (-not (Select-String -Quiet -SimpleMatch "Found installed version 0.0.1: updating to $env:VERSION." "$env:RUNNER_TEMP\setup.log")) {
             Get-Content "$env:RUNNER_TEMP\setup.log"; throw 'setup did not recognise the installed copy as an update'
           }
+          $notes = Join-Path $dir 'RELEASE_NOTES.md'
+          if (-not (Test-Path $notes)) { throw 'release notes were not installed' }
+          if (-not (Select-String -Quiet -SimpleMatch "Battlezone Modding Toolbox v$env:VERSION" $notes)) {
+            throw 'installed release notes do not match the installer version'
+          }
 
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{63CD0930-D3A1-4F9C-9DFE-251D48C601EF}_is1'
           $entry = Get-ItemProperty $key
@@ -235,7 +288,7 @@ jobs:
         shell: pwsh
         run: |
           # the portable build, for anyone who does not want to install
-          Copy-Item README.md, LICENSE, LICENSING.md, THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
+          Copy-Item README.md, LICENSE, LICENSING.md, THIRD_PARTY_NOTICES.md, build/RELEASE_NOTES.md dist/BZModdingToolbox/
           Compress-Archive -Path dist/BZModdingToolbox -DestinationPath "BZModdingToolbox-v$env:VERSION-windows-portable.zip"
       - name: Package (macOS)
         if: runner.os == 'macOS'
@@ -244,14 +297,14 @@ jobs:
           mkdir -p build/dmg
           cp -R dist/BZModdingToolbox.app build/dmg/
           ln -s /Applications build/dmg/Applications
-          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md build/dmg/
+          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md build/RELEASE_NOTES.md build/dmg/
           hdiutil create -volname "Battlezone Modding Toolbox" -srcfolder build/dmg -fs HFS+ \
             -format UDZO -ov "BZModdingToolbox-v$VERSION-macos.dmg"
           hdiutil verify "BZModdingToolbox-v$VERSION-macos.dmg"
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md dist/BZModdingToolbox/
+          cp README.md LICENSE LICENSING.md THIRD_PARTY_NOTICES.md build/RELEASE_NOTES.md dist/BZModdingToolbox/
           cp packaging/linux/install.sh packaging/linux/io.github.grizzlyone95.bzmoddingtoolbox.desktop dist/BZModdingToolbox/
           cp bztoolbox/resources/branding/app_icon.png dist/BZModdingToolbox/io.github.grizzlyone95.bzmoddingtoolbox.png
           chmod +x dist/BZModdingToolbox/install.sh
@@ -321,12 +374,16 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: build
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: Battlezone Modding Toolbox ${{ needs.version.outputs.tag }}
-          generate_release_notes: true
+          body_path: build/RELEASE_NOTES.md
           make_latest: true
           fail_on_unmatched_files: true
           files: artifacts/BZModdingToolbox-v*

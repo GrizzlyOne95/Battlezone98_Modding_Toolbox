@@ -205,6 +205,16 @@ class TerrainNameTests(unittest.TestCase):
         self.assertEqual([sev for sev, _ in issues], ["warning"], issues)
         self.assertIn("reuses terrain 'chill'", issues[0][1])
 
+    def test_same_named_stock_terrain_explains_the_copy(self):
+        (self.root / "misn03.ini").write_text('[WORKSHOP]\nmapType = "multiplayer"\n', encoding="utf-8")
+        for ext in (".bmp", ".des", ".hg2"):
+            (self.root / f"misn03{ext}").write_bytes(b"")
+        (self.root / "misn03.bzn").write_bytes(b"binarySave [1] =\nfalse\nTerrainName = misn03\n")
+        errors = [msg for sev, msg in self.structure() if sev == "error" and msg.startswith("misn03.ini is a map")]
+        self.assertEqual(len(errors), 1, errors)   # one row per map, not one per extension
+        self.assertIn("stock 'misn03' terrain", errors[0])
+        self.assertIn("misn03.trn, misn03.mat, misn03.lgt are not in the content folder", errors[0])
+
     def test_stock_terrain_counts_and_a_missing_one_is_an_error(self):
         (self.root / "mymap.bzn").write_bytes(b"binarySave [1] =\nfalse\nTerrainName = misn03\n")
         self.assertEqual([sev for sev, _ in self.structure()], ["warning"])

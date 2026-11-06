@@ -17,12 +17,38 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 __all__ = ["AtlasCell", "read_atlas_csv", "read_atlas_default", "MaterialDef", "parse_materials", "read_materials",
-           "tile_level", "tile_family"]
+           "tile_level", "tile_family", "validate_tile_name", "compact_tile_prefix"]
+
+TILE_NAME_MAX_BYTES = 15  # Redux's 16-byte terrain-name records include a NUL.
+
+
+def validate_tile_name(name: str) -> None:
+    """Reject aliases that the engine cannot retain for atlas lookup."""
+    if not name or not name.isascii() or "\0" in name or len(name) > TILE_NAME_MAX_BYTES:
+        raise ValueError(f"Terrain tile name {name!r} must be ASCII and fit 15 bytes "
+                         "including .map (16-byte engine record with terminator); "
+                         "use a shorter tile prefix")
+
+
+def compact_tile_prefix(prefix: str, suffix_bytes: int = 9) -> str:
+    """Keep short prefixes; compact long ones deterministically without truncating aliases.
+
+    Asset/material filenames may keep the full prefix. Only generated MAP aliases
+    need this limit. The normal ``00SA0.MAP`` suffix takes nine bytes.
+    """
+    budget = TILE_NAME_MAX_BYTES - suffix_bytes
+    if budget < 5 or not prefix or not prefix.isascii() or not prefix.isalnum():
+        raise ValueError("Tile prefix must be ASCII alphanumeric with room for a hash")
+    if len(prefix) <= budget:
+        return prefix
+    digest = hashlib.sha256(prefix.casefold().encode("ascii")).hexdigest()[:4]
+    return prefix[:budget - 4] + digest
 
 _LEVEL = re.compile(r"^(.*?)(\d)(\.map)?$", re.IGNORECASE)
 

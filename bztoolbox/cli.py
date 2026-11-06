@@ -78,6 +78,8 @@ DELEGATES: Sequence[Delegate] = (
              "Convert a Battlezone 1 BZN between 1.5 (1045) and Redux (2016), reporting every change.", True),
     Delegate("bzn", "replace-class", "battlezone.bzn.class_replace:main",
              "Preview or apply class-aware object record replacement in a Redux mission.", True),
+    Delegate("terrain", "hd-tiles", "bztoolbox.modules.world.hd_tiles:main",
+             "Build and validate portable OpenShim HD terrain authoring bundles.", True),
     Delegate("terrain", "heightmap", "bztoolbox.modules.terrain_generator.heightmap_convert:main",
              "Convert legacy .HGT terrain to Redux .HG2 and back.", True),
     Delegate("terrain", "relight", "bztoolbox.modules.terrain_generator.relight:main",
@@ -98,6 +100,10 @@ DELEGATES: Sequence[Delegate] = (
              "Render map preview images for TRN/HG2 folders.", False, "WorldBuilder"),
     Delegate("textures", "makemap", "bztoolbox.modules.textures.makemap_compat:main",
              "MakeMAP-compatible MAP encoder/decoder.", True, "TextureManager"),
+    Delegate("textures", "lum", "bztoolbox.modules.textures.lum_cli:main",
+             "Create/edit LUM tables, inspect Redux fog colors, and import/export lossless PNG.", True),
+    Delegate("textures", "act", "bztoolbox.modules.textures.act_cli:main",
+             "Generate tuned world ACT atmospheres individually or as a nine-world pack.", True),
     Delegate("textures", "recompress", "bztoolbox.modules.textures.recompress:main",
              "Bulk DDS recompression with backups.", False, "TextureManager"),
     Delegate("textures", "shrink-previews", "bztoolbox.modules.textures.shrink_previews:main",
@@ -111,6 +117,8 @@ DELEGATES: Sequence[Delegate] = (
              True),
     Delegate("fonts", "dump-st", "bztoolbox.modules.fonts.dump_bzfont_st:main",
              "Dump stock bzfont.st sprite coordinates.", False, "Font Generator"),
+    Delegate("fonts", "build", "bztoolbox.modules.fonts.build_cli:main",
+             "Build bzfont.dds and bzfont_ru.dds from a font, fitted to the stock slots.", True),
 )
 
 _DELEGATE_INDEX = {(d.group, d.name): d for d in DELEGATES}

@@ -27,6 +27,8 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
+from battlezone.terrain.atlas import validate_tile_name
 import bc1, masks as maskgen
 from ddswrite import write_dxt1
 from build_world import (CHANNELS, DEFAULT, MATERIAL_TEMPLATE, _renorm, cut_existing,
@@ -42,7 +44,7 @@ SRC_ROOT = CACHE if os.path.isdir(CACHE) else CC_ROOT
 
 MAX_ATLAS = 8192          # every channel of every world stays at or under this
 MAX_TILE = 1024           # past here the win is invisible and the cost is not
-TILE_RE = re.compile(r"^([a-z]+)(\d)(\d)([scd])(\d)$", re.I)
+TILE_RE = re.compile(r"^([a-z][a-z0-9]*?)(\d)(\d)([scd])(\d)$", re.I)
 
 
 # --------------------------------------------------------------------- planning
@@ -60,6 +62,7 @@ def plan_tiles(mat, cfg, required):
 
     def add(i, j, kind, var, why, src=None, seed_bump=0):
         name = f"{pre}{i}{j}{kind}{var}"
+        validate_tile_name(name + ".map")
         if name in seen:
             return False
         seen.add(name)
@@ -152,6 +155,14 @@ def pick_tile_px(grid):
     return px
 
 
+def padded_tile(a, cell_px, gutter_px, channel):
+    """Downsample each tile alone, then extrude its edges into the filter gutter."""
+    interior = cell_px - 2 * gutter_px
+    tile = downsample(a.astype(np.float32), interior, channel)
+    return np.pad(np.clip(tile, 0, 255).astype(np.uint8),
+                  ((gutter_px, gutter_px), (gutter_px, gutter_px), (0, 0)), mode="edge")
+
+
 # ---------------------------------------------------------------------- imaging
 
 def rot_normal(a, k):
@@ -168,11 +179,17 @@ def rot_normal(a, k):
 
 
 def build(mat, cfg, out_dir, required, tile_px=None, quiet=False):
-    os.makedirs(out_dir, exist_ok=True)
     types, pre = cfg["types"], cfg["tile"]
     plan, grid = plan_tiles(mat, cfg, required)
+    os.makedirs(out_dir, exist_ok=True)
     tile_px = tile_px or pick_tile_px(grid)
     atlas_px = grid * tile_px
+    gutter = int(cfg.get("gutter_px", 0))
+    mip_floor = int(cfg.get("mip_floor_px", 4))
+    if (gutter < 0 or 2 * gutter >= tile_px or mip_floor < 4
+            or mip_floor & (mip_floor - 1) or tile_px % mip_floor
+            or (gutter and gutter * mip_floor % tile_px)):
+        raise ValueError("Gutters must retain whole pixels through a power-of-two mip floor")
 
     # lighting and the detail map come from the world's own material where it has
     # one; a brand-new world gets the values declared in worlds2.py
@@ -200,6 +217,8 @@ def build(mat, cfg, out_dir, required, tile_px=None, quiet=False):
                   atlas_px=atlas_px, types={str(k): v for k, v in sorted(types.items())},
                   blend=cfg["blend"], cells=grid * grid, tiles=len(plan),
                   src_root=root,
+                  gutter_px=gutter, interior_px=tile_px - 2 * gutter,
+                  mip_floor_px=mip_floor,
                   occupancy=round(len(plan) / (grid * grid), 4),
                   added=[dict(name=t["name"], why=t["why"], src=t["src"]) for t in plan
                          if t["why"] != "core"])
@@ -263,10 +282,12 @@ def build(mat, cfg, out_dir, required, tile_px=None, quiet=False):
             tiles[t["name"]] = np.clip(out, 0, 255).astype(np.uint8)
 
         levels, n, peak = [], tile_px, 0.0
-        while n >= 4:
+        while n >= mip_floor:
             canvas = np.zeros((grid * n, grid * n, 3), np.uint8)
             for name, c, r in placements:
-                t = tiles[name] if n == tile_px else downsample(tiles[name].astype(np.float32), n, ch)
+                t = (padded_tile(tiles[name], n, gutter * n // tile_px, ch) if gutter
+                     else tiles[name] if n == tile_px
+                     else downsample(tiles[name].astype(np.float32), n, ch))
                 canvas[r * n:(r + 1) * n, c * n:(c + 1) * n] = np.clip(t, 0, 255).astype(np.uint8)
             if n == tile_px:
                 peak = float(canvas.max())
@@ -289,7 +310,9 @@ def build(mat, cfg, out_dir, required, tile_px=None, quiet=False):
 
     step = 1.0 / grid
     lines = [",0,0,%g,%g" % (step, step)]
-    lines += ["%s.map,%g,%g,%g,%g" % (n, c * step, r * step, step, step)
+    inset, extent = gutter / atlas_px, (tile_px - 2 * gutter) / atlas_px
+    lines += ["%s.map,%.10g,%.10g,%.10g,%.10g" %
+              (n, c * step + inset, r * step + inset, extent, extent)
               for n, c, r in placements]
     with open(os.path.join(out_dir, mat + ".csv"), "w", newline="\r\n") as f:
         f.write("\n".join(lines) + "\n")
@@ -305,7 +328,8 @@ def build(mat, cfg, out_dir, required, tile_px=None, quiet=False):
                                          detail=detail,
                                          emissive=report["atlas_E"]["file"], body=body))
     write_trn_entries(os.path.join(out_dir, "TRN_Entries.txt"), cfg, plan, mat)
-    json.dump(report, open(os.path.join(out_dir, "build_report.json"), "w"), indent=1)
+    with open(os.path.join(out_dir, "build_report.json"), "w") as f:
+        json.dump(report, f, indent=1)
     return report
 
 
@@ -340,7 +364,8 @@ def write_trn_entries(path, cfg, plan, mat):
             for mip in range(4):
                 out.append("%-18s= %s.map%s" % (key + str(mip), t["name"], mark if mip == 0 else ""))
             out.append("")
-    open(path, "w", newline="\r\n").write("\n".join(out) + "\n")
+    with open(path, "w", newline="\r\n") as f:
+        f.write("\n".join(out) + "\n")
 
 
 if __name__ == "__main__":

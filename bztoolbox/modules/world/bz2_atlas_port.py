@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from io import BytesIO
 
 from PIL import Image
+from battlezone.terrain.atlas import compact_tile_prefix
 
 from bztoolbox.modules.world.custom_atlas_builder import build_custom_atlas
 from bztoolbox.modules.world.bz2_pak import PakArchive
@@ -96,6 +97,7 @@ def build_bz2_direct_atlas(manifest: dict, output_dir: str | Path, prefix: str,
     result = build_custom_atlas({
         "res": tile_res,
         "prfx": prefix.lower(),
+        "tile_prefix": compact_tile_prefix(prefix.lower()),
         "mode": "ExplicitPairs" if explicit_pairs else "SolidsOnly",
         "out_dir": str(Path(output_dir)),
         "exp_dds": export_dds,
