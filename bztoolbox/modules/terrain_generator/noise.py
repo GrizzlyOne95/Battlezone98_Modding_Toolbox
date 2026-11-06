@@ -6,7 +6,6 @@ from typing import Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
-from scipy.interpolate import CubicSpline
 
 
 def smoothstep01(x: np.ndarray) -> np.ndarray:
@@ -168,6 +167,8 @@ def meander_path(
         taper = math.sin(math.pi * t)
         points.append((sx + dx * t + nx * float(off) * jitter_px * taper, sy + dy * t + ny * float(off) * jitter_px * taper))
 
+    from scipy.interpolate import CubicSpline
+
     tt = np.arange(count, dtype=np.float32)
     dense_t = np.linspace(0.0, count - 1.0, count * 8, dtype=np.float32)
     xs = CubicSpline(tt, np.asarray([p[0] for p in points]), bc_type="natural")(dense_t)
@@ -197,6 +198,8 @@ def organic_loop(
         ey = math.sin(float(angle)) * (radius_y + rj * 0.65)
         xs.append(cx + ex * c - ey * s)
         ys.append(cy + ex * s + ey * c)
+    from scipy.interpolate import CubicSpline
+
     t = np.arange(count + 1, dtype=np.float32)
     dense_t = np.linspace(0.0, count, count * 16 + 1, dtype=np.float32)
     xs2 = np.asarray(xs + [xs[0]], dtype=np.float32)
