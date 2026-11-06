@@ -323,7 +323,7 @@ class JobsPanel(ttk.Frame):
 
     def refresh(self) -> None:
         self.tree.delete(*self.tree.get_children())
-        for job in reversed(self.manager.jobs):
+        for job in self.manager.jobs:   # _upsert inserts at the top, so oldest first leaves newest on top
             self._upsert(job)
 
     def _row(self, job: Job):
