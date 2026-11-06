@@ -87,21 +87,54 @@ jobs:
               echo "Add a \`release: minor\`, \`release: major\` or \`release: skip\` label to change that."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Generate notes before packaging
+
+      # PRs use placeholder notes; generating GitHub notes requires Contents: write.
+      # Keep the version/PR job read-only. The separate main-only job below
+      # generates the actual notes used by every package.
+      - name: Prepare preview release notes
+        if: github.event_name == 'pull_request' || steps.plan.outputs.release != 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          mkdir -p build
+          printf 'CI preview only. Final patch notes are generated when this change is released from main.\n' > build/release_notes_body.md
+          python scripts/release/render_notes.py --version "$TAG" \
+            --body build/release_notes_body.md --markdown build/RELEASE_NOTES.md \
+            --text build/RELEASE_NOTES.txt
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request' || steps.plan.outputs.release != 'true'
+        with:
+          name: release-notes
+          path: |
+            build/RELEASE_NOTES.md
+            build/RELEASE_NOTES.txt
+          if-no-files-found: error
+
+  release-notes:
+    name: Generate release notes
+    needs: version
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      && needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub's generate-notes API requires Contents: write.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate final notes before packaging
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.plan.outputs.tag }}
-          RELEASE: ${{ steps.plan.outputs.release }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           mkdir -p build
-          if [[ "$GITHUB_REF" == "refs/heads/main" && "$RELEASE" == "true" ]]; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
-              --jq .body > build/release_notes_body.md
-          else
-            printf 'CI preview only. Final patch notes are generated when this change is released from main.\n' > build/release_notes_body.md
-          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+            --jq .body > build/release_notes_body.md
           python scripts/release/render_notes.py --version "$TAG" \
             --body build/release_notes_body.md --markdown build/RELEASE_NOTES.md \
             --text build/RELEASE_NOTES.txt
@@ -164,7 +197,12 @@ jobs:
 
   build:
     name: Build (${{ matrix.platform }})
-    needs: [version, test]
+    needs: [version, test, release-notes]
+    # On PRs and release-skipped pushes, the main-only notes job is skipped;
+    # the read-only version job supplies the preview artifact instead.
+    if: >-
+      always() && needs.version.result == 'success' && needs.test.result == 'success'
+      && (needs.release-notes.result == 'success' || needs.release-notes.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
