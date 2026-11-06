@@ -179,7 +179,7 @@ def install_world_builder_legacy_batch_patch() -> None:
             self.root.after(0, lambda: self.legacy_batch_info.set(summary))
         except Exception as exc:
             self.log(f"Batch port failed: {exc}", "error")
-            self.root.after(0, lambda: self.legacy_batch_info.set(f"BATCH FAILED: {exc}"))
+            self.root.after(0, lambda msg=f"BATCH FAILED: {exc}": self.legacy_batch_info.set(msg))
         finally:
             try:
                 self.legacy_source_dir.set(saved["source"])

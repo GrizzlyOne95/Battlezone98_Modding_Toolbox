@@ -369,7 +369,8 @@ def upsample(heights: np.ndarray, zones_x: int, zones_z: int, *,
     else:
         # 2 * (fx*grad_x + fz*grad_z), exact; round halves up.
         doubled = FX2 * grad_x.astype(np.int64) + FZ2 * grad_z.astype(np.int64)
-        delta = (doubled + 1) >> 1
+        # result = h00 - delta, so flooring delta rounds the height half-up.
+        delta = -((1 - doubled) >> 1)
 
     result = h00.astype(np.int64) - delta
     # The engine stores the result through a 16-bit word with no clamp

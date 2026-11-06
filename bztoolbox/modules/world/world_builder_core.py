@@ -1227,12 +1227,14 @@ class BZ98TRNArchitect:
              
         # Load Data similar to convert worker
         try:
-            img = Image.open(self.hg2_path.get()).convert("I;16")
-            arr = np.array(img).astype(np.float32)
-            # Replicate scaling logic used in HG2
             is_hg2 = self.hg2_path.get().lower().endswith(".hg2")
-            
-            if not is_hg2:
+            if is_hg2:
+                # PIL can't read HG2; heights are already in raw units.
+                _, arr = read_hg2(self.hg2_path.get())
+                arr = np.asarray(arr, dtype=np.float32)
+            else:
+                img = Image.open(self.hg2_path.get()).convert("I;16")
+                arr = np.array(img).astype(np.float32)
                 arr = (arr / 65535.0) * 4095.0
             
             # Run Painter
@@ -2601,7 +2603,6 @@ class BZ98TRNArchitect:
 
     def validate_map_name(self, P):
         if len(P) > 8: return False
-        if not P.isalpha() and P != "": return False
         if not P.isalnum() and P != "": return False
         return True
 
@@ -3518,14 +3519,12 @@ class BZ98TRNArchitect:
         try:
             if path.lower().endswith(".hg2"):
                 # HG2 Loading Logic (Visual)
-                with open(path, "rb") as f:
-                    header = f.read(12)
-                    _, _, z_w, z_l, _, _ = struct.unpack("<HHHHHH", header)
-                    raw_data = f.read()
-                    arr = np.frombuffer(raw_data, dtype=np.uint16).reshape((z_l*64, z_w*64))
-                    # Normalize for display
-                    arr_norm = (arr / 4095.0 * 255).astype(np.uint8)
-                    img = Image.fromarray(arr_norm)
+                # read_hg2 honours the header's zone size and reassembles the zones.
+                _, arr = read_hg2(path)
+                arr = np.asarray(arr, dtype=np.float32)
+                # Normalize for display
+                arr_norm = np.clip(arr / 4095.0 * 255, 0, 255).astype(np.uint8)
+                img = Image.fromarray(arr_norm)
             else:
                 img = Image.open(path).convert("L") # Mode L for grayscale map
                 

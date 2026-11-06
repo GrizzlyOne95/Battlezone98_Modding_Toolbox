@@ -149,6 +149,11 @@ class DependenciesPage(ttk.Frame):
         if self.graph is not None and (project is None or
                                        os.path.normcase(self.graph.root) != os.path.normcase(project.mod_path)):
             self._clear()   # never show another mod's graph
+        if self.job is not None and self.job.status in ("queued", "running"):
+            # The scan belongs to the previous project; stop it so its graph
+            # never lands here and on_show can start a scan for this one.
+            self.job.cancel()
+            self.job = None
         if self.shell.current_page == "project.dependencies":
             self.on_show()
 

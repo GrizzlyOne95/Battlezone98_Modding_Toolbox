@@ -159,7 +159,7 @@ def compand(x: np.ndarray, rate: int, params: Compand) -> np.ndarray:
     for i, value in enumerate(level.tolist()):
         volume += (value - volume) * (rise if value > volume else fall)
         envelope[i] = volume
-    lookahead = int(round(params.delay * rate))
+    lookahead = min(int(round(params.delay * rate)), len(x))
     if lookahead:
         envelope = np.concatenate([envelope[lookahead:], np.full(lookahead, envelope[-1])])
     env_db = 20 * np.log10(np.maximum(envelope, 1e-9))

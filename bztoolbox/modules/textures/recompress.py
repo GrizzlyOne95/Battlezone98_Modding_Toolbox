@@ -221,8 +221,8 @@ def convert(path, backup_dir, dry_run=False, ui=(), trn_stems=(), quality_gate=T
     # changing a setting and re-running re-derives every file from its original
     # instead of finding the live copy already compressed and skipping it (or,
     # worse, compressing an already-compressed file a second time).
-    dest = os.path.join(backup_dir, name)
-    replayed = os.path.exists(dest)
+    dest = os.path.join(backup_dir, name) if backup_dir else None   # None on a dry run
+    replayed = dest is not None and os.path.exists(dest)
     src_path = dest if replayed else path
     if replayed:
         before = os.path.getsize(dest)      # report against the true original

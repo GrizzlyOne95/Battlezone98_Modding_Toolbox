@@ -12,6 +12,7 @@ from PIL import Image
 
 from bztoolbox.modules.world.hg2_codec import DEFAULT_ZONE_BITS, read_hg2_header
 from bztoolbox.modules.world.legacy_palette import resolve_legacy_palette, scan_trn_palette_references
+from bztoolbox.modules.world.stock_palettes import normalize_act_name
 from bztoolbox.modules.world.maketrn_compat import METERS_PER_ZONE, read_legacy_trn_zone_geometry
 from bztoolbox.modules.world.mission_visualizer import extract_terrain_name
 
@@ -256,7 +257,7 @@ def emit_resolved_palette(
 
     references = scan_trn_palette_references(source_dir)
     declared = [value for value in references.values() if value]
-    target_name = os.path.basename(declared[0]) if declared else os.path.basename(resolution.path)
+    target_name = normalize_act_name(os.path.basename(declared[0])) if declared else os.path.basename(resolution.path)
     target_path = os.path.join(output_dir, target_name)
     os.makedirs(output_dir, exist_ok=True)
 
