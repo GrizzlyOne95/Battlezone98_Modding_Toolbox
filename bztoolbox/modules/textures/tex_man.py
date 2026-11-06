@@ -1064,10 +1064,11 @@ class BZReduxSuite:
             if not backup:
                 self.log_msg(self.tex_log, "Recompress cancelled: no backup folder chosen.")
                 return
-            if os.path.abspath(backup).startswith(os.path.abspath(folder) + os.sep):
+            real_backup, real_folder = os.path.realpath(backup), os.path.realpath(folder)
+            if real_backup == real_folder or real_backup.startswith(real_folder.rstrip(os.sep) + os.sep):
                 messagebox.showerror(
                     "Backup folder",
-                    "The backup folder is inside the folder being recompressed.\n"
+                    "The backup folder is the folder being recompressed, or inside it.\n"
                     "Choose somewhere outside it.")
                 return
         if backup and not messagebox.askokcancel(

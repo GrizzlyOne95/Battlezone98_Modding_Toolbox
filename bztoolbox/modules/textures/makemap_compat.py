@@ -297,6 +297,8 @@ def convert_file(path, opts: MakeMapOptions) -> Path:
     fmt = opts.resolved_format()
     extension = {"map": ".map", "bmp": ".bmp", "tga": ".tga", "png": ".png"}[opts.output_mode]
     destination = source.with_suffix(extension)
+    if destination.resolve() == source.resolve():
+        destination = source.with_name(source.stem + "_out" + extension)
     if opts.output_mode == "map":
         _atomic_write(destination, encode_map_bytes(image, opts))
     else:

@@ -6,6 +6,7 @@ import os
 import re
 import struct
 import subprocess
+import threading
 import time
 
 from bztoolbox.modules.publishing.steam_errors import (
@@ -243,6 +244,17 @@ class SteamworksTagUpdater:
         payload = None
         other = []
         deadline = time.time() + timeout_seconds + 90   # PowerShell start-up and the C# compile
+        timed_out = threading.Event()
+
+        def _expire():
+            timed_out.set()
+            proc.kill()
+
+        # The read loop blocks while the helper is silent, so the deadline has
+        # to be enforced from outside it; killing the process ends the loop.
+        timer = threading.Timer(max(0.0, deadline - time.time()), _expire)
+        timer.daemon = True
+        timer.start()
         try:
             for raw in proc.stdout:
                 line = raw.strip()
@@ -266,8 +278,11 @@ class SteamworksTagUpdater:
                 if time.time() > deadline:
                     proc.kill()
                     raise TimeoutError("The Steamworks helper did not finish in time.")
+            if timed_out.is_set():
+                raise TimeoutError("The Steamworks helper did not finish in time.")
             proc.wait(timeout=30)
         finally:
+            timer.cancel()
             if proc.poll() is None:
                 proc.kill()
 

@@ -324,7 +324,7 @@ _BY_NAME = {_normalise(e.name): e for e in ERESULTS.values()}
 _BY_NAME.update({
     "failure": ERESULTS[2],
     "failed": ERESULTS[2],
-    "generic failure": ERESULTS[2],
+    "genericfailure": ERESULTS[2],
     "invalidparameter": ERESULTS[8],
     "timedout": ERESULTS[16],
     "notloggedin": ERESULTS[21],

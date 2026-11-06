@@ -338,7 +338,7 @@ class BZFontGenerator:
             else: b = f"ui_{map.get(ord(char), 'un')}"
             usage[b] = usage.get(b, 0) + 1
             off = start_offset + (i * s)
-            lua.append(f'MakeExplosion("{b}{usage[b]}", p + (r * {off:.2f}) + (u * 2.5))')
+            lua.append(f'MakeExplosion("{b}{(usage[b] - 1) % max(1, self.variant_count.get()) + 1}", p + (r * {off:.2f}) + (u * 2.5))')
         self.lua_output.delete(1.0, tk.END); self.lua_output.insert(tk.END, "\n".join(lua))
 
 if __name__ == "__main__":

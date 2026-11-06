@@ -165,10 +165,11 @@ def union(*inks: Optional[Ink]) -> Optional[Ink]:
 
 def hstack_rows(top: Ink, bottom: Ink) -> Ink:
     """Join two horizontal bands of the same glyph, top above bottom."""
-    width = max(top.width, bottom.width)
+    left = round(min(top.x, bottom.x))
+    width = max(round(top.x) + top.width, round(bottom.x) + bottom.width) - left
     canvas = Image.new("L", (width, top.height + bottom.height))
-    canvas.paste(top.img, (round(top.x) - round(min(top.x, bottom.x)), 0))
-    canvas.paste(bottom.img, (round(bottom.x) - round(min(top.x, bottom.x)), top.height))
+    canvas.paste(top.img, (round(top.x) - left, 0))
+    canvas.paste(bottom.img, (round(bottom.x) - left, top.height))
     return Ink(canvas, min(top.x, bottom.x), top.y)
 
 

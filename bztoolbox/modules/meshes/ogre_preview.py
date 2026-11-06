@@ -614,6 +614,9 @@ class OgrePreviewFrame(ctk.CTkFrame):
                 diam = self._ctx.load_mesh(mesh_path)
                 self._reset_camera(diam)
                 self._apply_camera()
+                # The first load may have failed after the context started,
+                # leaving the error shown and no render loop running.
+                self._show_viewport()
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -668,14 +671,17 @@ class OgrePreviewFrame(ctk.CTkFrame):
             return
         self._reset_camera(diam)
         self._apply_camera()
+        self._show_viewport()
 
+    def _show_viewport(self):
         self._placeholder.place_forget()
         if getattr(self, "_error_label", None) is not None:
             self._error_label.destroy()
             self._error_label = None
         self._hint.place(relx=0.5, rely=1.0, anchor="s", y=-4)
 
-        self._render_job = self.after(16, self._render_loop)
+        if self._render_job is None:
+            self._render_job = self.after(16, self._render_loop)
 
     # ------------------------------------------------------------------
     # Render loop
@@ -777,7 +783,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
             up_z = -math.sin(pitch_r) * math.cos(yaw_r)
 
             self._orbit_target[0] -= (dx * right_x - dy * up_x) * scale
-            self._orbit_target[1] -= dy * up_y * scale
+            self._orbit_target[1] += dy * up_y * scale
             self._orbit_target[2] -= (dx * right_z - dy * up_z) * scale
 
         self._apply_camera()

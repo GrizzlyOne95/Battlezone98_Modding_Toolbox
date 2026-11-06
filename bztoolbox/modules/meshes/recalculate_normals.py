@@ -134,7 +134,7 @@ def recalculate_normals(xml_file_path):
                     v3_idx = int(face.get('v3', 0))
                     
                     # Validate indices
-                    if (v1_idx < vertex_count and v2_idx < vertex_count and v3_idx < vertex_count):
+                    if (0 <= v1_idx < vertex_count and 0 <= v2_idx < vertex_count and 0 <= v3_idx < vertex_count):
                         # Calculate face normal
                         face_normal = calculate_face_normal(
                             positions[v1_idx], 

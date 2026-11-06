@@ -1142,7 +1142,13 @@ class BZ98GuiApp:
                         english_text = english_text.strip()
                     else:
                         english_text = line
-                        safe_key = self.make_names_key(english_text)
+                        try:
+                            safe_key = self.make_names_key(english_text)
+                        except ValueError as e:
+                            failed_count += 1
+                            self.progress['value'] += 1
+                            self.log(f"Skipping invalid line: {line} ({e})")
+                            continue
 
                     if safe_key in existing_keys:
                         self.log(f"Skipping (Duplicate): {safe_key}")
@@ -1217,7 +1223,11 @@ class BZ98GuiApp:
                     skipped_without_display_name += 1
                     continue
 
-                key = self.make_names_key(unit_name)
+                try:
+                    key = self.make_names_key(unit_name)
+                except ValueError as e:
+                    self.log(f"Skipping ODF '{path}': {e}")
+                    continue
                 if key in seen_keys:
                     continue
 
