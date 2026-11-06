@@ -106,6 +106,8 @@ DELEGATES: Sequence[Delegate] = (
              "Generate tuned world ACT atmospheres individually or as a nine-world pack.", True),
     Delegate("textures", "recompress", "bztoolbox.modules.textures.recompress:main",
              "Bulk DDS recompression with backups.", False, "TextureManager"),
+    Delegate("textures", "shrink-previews", "bztoolbox.modules.textures.shrink_previews:main",
+             "Downscale oversized <mission>.bmp shell previews, with backups.", True),
     Delegate("meshes", "to-obj", "bztoolbox.modules.meshes.MeshToObj:main",
              "Convert Ogre .mesh/.mesh.xml to OBJ.", False, "OgreMeshTools"),
     Delegate("meshes", "normals", "bztoolbox.modules.meshes.recalculate_normals:main",
