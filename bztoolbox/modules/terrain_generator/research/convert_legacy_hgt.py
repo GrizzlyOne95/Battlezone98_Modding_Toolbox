@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 from bztoolbox.modules.terrain_generator.hgt import (  # noqa: E402
     HGTFormatError,
@@ -125,7 +125,7 @@ def cmd_batch(args) -> int:
         row = {"path": str(path), "name": path.name, "bytes": path.stat().st_size}
         try:
             hgt, source = _load(path, None, _trn_dir(args))
-        except HGTFormatError as exc:
+        except (ValueError, OSError) as exc:
             row.update(status="unparsed", note=str(exc))
             rows.append(row)
             failed += 1

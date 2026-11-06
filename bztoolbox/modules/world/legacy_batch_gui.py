@@ -57,7 +57,7 @@ def install_world_builder_legacy_batch_patch() -> None:
         core.ttk.Button(
             out_row,
             text="Browse",
-            command=lambda: self.legacy_batch_out_root.set(
+            command=lambda: (lambda p: p and self.legacy_batch_out_root.set(p))(
                 core.filedialog.askdirectory(title="Select parent folder for Redux outputs")
             ),
         ).pack(side="left")

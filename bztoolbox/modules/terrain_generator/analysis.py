@@ -88,7 +88,7 @@ def _shelf_metrics(heightmap: np.ndarray) -> dict[str, float]:
     shelf_count = int(np.count_nonzero(shelf_mask))
     shelf_area_pct = float(np.sum(sorted_cnts[shelf_mask]) / total * 100.0) if shelf_count else 0.0
     # Close to common authored levels: within +-2 of any top shelf
-    top_shell_heights = sorted_vals[: max(1, shelf_count)]
+    top_shell_heights = sorted_vals[:shelf_count]
     if top_shell_heights.size:
         close = np.zeros_like(a, dtype=bool)
         for h in top_shell_heights:

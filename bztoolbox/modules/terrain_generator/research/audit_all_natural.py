@@ -3,11 +3,13 @@ from __future__ import annotations
 import csv
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from bztoolbox.modules import terrain_generator as hmg
 from audit_stock_detail import metrics, preview_image
 

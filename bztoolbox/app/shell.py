@@ -671,8 +671,8 @@ def run(project: Optional[str] = None, page: Optional[str] = None) -> int:
     if page:
         if page not in PAGES_BY_ID:
             matches = [p.id for p in PAGES if p.id.endswith(page) or p.title.lower() == page.lower()]
-            page = matches[0] if matches else None
-        if page:
+            page = matches[0] if len(matches) == 1 else None
+        if page and PAGES_BY_ID[page].available:
             shell.navigate(page)
     root.after(2000, shell.check_for_updates)   # quiet: at most daily, off in Settings
     root.mainloop()

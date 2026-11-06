@@ -63,7 +63,7 @@ class OgreXMLConverter:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         for ext in extensions:
-            for file in input_path.rglob(f'*{ext}'):
+            for file in (p for p in input_path.rglob('*') if p.is_file() and p.name.lower().endswith(ext.lower())):
                 xml_output_dir = None
                 if output_dir:
                     rel_parent = file.parent.relative_to(input_path)
@@ -190,11 +190,14 @@ class OgreXMLToOBJ:
         else:
             local_uvs = []
         
-        # Append to global arrays
+        # Append to global arrays, keeping uvs/normals aligned with vertices
+        base = len(self.vertices)
         self.vertices.extend(local_verts)
         if any_normals:
+            self.normals.extend([(0.0, 1.0, 0.0)] * (base - len(self.normals)))
             self.normals.extend(local_normals)
         if any_uvs:
+            self.uvs.extend([(0.0, 0.0)] * (base - len(self.uvs)))
             self.uvs.extend(local_uvs)
         
         return vertex_count
@@ -252,6 +255,12 @@ class OgreXMLToOBJ:
                 f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
             f.write("\n")
             
+            # Pad partial uvs/normals so they stay aligned with vertices
+            if self.uvs:
+                self.uvs.extend([(0.0, 0.0)] * (len(self.vertices) - len(self.uvs)))
+            if self.normals:
+                self.normals.extend([(0.0, 1.0, 0.0)] * (len(self.vertices) - len(self.normals)))
+
             # UVs
             for uv in self.uvs:
                 f.write(f"vt {uv[0]:.6f} {uv[1]:.6f}\n")

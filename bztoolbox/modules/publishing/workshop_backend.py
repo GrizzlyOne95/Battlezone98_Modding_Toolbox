@@ -94,12 +94,12 @@ class WorkshopBackend:
             return "bad_credentials"
         if timed_out and any(marker in lower for marker in mobile_markers):
             return "timeout"
+        if any(marker in lower for marker in success_markers):
+            return "verified"
         if any(marker in lower for marker in mobile_markers):
             return "mobile_approval"
         if any(marker in lower for marker in guard_markers):
             return "guard_required"
-        if any(marker in lower for marker in success_markers):
-            return "verified"
         if returncode == 0 and not timed_out:
             return "verified"
         if timed_out:

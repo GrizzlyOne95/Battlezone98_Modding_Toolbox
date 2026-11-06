@@ -1369,7 +1369,7 @@ class BZ98TRNArchitect:
             return
         
         count = len(self.paint_rules)
-        max_h = 819.1 # Max BZMapIO elevation (8191 / 10)
+        max_h = 4095.0 # Max HG2 height (painter works in 0-4095)
         chunk = max_h / count
         
         for i, rule in enumerate(self.paint_rules):
@@ -2979,7 +2979,7 @@ class BZ98TRNArchitect:
             else:
                 norm_arr = final_arr / 65535.0
                 
-            preview_8bit = Image.fromarray((norm_arr * 255).astype(np.uint8))
+            preview_8bit = Image.fromarray((np.clip(norm_arr, 0.0, 1.0) * 255).astype(np.uint8))
             
             cw = self.hg2_preview_canvas.winfo_width()
             ch = self.hg2_preview_canvas.winfo_height()
@@ -3392,10 +3392,10 @@ class BZ98TRNArchitect:
                 targets = indices[idx + 1:]
                 
             for j in targets:
-                c_i = self.groups[i]["A"].copy()
-                c_i.paste(self.groups[j]["A"], (0,0), c_m)
-                d_i = self.groups[i]["A"].copy()
-                d_i.paste(self.groups[j]["A"], (0,0), d_m)
+                c_i = self.groups[i].get("A", self.groups[i][min(self.groups[i])]).copy()
+                c_i.paste(self.groups[j].get("A", self.groups[j][min(self.groups[j])]), (0,0), c_m)
+                d_i = self.groups[i].get("A", self.groups[i][min(self.groups[i])]).copy()
+                d_i.paste(self.groups[j].get("A", self.groups[j][min(self.groups[j])]), (0,0), d_m)
                 baked.append(c_i)
                 baked.append(d_i)
         
@@ -3652,13 +3652,15 @@ class BZ98TRNArchitect:
             canvas.create_rectangle(cx-2, cy-2, cx+2, cy+2, fill=color, outline="")
 
     def validate_rules(self):
-        sorted_rules = sorted(self.paint_rules, key=lambda x: x['min_h'])
+        order = sorted(range(len(self.paint_rules)), key=lambda k: self.paint_rules[k]['min_h'])
         warnings = []
         
-        for i in range(len(sorted_rules)):
-            r1 = sorted_rules[i]
-            for j in range(i+1, len(sorted_rules)):
-                r2 = sorted_rules[j]
+        for a in range(len(order)):
+            i = order[a]
+            r1 = self.paint_rules[i]
+            for b in range(a+1, len(order)):
+                j = order[b]
+                r2 = self.paint_rules[j]
                 
                 h_overlap = max(0, min(r1['max_h'], r2['max_h']) - max(r1['min_h'], r2['min_h']))
                 if h_overlap > 0:
@@ -3676,7 +3678,7 @@ class BZ98TRNArchitect:
             return
         
         count = len(self.paint_rules)
-        max_h = 819.1 # Max BZMapIO elevation (8191 / 10)
+        max_h = 4095.0 # Max HG2 height (painter works in 0-4095)
         chunk = max_h / count
         
         for i, rule in enumerate(self.paint_rules):

@@ -230,6 +230,12 @@ def _validate_lgt(path: str, zones_x: int, zones_z: int) -> PortCheck:
             "lgt-classic",
             f"LGT valid: classic bordered 128-per-zone layout ({actual} bytes)",
         )
+    if actual == zones * _CLASSIC_LGT_ZONE_SIZE * _CLASSIC_LGT_ZONE_SIZE:
+        return PortCheck(
+            "pass",
+            "lgt-classic",
+            f"LGT valid: classic unbordered 128-per-zone layout ({actual} bytes)",
+        )
     if actual == redux:
         return PortCheck(
             "pass",

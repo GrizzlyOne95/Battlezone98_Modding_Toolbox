@@ -494,7 +494,9 @@ class BZ98GuiApp:
 
             start = match.end()
             end = matches[index + 1].start() if index + 1 < len(matches) else len(translated_blob)
-            value = translated_blob[start:end].strip(" \t\r\n:-")
+            value = translated_blob[start:end].strip()
+            if value.startswith(":"):
+                value = value[1:].lstrip()
             if not value:
                 return None
             results.append(value)
@@ -771,17 +773,26 @@ class BZ98GuiApp:
         if len(lines) == len(chunk) and all(lines):
             return lines
 
-        marked_source = "\n".join(
-            f"[[BZ{index}]] {text}" for index, text in enumerate(chunk)
-        )
-        marked_blob = self._request_free_http_translation(marked_source, target)
-        parsed = self._parse_marker_translation(marked_blob, len(chunk))
-        if parsed is None:
-            raise FreeTranslationError(
-                "Google returned translated text, but the unit-name boundaries "
-                "could not be mapped safely. No localization rows were written."
+        # The markers lengthen every line, so re-chunk to stay within the request limit.
+        prefix_room = " " * len("[[BZ99999]] ")
+        sub_chunks = self._chunk_free_http_contents([prefix_room + text for text in chunk])
+        results = []
+        offset = 0
+        for padded in sub_chunks:
+            sub = chunk[offset:offset + len(padded)]
+            offset += len(padded)
+            marked_source = "\n".join(
+                f"[[BZ{index}]] {text}" for index, text in enumerate(sub)
             )
-        return parsed
+            marked_blob = self._request_free_http_translation(marked_source, target)
+            parsed = self._parse_marker_translation(marked_blob, len(sub))
+            if parsed is None:
+                raise FreeTranslationError(
+                    "Google returned translated text, but the unit-name boundaries "
+                    "could not be mapped safely. No localization rows were written."
+                )
+            results.extend(parsed)
+        return results
 
     def translate_batch_free_http(self, english_texts):
         """Translate many names with a tiny number of credential-free HTTP requests."""
@@ -1314,13 +1325,15 @@ class BZ98GuiApp:
 
         added_count = 0
         try:
+            # Encode every row first, so an unencodable name writes nothing.
+            encoded_rows = [
+                (safe_key, self._encode_localization_row([safe_key, english_text] + translations))
+                for (_, english_text, safe_key), translations in zip(pending, translated_rows)
+            ]
             with open(self.csv_path.get(), 'a+b') as f:
                 self._ensure_append_boundary(f)
-                for (_, english_text, safe_key), translations in zip(
-                    pending, translated_rows
-                ):
-                    row = [safe_key, english_text] + translations
-                    self._write_localization_row(f, row)
+                for safe_key, encoded in encoded_rows:
+                    f.write(encoded)
                     existing_keys.add(safe_key)
                     added_count += 1
                     self.progress['value'] += 1

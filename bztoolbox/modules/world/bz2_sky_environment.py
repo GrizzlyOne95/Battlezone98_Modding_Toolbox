@@ -44,7 +44,7 @@ def read_sky_environment(path: str | Path) -> dict:
                 raise ValueError("Invalid SKY time of day")
             if any(not math.isfinite(v) or v < 0 for v in (*diffuse, *ambient)):
                 raise ValueError("Invalid SKY sunlight settings")
-            minutes = round(hour * 60)
+            minutes = round(hour * 60) % 1440
             return dict(source=str(Path(path).resolve()), fog_rgb=rgb,
                         fog_rgb8=[round(v * 255) for v in rgb],
                         fog_multiplier=multiplier, fog_start_m=start,

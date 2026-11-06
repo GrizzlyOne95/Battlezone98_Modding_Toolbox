@@ -22,7 +22,7 @@ PREVIEW_SIZE = 192
 def entry_from_form(values: dict) -> StaEntry:
     """Form strings -> a checked StaEntry (ValueError explains the first problem)."""
     try:
-        numbers = {key: int(str(values[key]).strip(), 0) for key in
+        numbers = {key: int(str(values[key]).strip(), 0 if key == "flags" else 10) for key in
                    ("u", "v", "width", "height", "image_width", "image_height", "flags")}
     except ValueError as exc:
         raise ValueError("u, v, sizes and flags must be whole numbers (flags may be 0x...)") from exc

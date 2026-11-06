@@ -251,7 +251,7 @@ def build_custom_atlas(cfg: dict) -> dict:
     def save_map_asset(img: Image.Image, suffix: str) -> str:
         base_filename = f"{prfx}_atlas_{suffix}"
         ext = ".dds" if cfg["exp_dds"] else ".png"
-        if cfg["exp_png"]:
+        if cfg["exp_png"] or not cfg["exp_dds"]:
             png_path = os.path.join(out_dir, base_filename + ".png")
             img.save(png_path)
             written.append(png_path)

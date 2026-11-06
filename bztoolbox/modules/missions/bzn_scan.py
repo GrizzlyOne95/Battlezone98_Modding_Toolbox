@@ -58,13 +58,14 @@ class BZNAnalyzer:
         try:
             parser = BZNParser(self.current_file)
             matches = parser.parse()
+            present = {f.lower() for f in os.listdir(directory or ".")}
 
             for odf_base in matches:
                 filename = f"{odf_base}.odf"
                 is_stock = filename.lower() in STOCK_SET
-                exists = os.path.exists(os.path.join(directory, filename))
+                exists = filename.lower() in present
                 
-                status = "OK" if exists else "MISSING"
+                status = "OK" if exists or is_stock else "MISSING"
                 odf_type = "Stock" if is_stock else "Custom"
                 self.data.append((status, odf_type, filename))
 

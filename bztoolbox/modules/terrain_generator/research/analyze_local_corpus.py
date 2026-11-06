@@ -29,7 +29,7 @@ from typing import Iterable
 import numpy as np
 
 # Ensure package importable when run as script
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from bztoolbox.modules.terrain_generator.analysis import describe_heightmap

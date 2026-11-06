@@ -331,12 +331,19 @@ def _normalize_slash_options(argv: list[str]) -> list[str]:
     return ["-" + arg[1:] if arg.startswith("/") and arg[1:].lower() in known else arg for arg in argv]
 
 
+def _trans_index(value: str) -> int:
+    index = int(value)
+    if not -1 <= index <= 255:
+        raise argparse.ArgumentTypeError(f"must be between -1 and 255, got {index}")
+    return index
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="makemap_compat", description="Clean-room Battlezone MakeMAP compatibility utility.")
     mode = p.add_mutually_exclusive_group(); mode.add_argument("-bmp", action="store_true"); mode.add_argument("-tga", action="store_true")
     p.add_argument("-recoveralpha", action="store_true")
     p.add_argument("-chromakey", nargs=3, type=int, metavar=("R","G","B"))
-    p.add_argument("-transindex", type=int, default=-1, metavar="INDEX")
+    p.add_argument("-transindex", type=_trans_index, default=-1, metavar="INDEX")
     p.add_argument("-undopma", action="store_true")
     p.add_argument("-remap", metavar="IMAGE")
     p.add_argument("-colorize", action="store_true")
@@ -353,6 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-flipx", action="store_true"); p.add_argument("-flipy", action="store_true")
     p.add_argument("-diff", type=float, default=0.0, metavar="PERCENT")
     p.add_argument("files", nargs="+", help="files, wildcard patterns, or directories")
+    # The numeric format flags above make argparse treat every negative number
+    # (e.g. "-addr -10") as an option; they are still matched by exact name.
+    # (private argparse attribute; guarded so a future argparse can't break startup)
+    if isinstance(getattr(p, "_has_negative_number_optionals", None), list):
+        p._has_negative_number_optionals.clear()
     return p
 
 

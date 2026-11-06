@@ -53,8 +53,8 @@ def crop_box(entry: StaEntry, width: int, height: int) -> tuple:
     """The entry's rectangle in a ``width`` x ``height`` texture (clamped to it)."""
     fx = width / max(1, entry.image_width)
     fy = height / max(1, entry.image_height)
-    left = min(width, max(0, round(entry.u * fx)))
-    top = min(height, max(0, round(entry.v * fy)))
+    left = min(width - 1, max(0, round(entry.u * fx)))
+    top = min(height - 1, max(0, round(entry.v * fy)))
     right = min(width, max(left + 1, round((entry.u + entry.width) * fx)))
     bottom = min(height, max(top + 1, round((entry.v + entry.height) * fy)))
     return left, top, right, bottom

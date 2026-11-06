@@ -245,6 +245,8 @@ class SteamService:
             next_token = tokens[i]
             if next_token == "{":
                 value, i = self.parse_vdf_tokens(tokens, i + 1, expect_closing=True)
+            elif next_token == "}":
+                raise ValueError("Missing VDF value after key.")
             else:
                 value = next_token[1]
                 i += 1

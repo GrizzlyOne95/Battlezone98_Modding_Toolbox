@@ -562,12 +562,16 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                                 obj_file.parent.mkdir(parents=True, exist_ok=True)
 
                                 converter = MeshToObj.OgreXMLToOBJ()
-                                converter.convert(
-                                    xml_f,
-                                    obj_file,
-                                    create_mtl=True,
-                                    texture_search_roots=[input_p],
-                                )
+                                try:
+                                    converter.convert(
+                                        xml_f,
+                                        obj_file,
+                                        create_mtl=True,
+                                        texture_search_roots=[input_p],
+                                    )
+                                except Exception as exc:
+                                    errors.append(f"OBJ: {xml_path.name}: {exc}")
+                                    self.log(f"WARNING: {xml_path.name}: {exc}", self.colors["warning"])
                         finally:
                             if xml_dir.exists():
                                 shutil.rmtree(xml_dir, ignore_errors=True)
