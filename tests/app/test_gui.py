@@ -192,8 +192,10 @@ class UpdateNotesDialogTests(unittest.TestCase):
                 upgrade.assert_called_once_with(release, action)
                 shell.close(confirm=False)
         finally:
-            if root.winfo_exists():
+            try:
                 root.destroy()
+            except tk.TclError:
+                pass  # Shell.close() already destroyed the Tk application.
 
 
 class ShellSmokeTests(unittest.TestCase):
