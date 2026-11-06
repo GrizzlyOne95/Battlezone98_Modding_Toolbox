@@ -6,7 +6,9 @@ Converts Ogre .mesh files to OBJ format via XML intermediate
 """
 
 import os
+import shutil
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import argparse
@@ -404,7 +406,6 @@ Examples:
     xml_converter = OgreXMLConverter(args.ogre_tools)
     
     if args.batch:
-        import shutil
 
         output_dir = Path(args.output)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -470,10 +471,16 @@ Examples:
             target_obj = output_path
             
         cleanup_xml = False
+        tmp_xml_dir = None
         if args.input.lower().endswith('.xml'):
             xml_file = args.input
-        else:
+        elif args.keep_xml:
             xml_file = xml_converter.convert_to_xml(args.input)
+        else:
+            # Intermediate XML goes to a temp folder so a .mesh.xml the user
+            # already keeps next to the mesh is never overwritten or deleted.
+            tmp_xml_dir = tempfile.mkdtemp(prefix="mesh_xml_")
+            xml_file = xml_converter.convert_to_xml(args.input, tmp_xml_dir)
             cleanup_xml = True
         
         if xml_file:
@@ -494,10 +501,12 @@ Examples:
                 import traceback
                 traceback.print_exc()
             
-            if cleanup_xml and not args.keep_xml and os.path.exists(xml_file):
-                os.remove(xml_file)
+            if cleanup_xml:
+                shutil.rmtree(tmp_xml_dir, ignore_errors=True)
                 print(f"✓ Cleaned up temporary XML file")
         else:
+            if tmp_xml_dir:
+                shutil.rmtree(tmp_xml_dir, ignore_errors=True)
             print("✗ Failed to create XML file")
             return 1
     

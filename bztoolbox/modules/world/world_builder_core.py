@@ -1559,7 +1559,7 @@ class BZ98TRNArchitect:
             
             if self.hg2img_compat.get():
                 # HG2IMG legacy mode: 12-bit heights in RG, vertical flip
-                h = (img_array & 0x0FFF).astype(np.uint16)
+                h = np.clip(img_array & 0x1FFF, 0, 4095).astype(np.uint16)
                 h = np.flipud(h)
                 g = (h >> 4).astype(np.uint8)
                 if self.hg2img_precision.get():
@@ -1653,7 +1653,7 @@ class BZ98TRNArchitect:
                 arr16 = (arr16 - mean) * cfg["contrast"] + mean
                 
                 if cfg["smooth"] > 0:
-                    img_proc = Image.fromarray((arr16 / 256).astype(np.uint8)).convert("RGB")
+                    img_proc = Image.fromarray(np.clip(arr16 / 256, 0, 255).astype(np.uint8)).convert("RGB")
                     img_proc = img_proc.filter(ImageFilter.GaussianBlur(cfg["smooth"]))
                     arr16 = np.array(img_proc.convert("L")).astype(np.float32) * 256
                 
@@ -1669,7 +1669,7 @@ class BZ98TRNArchitect:
                 
                 # Smoothing fix for Pillow mode compatibility
                 if cfg["smooth"] > 0:
-                    img_proc = Image.fromarray((arr / 256).astype(np.uint8)).convert("RGB")
+                    img_proc = Image.fromarray(np.clip(arr / 256, 0, 255).astype(np.uint8)).convert("RGB")
                     img_proc = img_proc.filter(ImageFilter.GaussianBlur(cfg["smooth"]))
                     img_final_arr = np.array(img_proc.convert("L")).astype(np.float32) * 256
                 else:
@@ -1677,11 +1677,11 @@ class BZ98TRNArchitect:
 
                 # Scale to 13-bit (HG2) or 12-bit (HGT) and mask
                 if self.hgt_output.get():
-                    img_final_arr = (img_final_arr.astype(np.uint32) // 16)
+                    img_final_arr = (np.clip(img_final_arr, 0, 65535).astype(np.uint32) // 16)
                     img_final_arr = np.clip(img_final_arr, 0, 4095).astype(np.uint16)
                     img_final_arr = img_final_arr & 0x0FFF
                 else:
-                    img_final_arr = (img_final_arr.astype(np.uint32) // 8)
+                    img_final_arr = (np.clip(img_final_arr, 0, 65535).astype(np.uint32) // 8)
                     img_final_arr = np.clip(img_final_arr, 0, 8191).astype(np.uint16)
                     img_final_arr = img_final_arr & 0x1FFF
 
@@ -3651,83 +3651,6 @@ class BZ98TRNArchitect:
             elif "scav" in cls: color = "#0088ff" # Blue
             
             canvas.create_rectangle(cx-2, cy-2, cx+2, cy+2, fill=color, outline="")
-
-    def load_auto_painter_config(self):
-        path = filedialog.askopenfilename(filetypes=[("Paint Config", "*.trn *.ini *.txt"), ("All Files", "*.*")])
-        if not path:
-            return
-
-        ext = os.path.splitext(path)[1].lower()
-        
-        if ext == ".trn":
-            # Load TRN -> Auto-populate materials
-            data = TRNParser.parse(path)
-            if not data.get("TextureTypes"):
-                messagebox.showwarning("Warning", "No [TextureTypeX] sections found in TRN.")
-                return
-                
-            if messagebox.askyesno("Confirm", "This will clear existing rules and populate from TRN. Continue?"):
-                self.clear_paint_rules()
-                
-                # Default max height
-                max_h = 1000.0
-                
-                for tid in data["TextureTypes"]:
-                    self.add_paint_rule_internal(tid, 0, max_h, 0, 90)
-                
-                messagebox.showinfo("Loaded", f"Loaded {len(data['TextureTypes'])} materials from TRN.")
-                
-        else:
-            # Load INI/TXT [LayerX] format
-            try:
-                import configparser
-                config = configparser.ConfigParser()
-                config.read(path)
-                
-                new_rules = []
-                for section in config.sections():
-                    if section.lower().startswith("layer"):
-                        try:
-                            mat_str = config.get(section, "Material")
-                            mat_id = int(mat_str.split('(')[0].strip())
-                            
-                            min_h = float(config.get(section, "ElevationStart"))
-                            max_h = float(config.get(section, "ElevationEnd"))
-                            min_s = float(config.get(section, "SlopeStart"))
-                            max_s = float(config.get(section, "SlopeEnd"))
-                            
-                            new_rules.append({
-                                'mat_id': mat_id,
-                                'min_h': min_h, 'max_h': max_h,
-                                'min_s': min_s, 'max_s': max_s
-                            })
-                        except Exception as e:
-                            print(f"Skipping section {section}: {e}")
-                            
-                if new_rules:
-                    if messagebox.askyesno("Confirm", f"Found {len(new_rules)} rules. Replace existing?"):
-                        self.paint_rules = new_rules
-                        self.refresh_rules_list()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to parse INI: {e}")
-
-    def save_auto_painter_config(self):
-        path = filedialog.asksaveasfilename(defaultextension=".ini", filetypes=[("INI Config", "*.ini")])
-        if not path:
-            return
-            
-        try:
-            with open(path, 'w') as f:
-                for i, rule in enumerate(self.paint_rules):
-                    f.write(f"[Layer{i}]\n")
-                    f.write(f"ElevationStart = {rule['min_h']}\n")
-                    f.write(f"ElevationEnd   = {rule['max_h']}\n")
-                    f.write(f"SlopeStart     = {rule['min_s']}\n")
-                    f.write(f"SlopeEnd       = {rule['max_s']}\n")
-                    f.write(f"Material       = {rule['mat_id']}\n\n")
-            messagebox.showinfo("Success", "Rules saved.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save: {e}")
 
     def validate_rules(self):
         sorted_rules = sorted(self.paint_rules, key=lambda x: x['min_h'])

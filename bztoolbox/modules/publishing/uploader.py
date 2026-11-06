@@ -3654,7 +3654,7 @@ class WorkshopUploader:
         # Publish sends visibility every time; keep the item's current one
         # instead of the folder default (Public) so linking can't unhide it.
         steam_visibility = {"Public": "0 (Public)", "Friends": "1 (Friends)", "Private": "2 (Private)", "Unlisted": "3 (Unlisted)"}.get(
-            str(values[2]) if len(values) > 2 else "")
+            str(values[2]).split(" · ")[0].strip() if len(values) > 2 else "")
         if steam_visibility and steam_visibility != self._normalize_visibility_value(self.visibility_var.get()):
             self.visibility_var.set(steam_visibility)
             if not quiet:

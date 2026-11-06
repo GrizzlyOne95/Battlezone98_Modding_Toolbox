@@ -79,6 +79,10 @@ def relight(paths: Sequence, *, only_broken: bool = False, backup_dir=None, dry_
         try:
             if lgt.is_file():
                 target = result.backup / hg2.parent.name / lgt.name
+                n = 2
+                while target.exists():   # same name from another folder: don't overwrite its backup
+                    target = result.backup / f"{hg2.parent.name}_{n}" / lgt.name
+                    n += 1
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(lgt, target)
             rebake_lgt_file(hg2, lgt)

@@ -1,6 +1,7 @@
 import os
 import shutil
 import sys
+import tempfile
 import threading
 import traceback
 from pathlib import Path
@@ -575,14 +576,17 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                         output_p.mkdir(parents=True, exist_ok=True)
                         target_obj = output_p / obj_output_name(Path(input_p).name)
 
-                        cleanup_xml = False
+                        tmp_xml_dir = None
                         if input_p.lower().endswith(".xml"):
                             xml_f = input_p
                         else:
-                            xml_f = xml_conv.convert_to_xml(input_p)
-                            cleanup_xml = True
+                            # Temp folder, so the user's own foo.mesh.xml is left alone.
+                            tmp_xml_dir = tempfile.mkdtemp(prefix="obj_xml_")
+                            xml_f = xml_conv.convert_to_xml(input_p, output_dir=tmp_xml_dir)
 
                         if not xml_f:
+                            if tmp_xml_dir:
+                                shutil.rmtree(tmp_xml_dir, ignore_errors=True)
                             raise RuntimeError("XML conversion failed.")
 
                         try:
@@ -594,8 +598,8 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
                                 texture_search_roots=[Path(input_p).parent],
                             )
                         finally:
-                            if cleanup_xml and os.path.exists(xml_f):
-                                os.remove(xml_f)
+                            if tmp_xml_dir:
+                                shutil.rmtree(tmp_xml_dir, ignore_errors=True)
 
                     self.log("OBJ Conversion completed.")
                 except Exception as exc:
