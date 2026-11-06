@@ -985,7 +985,7 @@ class WorkshopUploader:
             severity = row["severity"]
             counts[severity] = counts.get(severity, 0) + 1
         summary = f"Readiness: {counts['Blocking']} blocking, {counts['Fixable']} fixable, {counts['Warning']} warnings"
-        detail = "Ready to publish." if rows and rows[0]["severity"] == "Ready" else "Resolve blocking items or use one-click fixes before publishing."
+        detail = "Ready to publish." if rows and not counts["Blocking"] and not counts["Fixable"] else "Resolve blocking items or use one-click fixes before publishing."
         return summary, detail, rows
 
     def _update_project_status(self, inventory=None):
@@ -2984,6 +2984,7 @@ class WorkshopUploader:
         if others:
             text += "\n\nThat item is currently linked to:\n  " + "\n  ".join(others)
         if messagebox.askyesno("Workshop item found", text):
+            self._unlink_other_profiles(match.item_id, folder)
             self.item_id_var.set(match.item_id)
             self.save_current_project_state(quiet=True)
             self._update_project_status(self.current_inventory)
@@ -3215,6 +3216,8 @@ class WorkshopUploader:
             "last_uploaded_item_id": uploaded_item_id,
             "item_id": uploaded_item_id or self.item_id_var.get(),
         })
+        if uploaded_item_id:
+            self.item_id_var.set(uploaded_item_id)
         self._update_project_status(self.current_inventory)
         self.save_current_project_state(quiet=True)
 

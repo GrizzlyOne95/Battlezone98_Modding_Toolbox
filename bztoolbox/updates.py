@@ -54,7 +54,14 @@ def parse_version(text: str) -> tuple:
 
 def is_newer(candidate: str, current: str = __version__) -> bool:
     new, old = parse_version(candidate), parse_version(current)
+    if new and old and new == old:
+        # Same numbers: a final release is newer than its pre-release (``1.2.0-rc1``).
+        return _is_prerelease(current) and not _is_prerelease(candidate)
     return bool(new) and (not old or new > old)
+
+
+def _is_prerelease(text: str) -> bool:
+    return bool(re.match(r"v?\d+(?:\.\d+)?(?:\.\d+)?(?:-|[A-Za-z])", (text or "").strip()))
 
 
 def install_kind(executable: Optional[str] = None, platform: str = sys.platform,
@@ -123,8 +130,8 @@ def check(settings, *, force: bool = False, now: Optional[float] = None,
             return None
         if now - float(settings.get("update_last_check", 0) or 0) < CHECK_INTERVAL:
             return None
-    settings.set("update_last_check", now)
     update = fetch_latest(fetch=fetch)
+    settings.set("update_last_check", now)
     if not is_newer(update.version):
         return None
     if not force and update.version == settings.get("update_skipped_version", ""):

@@ -186,7 +186,7 @@ def _hillshade(h: np.ndarray, strength: float = 0.55) -> np.ndarray:
     scale = 1.5 / spread if spread > 1e-6 else 0.0
     n = np.dstack([-gx * scale, -gz * scale, np.ones_like(gx)])
     n /= np.linalg.norm(n, axis=2, keepdims=True)
-    light = np.array([-0.5, 0.5, 0.72])
+    light = np.array([-0.5, -0.5, 0.72])
     light /= np.linalg.norm(light)
     shade = np.clip(n @ light, 0.0, 1.0)
     return np.clip(1.0 + strength * (shade - float(shade.mean())), 0.35, 1.65)

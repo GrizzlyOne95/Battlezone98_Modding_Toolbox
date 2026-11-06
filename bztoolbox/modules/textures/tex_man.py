@@ -699,6 +699,10 @@ class BZReduxSuite:
                     flat_pal = [v for c in active_pal for v in c]
                     img.putpalette(flat_pal)
                     img = img.convert("RGBA")
+                elif fmt == BZMapFormat.ARGB4444:
+                    img = Image.frombytes('RGBA', (w, h), data, 'raw', 'BGRA;4B')
+                elif fmt == BZMapFormat.RGB565:
+                    img = Image.frombytes('RGB', (w, h), data, 'raw', 'BGR;16').convert('RGBA')
                 else:
                     img = Image.frombytes('RGBA', (w, h), data, 'raw', 'BGRA')
                 
@@ -1184,9 +1188,11 @@ class BZReduxSuite:
         if cutoff_val != "Disabled":
             try:
                 limit = int(cutoff_val)
-                # If either dimension exceeds the budget, downscale by half
-                if w > limit or h > limit:
-                    new_w, new_h = w // 2, h // 2
+                # While either dimension exceeds the budget, downscale by half
+                new_w, new_h = w, h
+                while (new_w > limit or new_h > limit) and new_w > 1 and new_h > 1:
+                    new_w, new_h = new_w // 2, new_h // 2
+                if (new_w, new_h) != (w, h):
                     img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
                     w, h = img.size # Update dimensions for logging
                     src_levels = None   # resampled: the source chain no longer matches
@@ -1400,10 +1406,11 @@ class BZReduxSuite:
                 self.tex_mips.set(self.dxt_mips.get())
                 self.tex_compress.set(self.dxt_compress.get())
                 
-                self.internal_save_img(img, final_out, has_alpha)
-                
-                self.tex_mips.set(old_mips) # Restore global state
-                self.tex_compress.set(old_compress)
+                try:
+                    self.internal_save_img(img, final_out, has_alpha)
+                finally:
+                    self.tex_mips.set(old_mips) # Restore global state
+                    self.tex_compress.set(old_compress)
         finally:
             if os.path.exists(temp_dds): os.remove(temp_dds)
 

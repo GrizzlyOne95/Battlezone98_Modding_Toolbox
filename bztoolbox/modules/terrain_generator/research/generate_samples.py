@@ -9,7 +9,6 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRYPOINT = ROOT / "heightmap_generator.py"
 OUT = ROOT / "samples"
 
 # style, label, zones, seed, relief, naturalization, detail,
@@ -57,7 +56,7 @@ def generate() -> list[dict[str, object]]:
 
         cmd = [
             sys.executable,
-            str(ENTRYPOINT),
+            "-m", "bztoolbox.modules.terrain_generator.cli",
             "--style", style,
             "--zones", zones,
             "--seed", str(seed),
@@ -73,7 +72,7 @@ def generate() -> list[dict[str, object]]:
             "--preview", str(preview),
         ]
         print(f"Generating {label} ({style}, {zones}, seed={seed})", flush=True)
-        subprocess.run(cmd, cwd=ROOT, check=True)
+        subprocess.run(cmd, cwd=ROOT.parents[2], check=True)
 
         manifest.append(
             {

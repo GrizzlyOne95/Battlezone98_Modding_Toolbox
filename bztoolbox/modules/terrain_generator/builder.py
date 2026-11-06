@@ -75,7 +75,7 @@ class TerrainBuilder:
         inner = np.clip(dist / max(half_width, 1e-3), 0.0, 1.0)
         floor_profile = smoothstep01(inner)
         shoulder = smoothstep01(np.clip((dist - half_width) / max(bank, 1e-3), 0.0, 1.0))
-        influence = np.where(dist <= half_width, 1.0 - 0.18 * floor_profile, 1.0 - shoulder)
+        influence = np.where(dist <= half_width, 1.0 - 0.18 * floor_profile, 0.82 * (1.0 - shoulder))
         influence[dist >= half_width + bank] = 0.0
         self.a -= float(depth) * influence.astype(np.float32)
         if rim:

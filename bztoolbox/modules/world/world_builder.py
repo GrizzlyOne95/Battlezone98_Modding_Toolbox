@@ -648,7 +648,7 @@ class BZ98TRNArchitect(_BaseArchitect):
             _, heights = read_hg2(path)
             out_path = os.path.splitext(path)[0] + "_edit.png"
             if self.hg2img_compat.get():
-                h = np.flipud((heights & 0x0FFF).astype(np.uint16))
+                h = np.flipud(np.minimum(heights, 0x0FFF).astype(np.uint16))
                 g = (h >> 4).astype(np.uint8)
                 r = (h & 0x0F).astype(np.uint8) if self.hg2img_precision.get() else np.zeros_like(g)
                 b = np.zeros_like(g)

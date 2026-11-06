@@ -401,7 +401,7 @@ class BZRadio(EmbeddedRoot):
                 if file.lower().endswith(('.wav', '.ogg')):
                     try:
                         seconds = processing.duration(os.path.join(folder, file))
-                        writer.writerow([file, round(seconds, 3), "OGG" if file.endswith(".ogg") else "WAV"])
+                        writer.writerow([file, round(seconds, 3), "OGG" if file.lower().endswith(".ogg") else "WAV"])
                         count += 1
                     except: continue
         self.log(f"Manifest exported with {count} entries to: {save_path}", "success")

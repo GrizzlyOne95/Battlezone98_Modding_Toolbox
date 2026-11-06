@@ -133,7 +133,7 @@ def probe_version(status: ToolStatus, timeout: float = 5.0) -> ToolStatus:
     try:
         result = subprocess.run([status.path, *args], capture_output=True, text=True,
                                 timeout=timeout, creationflags=_NO_WINDOW)
-        first = (result.stdout or result.stderr).strip().splitlines()
+        first = (result.stdout.strip() or result.stderr.strip()).splitlines()
         status.version = first[0][:120] if first else ""
     except (OSError, subprocess.SubprocessError) as exc:
         status.problems.append(f"Could not run: {exc}")

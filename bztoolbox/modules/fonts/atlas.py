@@ -287,8 +287,13 @@ class GlyphSource:
     def get(self, char: str) -> Optional[Ink]:
         preferred = PREFER_RECIPE.get(char)
         if preferred is not None:
-            self.constructed.append(char)
-            return preferred(Recipe(self, lower=False)).trimmed()
+            try:
+                built = preferred(Recipe(self, lower=False))
+            except _MissingPart:
+                built = None   # a part is missing from the font; try the font itself
+            if built is not None:
+                self.constructed.append(char)
+                return built.trimmed()
         ink = self._font_ink(self.font_for(char), char)
         if ink is not None:
             return ink
@@ -302,12 +307,18 @@ class GlyphSource:
                 return ink
         recipe = RECIPES.get(char.upper()) if char.isalpha() else RECIPES.get(char)
         if recipe is not None and char.isalpha() and char.islower() and not self.small_caps:
-            built = recipe(Recipe(self, lower=False))
+            try:
+                built = recipe(Recipe(self, lower=False))
+            except _MissingPart:
+                built = None
             if built is not None:
                 self.constructed.append(char)
                 return built.trimmed().scaled(self.x_height / self.upper.cap, anchor_x=0, anchor_y=0)
         if recipe is not None:
-            built = recipe(Recipe(self, lower=char.isalpha() and char.islower()))
+            try:
+                built = recipe(Recipe(self, lower=char.isalpha() and char.islower()))
+            except _MissingPart:
+                built = None
             if built is not None:
                 self.constructed.append(char)
                 return built.trimmed()
@@ -323,6 +334,10 @@ class GlyphSource:
                 return ink
         self.missing.append(char)
         return None
+
+
+class _MissingPart(Exception):
+    """A recipe needs a Latin letter the font does not have."""
 
 
 class Recipe:
@@ -351,6 +366,8 @@ class Recipe:
             # Digits and marks: bring them to this case's cap height.
             if latin.isdigit() and abs(ink.height - self.C) > 1:
                 ink = ink.scaled(self.C / ink.height, anchor_x=ink.x)
+        if ink is None:
+            raise _MissingPart(latin)
         return ink.at_left(0)
 
     def rect(self, x0, y0, x1, y1) -> Ink:

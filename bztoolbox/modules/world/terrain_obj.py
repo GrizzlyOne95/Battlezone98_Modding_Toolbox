@@ -379,7 +379,7 @@ def resolve_hg2_geometry(
         _validate_resolved_spacing(mesh, mesh.zone_bits)
         return mesh.zones_x, mesh.zones_z, mesh.zone_bits
 
-    zone_bits = DEFAULT_ZONE_BITS
+    zone_bits = mesh.zone_bits if mesh.zone_bits is not None else DEFAULT_ZONE_BITS
     zone_size = 1 << zone_bits
 
     if preferred_zones_x and preferred_zones_z:

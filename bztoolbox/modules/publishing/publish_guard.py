@@ -99,7 +99,7 @@ def other_folders_for_item(item_id: str, folder: str, projects: Sequence[dict]) 
     others = []
     for project in projects:
         path = project.get("mod_path", "")
-        if str(project.get("item_id", "")).strip() == str(item_id) and path \
+        if str(project.get("item_id", "")).strip() == str(item_id).strip() and path \
                 and os.path.normcase(os.path.abspath(path)) != here:
             others.append(path)
     return sorted(set(others))
@@ -111,7 +111,7 @@ def other_profiles_for_item(item_id: str, folder: str, projects: Sequence[dict])
         return []
     here = os.path.normcase(os.path.abspath(folder))
     return [project for project in projects
-            if str(project.get("item_id", "")).strip() == str(item_id) and project.get("mod_path")
+            if str(project.get("item_id", "")).strip() == str(item_id).strip() and project.get("mod_path")
             and os.path.normcase(os.path.abspath(project["mod_path"])) != here]
 
 

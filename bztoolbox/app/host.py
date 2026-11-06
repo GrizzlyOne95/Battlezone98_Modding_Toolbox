@@ -193,6 +193,8 @@ def embeddable(frame_cls, standalone_factory: Callable[[], tk.Misc]):
                 self.pack(fill="both", expand=True)
 
         def configure(self, *args, **kw):
+            if not args and not kw:
+                return frame_cls.configure(self)
             args, kw = self._toolbox_split_menu(args, kw)
             if not args and not kw:
                 return None

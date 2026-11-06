@@ -58,6 +58,12 @@ def module_data_dir(module: str) -> Path:
 # (service, account). The Publish page stores the Steam Web API key here.
 CREDENTIALS = (("BattlezoneWorkshopUploader", "steam_web_api_key"),)
 
+# Every name the toolbox itself creates directly inside the user data directory.
+_USER_DATA_NAMES = frozenset({
+    "settings.json", "settings.tmp", "projects", "cache", "modules", "fix-backups",
+    "publish-backups", "tunnel-backups", "lgt-backups", "OgrePreview.log",
+})
+
 
 def remove_user_data(*, credentials: bool = True) -> list[str]:
     """Delete everything the toolbox stored for this user; return what went.
@@ -74,6 +80,11 @@ def remove_user_data(*, credentials: bool = True) -> list[str]:
     # BZTOOLBOX_HOME can point anywhere: never wipe a drive root or the home folder.
     if resolved == Path(resolved.anchor) or resolved == home or resolved in home.parents:
         raise ValueError(f"refusing to delete {resolved}: not a toolbox data folder")
+    # Nor a folder holding anything the toolbox didn't create (the user's own files).
+    foreign = sorted(entry.name for entry in base.iterdir() if entry.name not in _USER_DATA_NAMES)
+    if foreign:
+        raise ValueError(f"refusing to delete {resolved}: it holds files the toolbox didn't create "
+                         f"({', '.join(foreign[:5])})")
     shutil.rmtree(base, ignore_errors=True)
     if not base.exists():
         removed.append(str(base))

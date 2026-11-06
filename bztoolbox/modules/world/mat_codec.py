@@ -175,5 +175,5 @@ def generate_mat(height_raw,rules,zx,zz,cap_transitions=None,diagonal_transition
                     if kind=="solid":st.solid_tiles+=1
                     elif kind=="cap":st.cap_tiles+=1; st.unsupported_transition_tiles+=int(vc and (d.base,d.next) not in caps)
                     elif kind=="diagonal":st.diagonal_tiles+=1; st.unsupported_transition_tiles+=int(vd and (d.base,d.next) not in diags)
-                    else:st.ambiguous_tiles+=1; st.solid_tiles+=1
+                    else:st.ambiguous_tiles+=1
     return out,st

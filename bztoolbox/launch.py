@@ -179,6 +179,7 @@ class LaunchPlan:
 def build_launch(install: GameInstall, mission: str = "", flags: Iterable[str] = (), extra: str = "",
                  via_steam: bool = False) -> LaunchPlan:
     """The command for ``install``; ``flags`` are :class:`LaunchFlag` keys, ``extra`` free-form arguments."""
+    flags = list(flags)
     known = {flag.key: flag for flag in install.flags}
     unknown = [key for key in flags if key not in known]
     if unknown:
@@ -303,7 +304,7 @@ def _ini_has(text: str, section: str, key: str) -> bool:
         header = _ini_section(line)
         if header is not None:
             current = header
-        elif current == section.lower() and line.split("=", 1)[0].strip().lower() == key.lower():
+        elif current == section.lower() and "=" in line and line.split("=", 1)[0].strip().lower() == key.lower():
             return True
     return False
 

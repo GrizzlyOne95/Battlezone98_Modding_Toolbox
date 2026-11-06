@@ -44,6 +44,8 @@ def _dispatch_wheel(event) -> None:
         units = 1
     else:
         delta = getattr(event, "delta", 0) or 0
+        if not delta:
+            return
         units = -int(delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
     while widget is not None:
         scroll = _WHEEL_TARGETS.get(str(widget))
@@ -323,7 +325,7 @@ class JobsPanel(ttk.Frame):
 
     def refresh(self) -> None:
         self.tree.delete(*self.tree.get_children())
-        for job in reversed(self.manager.jobs):
+        for job in self.manager.jobs:   # _upsert inserts at the top, so oldest first leaves newest on top
             self._upsert(job)
 
     def _row(self, job: Job):

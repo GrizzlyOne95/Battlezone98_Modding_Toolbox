@@ -103,7 +103,7 @@ class ProjectStore:
         unlinked = []
         for project in self.list_projects():
             path = project.get("mod_path", "")
-            if str(project.get("item_id", "")).strip() != str(item_id) or not path                     or os.path.normcase(os.path.abspath(path)) == keep:
+            if str(project.get("item_id", "")).strip() != str(item_id).strip() or not path                     or os.path.normcase(os.path.abspath(path)) == keep:
                 continue
             self.file_manager.save_profile(project["profile_path"], {**project, "item_id": "0"})
             unlinked.append(project)

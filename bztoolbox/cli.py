@@ -154,7 +154,9 @@ def _cmd_validate(args) -> int:
     if args.checks:
         checks = [c.strip() for c in args.checks.split(",") if c.strip()]
     if args.add:
-        checks += [c.strip() for c in args.add.split(",") if c.strip() and c.strip() not in checks]
+        for c in args.add.split(","):
+            if c.strip() and c.strip() not in checks:
+                checks.append(c.strip())
     try:
         report = validate_project(args.path, checks)
     except (NotADirectoryError, ValueError) as exc:
@@ -638,7 +640,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
         argv = ["gui"]
-    if argv[0] in ("help", "-h", "--help") and len(argv) == 1:
+    if argv[0] in ("help", "-h", "--help"):
         print_help()
         return 0
     groups = {d.group for d in DELEGATES}

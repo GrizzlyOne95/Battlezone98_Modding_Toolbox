@@ -89,6 +89,10 @@ def _apply_symmetry(a: np.ndarray, mode: str) -> None:
     elif mode == "2-way rotational":
         top = a[: (h + 1) // 2, :].copy()
         a[h // 2 :, :] = np.flipud(np.fliplr(top[: h - h // 2, :]))
+        if h % 2:
+            mid = top[-1]
+            a[h // 2, :] = mid
+            a[h // 2, w // 2 :] = mid[: (w + 1) // 2][::-1]
     elif mode == "4-way":
         _apply_symmetry(a, "mirror x")
         _apply_symmetry(a, "mirror z")
