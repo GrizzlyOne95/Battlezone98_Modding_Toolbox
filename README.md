@@ -278,7 +278,7 @@ Run `BZModdingToolbox-<version>-windows-setup.exe`.
 - It installs for your account without an administrator prompt, or for all users if you choose.
 - It adds a Start menu entry and registers under **Settings -> Apps** with its version and publisher.
 - It can add an **Open in BZ Modding Toolbox** entry to the right-click menu of folders, and put the `bztoolbox` command line on `PATH`.
-- To upgrade, run a newer setup (or use the toolbox's update banner). Setup recognises the installed copy and updates it in place: same folder and options, no licence or options pages, and your settings and project profiles are kept. It asks before replacing a newer version with an older one.
+- To upgrade, run a newer setup (or use the toolbox's update banner). Setup shows that version's patch notes before changing files. It recognises the installed copy and updates it in place: same folder and options, no licence or options pages, and your settings and project profiles are kept. It asks before replacing a newer version with an older one.
 - Uninstall from **Settings -> Apps**. It asks whether to delete your settings too.
 
 Prefer not to install? `BZModdingToolbox-<version>-windows-portable.zip` is the same program: extract it and run `BZModdingToolbox.exe`. The command-line version is `bztoolbox.exe` in the same folder.
@@ -297,7 +297,7 @@ You can also run `BZModdingToolbox/BZModdingToolbox` straight from the extracted
 
 ### Updates
 
-The toolbox checks for a new release at most once a day and shows a banner when there is one. An installed Windows copy can update itself from the banner; other copies get a link to the right download. Turn the check off, or check now, under **Settings -> General**.
+The toolbox checks for a new release at most once a day and shows a banner when there is one. **View patch notes** displays the release changes inside the app. On installed Windows copies, **Update now** opens the same review before downloading and running setup; cancelling leaves the current version alone. Other copies get a link to the right download. The release notes are also included in every downloaded package. Turn the check off, or check now, under **Settings -> General**.
 
 ### Where your settings live
 

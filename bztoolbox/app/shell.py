@@ -373,15 +373,62 @@ class Shell:
         ttk.Button(bar, text="Skip this version", style="Toolbox.Link.TButton",
                    command=lambda: (self.settings.set("update_skipped_version", update.version),
                                     self.hide_update())).pack(side="right")
-        ttk.Button(bar, text="What's new", style="Toolbox.Link.TButton",
-                   command=lambda: webbrowser.open(update.page_url)).pack(side="right")
+        ttk.Button(bar, text="View patch notes", style="Toolbox.Link.TButton",
+                   command=lambda: self._show_patch_notes(update)).pack(side="right")
         if update.can_install:
             primary = ttk.Button(bar, text="Update now", style="Toolbox.Accent.TButton")
-            primary.configure(command=lambda: self._install_update(update, primary))
+            primary.configure(command=lambda: self._show_patch_notes(update, upgrade_button=primary))
         else:
             primary = ttk.Button(bar, text="Download", style="Toolbox.Accent.TButton",
                                  command=lambda: webbrowser.open(update.download_url or update.page_url))
         primary.pack(side="right", padx=(0, 8))
+
+    def _show_patch_notes(self, update, upgrade_button=None) -> None:
+        """Show GitHub's notes locally, before an installed copy downloads setup."""
+        import webbrowser
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Patch notes - {APP_NAME} {update.version}")
+        dialog.geometry("720x520")
+        dialog.minsize(480, 320)
+        dialog.transient(self.root)
+
+        content = ttk.Frame(dialog, padding=16, style="Toolbox.TFrame")
+        content.pack(fill="both", expand=True)
+        ttk.Label(content, text=f"WHAT'S NEW IN {update.version}",
+                  style="Toolbox.Title.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(content, text="Review the changes before upgrading.",
+                  style="Toolbox.Muted.TLabel").pack(anchor="w", pady=(0, 12))
+
+        viewer = ttk.Frame(content, style="Toolbox.TFrame")
+        viewer.pack(fill="both", expand=True)
+        scroll = ttk.Scrollbar(viewer, orient="vertical")
+        notes = tk.Text(viewer, wrap="word", font=("TkDefaultFont", 10),
+                        padx=12, pady=12, borderwidth=1, relief="solid",
+                        yscrollcommand=scroll.set)
+        scroll.configure(command=notes.yview)
+        scroll.pack(side="right", fill="y")
+        notes.pack(side="left", fill="both", expand=True)
+        notes.insert("1.0", update.notes.strip() or
+                     "No patch notes were supplied with this release. Open its GitHub page for details.")
+        notes.configure(state="disabled")
+
+        actions = ttk.Frame(content, style="Toolbox.TFrame")
+        actions.pack(fill="x", pady=(12, 0))
+        ttk.Button(actions, text="Close", style="Toolbox.TButton",
+                   command=dialog.destroy).pack(side="right")
+        if upgrade_button is not None:
+            def proceed() -> None:
+                dialog.destroy()
+                self._install_update(update, upgrade_button)
+
+            ttk.Button(actions, text="Download & upgrade", style="Toolbox.Accent.TButton",
+                       command=proceed).pack(side="right", padx=(0, 8))
+        ttk.Button(actions, text="Open GitHub release", style="Toolbox.Link.TButton",
+                   command=lambda: webbrowser.open(update.page_url)).pack(side="left")
+        dialog.wait_visibility()
+        dialog.grab_set()
+        notes.focus_set()
 
     def hide_update(self) -> None:
         for child in self.banner_slot.winfo_children():
@@ -408,6 +455,7 @@ class Shell:
             try:
                 updates.launch_installer(path)
             except OSError as exc:
+                button.state(["!disabled"])
                 messagebox.showerror("Update", f"The installer could not be started:\n{exc}")
                 return
             self.close()
