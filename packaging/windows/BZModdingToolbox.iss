@@ -1,6 +1,8 @@
 ; Windows installer for the Battlezone Modding Toolbox (Inno Setup 6.3+).
 ;
 ;   iscc /DAppVersion=1.2.3 packaging\windows\BZModdingToolbox.iss
+; Requires build\RELEASE_NOTES.txt and build\RELEASE_NOTES.md, prepared by
+; scripts/release/render_notes.py (CI produces both from GitHub release notes).
 ;
 ; Packs the PyInstaller folder (dist\BZModdingToolbox) into
 ; dist\installer\BZModdingToolbox-v<version>-windows-setup.exe, which:
@@ -79,6 +81,8 @@ CloseApplications=yes
 RestartApplications=no
 
 LicenseFile={#RepoRoot}\LICENSE
+; The same GitHub-generated notes are shown before install/upgrade and saved on disk.
+InfoBeforeFile={#RepoRoot}\build\RELEASE_NOTES.txt
 SetupIconFile={#RepoRoot}\bztoolbox\resources\branding\app_icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
@@ -104,6 +108,7 @@ Type: filesandordirs; Name: "{app}\_internal"
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\build\RELEASE_NOTES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSING.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -228,6 +233,11 @@ procedure CurPageChanged(CurPageID: Integer);
 var
   FromTo: String;
 begin
+  if CurPageID = wpInfoBefore then
+  begin
+    WizardForm.PageNameLabel.Caption := 'Patch notes for ' + NewVersion;
+    WizardForm.PageDescriptionLabel.Caption := 'Review what changed before installing this version.';
+  end;
   if not IsUpdate then Exit;
   if UpdateVerb = 'Update' then
     FromTo := ' from ' + PreviousVersion + ' to ' + NewVersion

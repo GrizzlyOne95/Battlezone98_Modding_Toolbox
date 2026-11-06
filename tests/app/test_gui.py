@@ -151,6 +151,51 @@ class JobTests(unittest.TestCase):
         self.assertEqual(job.status, CANCELLED)
 
 
+class UpdateNotesDialogTests(unittest.TestCase):
+    def test_upgrade_requires_review_and_confirm_before_downloading(self):
+        from unittest.mock import Mock
+
+        from bztoolbox.app.shell import Shell
+        from bztoolbox.settings import Settings
+        from bztoolbox.updates import Update
+
+        root = _make_root()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                upgrade = Mock()
+                shell._install_update = upgrade
+                release = Update("9.0.0", "https://github.com/example/release",
+                                 notes="## Fixed\n* Cooperative missions")
+                action = tkinter.ttk.Button(root, text="Update now")
+                shell._show_patch_notes(release, upgrade_button=action)
+                dialog = next(child for child in root.winfo_children() if isinstance(child, tk.Toplevel))
+
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+
+                text = next(child for child in descendants(dialog) if isinstance(child, tk.Text))
+                self.assertIn("Cooperative missions", text.get("1.0", "end"))
+                self.assertEqual(upgrade.call_count, 0)
+                buttons = {child.cget("text"): child for child in descendants(dialog)
+                           if isinstance(child, tkinter.ttk.Button)}
+                buttons["Close"].invoke()
+                self.assertEqual(upgrade.call_count, 0)
+
+                shell._show_patch_notes(release, upgrade_button=action)
+                dialog = next(child for child in root.winfo_children() if isinstance(child, tk.Toplevel))
+                buttons = {child.cget("text"): child for child in descendants(dialog)
+                           if isinstance(child, tkinter.ttk.Button)}
+                buttons["Download & upgrade"].invoke()
+                upgrade.assert_called_once_with(release, action)
+                shell.close(confirm=False)
+        finally:
+            if root.winfo_exists():
+                root.destroy()
+
+
 class ShellSmokeTests(unittest.TestCase):
     def test_every_page_loads(self):
         root = _make_root()
