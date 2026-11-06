@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import tkinter as tk
 import traceback
 from tkinter import messagebox, ttk
@@ -75,6 +76,43 @@ class Shell:
         self._restore_last_project()
         start = self.settings.get("last_page", "home")
         self.navigate(start if start in PAGES_BY_ID and PAGES_BY_ID[start].available else "home")
+        self._schedule_background_prewarm()
+
+    # ------------------------------------------------------------- pre-warming
+    def _schedule_background_prewarm(self) -> None:
+        """Schedule pre-warming of heavier tool modules when the UI has settled."""
+        def launch_thread() -> None:
+            try:
+                if not self.root.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            thread = threading.Thread(target=self._prewarm_modules, daemon=True, name="ToolboxModulePrewarmer")
+            thread.start()
+
+        try:
+            self.root.after(800, launch_thread)
+        except tk.TclError:
+            pass
+
+    @staticmethod
+    def _prewarm_modules() -> None:
+        import importlib
+
+        # Pre-import modules for heavier toolsets off the main thread so
+        # navigating to them in the sidebar does not stall the Tk UI.
+        candidates = (
+            "bztoolbox.modules.terrain_generator.gui",
+            "bztoolbox.modules.world.world_builder",
+            "bztoolbox.modules.textures.tex_man",
+            "bztoolbox.modules.publishing.uploader",
+            "bztoolbox.modules.localization.localization",
+        )
+        for module_name in candidates:
+            try:
+                importlib.import_module(module_name)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ layout
     def _initial_geometry(self) -> str:
