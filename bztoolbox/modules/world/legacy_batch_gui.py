@@ -133,15 +133,7 @@ def install_world_builder_legacy_batch_patch() -> None:
                 )
                 return
 
-        self.btn_legacy_batch.config(text="BATCH PORTING...", state="disabled")
-        self.legacy_batch_info.set(f"Processing {len(missions)} mission folder(s)...")
-        threading.Thread(
-            target=self._generate_legacy_batch_worker,
-            args=(source_root, output_root, image_format, explicit_palette),
-            daemon=True,
-        ).start()
-
-    def generate_legacy_batch_worker(self, source_root, output_root, image_format, explicit_palette):
+        # Snapshot Tk variables on the UI thread; the worker must not read them.
         saved = {
             "source": self.legacy_source_dir.get(),
             "output": self.legacy_out_dir.get(),
@@ -149,19 +141,50 @@ def install_world_builder_legacy_batch_patch() -> None:
             "palette": self.legacy_pal_path.get(),
             "format": self.legacy_format.get(),
         }
+        self.btn_legacy_batch.config(text="BATCH PORTING...", state="disabled")
+        self.legacy_batch_info.set(f"Processing {len(missions)} mission folder(s)...")
+        threading.Thread(
+            target=self._generate_legacy_batch_worker,
+            args=(source_root, output_root, image_format, explicit_palette, saved),
+            daemon=True,
+        ).start()
+
+    def run_on_ui_thread(self, fn):
+        """Run fn on the Tk thread from a worker and wait for it to finish."""
+        done = threading.Event()
+        box = {}
+
+        def runner():
+            try:
+                box["result"] = fn()
+            except BaseException as exc:  # re-raised on the worker thread
+                box["error"] = exc
+            finally:
+                done.set()
+
+        self.root.after(0, runner)
+        done.wait()
+        if "error" in box:
+            raise box["error"]
+        return box.get("result")
+
+    def generate_legacy_batch_worker(self, source_root, output_root, image_format, explicit_palette, saved):
         try:
             def port_one(source_dir: str, output_dir: str, prefix: str) -> None:
                 # Reuse the exact same single-map worker and all installed HGT,
                 # package, stock-palette, material, and preflight patches.
-                self.legacy_source_dir.set(source_dir)
-                self.legacy_out_dir.set(output_dir)
-                self.legacy_prefix.set(prefix)
-                self.legacy_format.set(image_format)
-                self.legacy_pal_path.set(explicit_palette or "")
-                if hasattr(self, "legacy_auto_hgt"):
-                    self.legacy_auto_hgt.set(True)
-                if hasattr(self, "legacy_auto_package"):
-                    self.legacy_auto_package.set(True)
+                def set_vars():
+                    self.legacy_source_dir.set(source_dir)
+                    self.legacy_out_dir.set(output_dir)
+                    self.legacy_prefix.set(prefix)
+                    self.legacy_format.set(image_format)
+                    self.legacy_pal_path.set(explicit_palette or "")
+                    if hasattr(self, "legacy_auto_hgt"):
+                        self.legacy_auto_hgt.set(True)
+                    if hasattr(self, "legacy_auto_package"):
+                        self.legacy_auto_package.set(True)
+
+                self._run_on_ui_thread(set_vars)
                 self._generate_legacy_worker(source_dir, output_dir)
 
             result = run_legacy_batch(
@@ -181,21 +204,22 @@ def install_world_builder_legacy_batch_patch() -> None:
             self.log(f"Batch port failed: {exc}", "error")
             self.root.after(0, lambda msg=f"BATCH FAILED: {exc}": self.legacy_batch_info.set(msg))
         finally:
-            try:
-                self.legacy_source_dir.set(saved["source"])
-                self.legacy_out_dir.set(saved["output"])
-                self.legacy_prefix.set(saved["prefix"])
-                self.legacy_pal_path.set(saved["palette"])
-                self.legacy_format.set(saved["format"])
-            except Exception:
-                pass
-            self.root.after(
-                0,
-                lambda: self.btn_legacy_batch.config(text="BATCH PORT SUBFOLDERS", state="normal"),
-            )
+            def restore_ui():
+                try:
+                    self.legacy_source_dir.set(saved["source"])
+                    self.legacy_out_dir.set(saved["output"])
+                    self.legacy_prefix.set(saved["prefix"])
+                    self.legacy_pal_path.set(saved["palette"])
+                    self.legacy_format.set(saved["format"])
+                except Exception:
+                    pass
+                self.btn_legacy_batch.config(text="BATCH PORT SUBFOLDERS", state="normal")
+
+            self.root.after(0, restore_ui)
 
     base.setup_legacy_tab = setup_legacy_tab_with_batch
     base.scan_legacy_batch_root = scan_legacy_batch_root
     base.generate_legacy_batch = generate_legacy_batch
+    base._run_on_ui_thread = run_on_ui_thread
     base._generate_legacy_batch_worker = generate_legacy_batch_worker
     base._legacy_batch_installed = True

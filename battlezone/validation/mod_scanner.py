@@ -523,6 +523,7 @@ class ModScanner:
         """
         errors = []
         warnings = []
+        self._odf_hints = None   # this run's mod ODF class labels, read on first map
 
         try:
             files = os.listdir(mod_dir)
@@ -661,13 +662,17 @@ class ModScanner:
 
     def _check_map_mission(self, mod_dir, base_name, map_type, errors, warnings, max_players=""):
         """The .bzn's mission class must suit the menu its .ini puts it in."""
-        from battlezone.bzn.bz1 import read_bzn
+        from battlezone.bzn.bz1 import odf_class_hints, read_bzn, stock_class_hints
 
         bzn = next((name for name in os.listdir(mod_dir) if name.lower() == f"{base_name}.bzn".lower()), None)
         if not bzn:
             return
+        if getattr(self, "_odf_hints", None) is None:
+            # The map's own ODFs name custom classes. Read them once per run,
+            # not once per map: a big mod has tens of thousands of files.
+            self._odf_hints = {**stock_class_hints(), **odf_class_hints([mod_dir])}
         try:
-            mission = read_bzn(os.path.join(mod_dir, bzn), odf_dirs=[mod_dir])   # the map's own ODFs name custom classes
+            mission = read_bzn(os.path.join(mod_dir, bzn), hints=self._odf_hints)
         except Exception:
             return      # pre-1022 and other unreadable BZNs still load in the game; nothing to check
 

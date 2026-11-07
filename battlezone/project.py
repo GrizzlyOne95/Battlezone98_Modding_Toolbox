@@ -187,22 +187,37 @@ def summarize_folder(root: Path) -> ProjectSummary:
     return summary
 
 
-def folder_fingerprint(root: str | Path) -> str:
+def folder_fingerprint(root: str | Path, cancel=None) -> str:
     """Hash of every file's path, size and modification time under ``root``.
 
     Cheap next to a full scan; pages use it to re-run only when the folder
-    changed since their last result.
+    changed since their last result. ``cancel`` (a ``threading.Event``) stops
+    the walk early; the partial hash is then meaningless, so callers check it.
     """
     digest = hashlib.sha1()
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames.sort()
-        for name in sorted(filenames):
-            path = os.path.join(dirpath, name)
+    pending = [os.fspath(root)]
+    while pending:
+        if cancel is not None and cancel.is_set():
+            break
+        dirpath = pending.pop()
+        try:
+            # scandir stats come from the directory listing on Windows: no
+            # extra system call per file, unlike os.stat.
+            with os.scandir(dirpath) as listing:
+                entries = sorted(listing, key=lambda entry: entry.name)
+        except OSError:
+            continue
+        subdirs = []
+        for entry in entries:
             try:
-                stat = os.stat(path)
+                if entry.is_dir(follow_symlinks=False):   # like os.walk: no junction loops
+                    subdirs.append(entry.path)
+                    continue
+                stat = entry.stat()
             except OSError:
                 continue
-            digest.update(f"{path}|{stat.st_size}|{stat.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
+            digest.update(f"{entry.path}|{stat.st_size}|{stat.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
+        pending.extend(reversed(subdirs))   # depth-first, in name order
     return digest.hexdigest()
 
 

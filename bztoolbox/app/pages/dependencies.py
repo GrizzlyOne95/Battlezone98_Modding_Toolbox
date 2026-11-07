@@ -38,6 +38,7 @@ class DependenciesPage(ttk.Frame):
         self.shell = shell
         self.graph = None
         self.job = None
+        self._job_folder = None    # normcased folder self.job is scanning
         self._fingerprint = None   # folder state the graph on screen was built from
         self.filter_var = tk.StringVar()
         self.filter_var.trace_add("write", lambda *_: self._render_files())
@@ -149,9 +150,11 @@ class DependenciesPage(ttk.Frame):
         if self.graph is not None and (project is None or
                                        os.path.normcase(self.graph.root) != os.path.normcase(project.mod_path)):
             self._clear()   # never show another mod's graph
-        if self.job is not None and self.job.status in ("queued", "running"):
+        if (self.job is not None and self.job.status in ("queued", "running")
+                and (project is None or self._job_folder != os.path.normcase(project.mod_path))):
             # The scan belongs to the previous project; stop it so its graph
-            # never lands here and on_show can start a scan for this one.
+            # never lands here and on_show can start a scan for this one. A
+            # scan of this same project keeps running (page build re-announces it).
             self.job.cancel()
             self.job = None
         if self.shell.current_page == "project.dependencies":
@@ -194,9 +197,12 @@ class DependenciesPage(ttk.Frame):
         self.target_label.configure(text=f"Target: {folder}")
         self.run_button.configure(state="disabled")
         previous = self._fingerprint
+        self._job_folder = os.path.normcase(folder)
 
         def work(job):
-            fingerprint = (os.path.normcase(folder), folder_fingerprint(folder))
+            job.report(message="Checking for changes")
+            fingerprint = (os.path.normcase(folder), folder_fingerprint(folder, cancel=job.cancel_event))
+            job.check_cancelled()
             if only_if_changed and fingerprint == previous:
                 return None   # nothing changed since the graph on screen
             try:
