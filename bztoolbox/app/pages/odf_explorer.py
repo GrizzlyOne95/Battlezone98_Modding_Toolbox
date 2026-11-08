@@ -233,7 +233,9 @@ class ODFExplorerPage(ttk.Frame):
         game_dir = default_game_dir(self.shell.settings)
 
         def work(job):
-            fingerprint = (os.path.normcase(folder), folder_fingerprint(folder), game_dir)
+            job.report(message="Checking for changes")
+            fingerprint = (os.path.normcase(folder), folder_fingerprint(folder, cancel=job.cancel_event), game_dir)
+            job.check_cancelled()
             if only_if_changed and fingerprint == previous:
                 return None
             job.report(0, "Reading ODFs")

@@ -140,3 +140,20 @@ class FingerprintTests(unittest.TestCase):
             second = folder_fingerprint(tmp)
             os.remove(path)
             self.assertNotEqual(second, folder_fingerprint(tmp))
+
+    def test_folder_fingerprint_sees_subfolders_and_stops_on_cancel(self):
+        import tempfile
+        import threading
+
+        from battlezone.project import folder_fingerprint
+
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = Path(tmp) / "sub" / "deep.odf"
+            nested.parent.mkdir()
+            nested.write_text("x")
+            first = folder_fingerprint(tmp)
+            nested.write_text("xy")
+            self.assertNotEqual(first, folder_fingerprint(tmp))
+            stop = threading.Event()
+            stop.set()
+            self.assertNotEqual(folder_fingerprint(tmp), folder_fingerprint(tmp, cancel=stop))

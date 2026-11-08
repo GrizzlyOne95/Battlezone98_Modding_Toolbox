@@ -8,6 +8,7 @@ import requests
 import json
 import time
 import threading
+from queue import Empty, Queue
 import os
 import ctypes
 import re
@@ -102,9 +103,14 @@ class BZ98GuiApp:
             value=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
         )
 
+        self._main_thread_id = threading.get_ident()
+        self._ui_queue = Queue()
+        self._settings_snapshot = {}
+
         self.load_custom_font()
         self.setup_styles()
         self.setup_ui()
+        self._process_ui_queue()
 
     def load_custom_font(self):
         self.main_font = "Consolas"
@@ -264,12 +270,61 @@ class BZ98GuiApp:
         self.btn_bulk = ttk.Button(self.odf_tab, text="COLLECT & TRANSLATE ALL", style="Primary.TButton", command=self.start_bulk_thread, state="disabled")
         self.btn_bulk.pack(pady=10, ipady=5, fill="x")
 
+    def _queue_ui_call(self, callback, *args, **kwargs):
+        self._ui_queue.put((callback, args, kwargs))
+
+    def _process_ui_queue(self):
+        try:
+            while True:
+                callback, args, kwargs = self._ui_queue.get_nowait()
+                try:
+                    callback(*args, **kwargs)
+                except tk.TclError:
+                    pass
+        except Empty:
+            pass
+
+        try:
+            self.root.after(50, self._process_ui_queue)
+        except tk.TclError:
+            pass
+
+    def _on_main_thread(self):
+        main_id = getattr(self, "_main_thread_id", None)
+        return main_id is None or threading.get_ident() == main_id
+
     def log(self, message):
+        if not self._on_main_thread():
+            self._queue_ui_call(self.log, message)
+            return
         self.log_area.configure(state='normal')
         self.log_area.insert(tk.END, f"> {message}\n")
         self.log_area.see(tk.END)
         self.log_area.configure(state='disabled')
-        self.root.update_idletasks()
+
+    def _set_progress_ui(self, value=None, maximum=None):
+        if maximum is not None:
+            self.progress['maximum'] = maximum
+        if value is not None:
+            self.progress['value'] = value
+
+    def _set_button_state_ui(self, button, state):
+        button.config(state=state)
+
+    def _show_message_ui(self, kind, title, message):
+        if kind == "error":
+            messagebox.showerror(title, message)
+        else:
+            messagebox.showinfo(title, message)
+
+    def _clear_manual_input_ui(self):
+        self.text_input.delete("1.0", tk.END)
+
+    def _reset_odf_list_ui(self):
+        self.odf_list.delete(0, tk.END)
+
+    def _add_odf_ui(self, text):
+        self.odf_list.insert(tk.END, text)
 
     def set_preset_path(self, version):
         self.csv_path.set(self.paths[version])
@@ -290,7 +345,7 @@ class BZ98GuiApp:
         if f:
             self.google_credentials_path.set(f)
 
-    def get_existing_keys(self):
+    def get_existing_keys(self, path=None):
         """Read localization keys without decoding the translated columns.
 
         Battlezone localization tables in the wild are not consistently UTF-8.
@@ -298,7 +353,8 @@ class BZ98GuiApp:
         avoids failing on legacy ANSI/code-page bytes elsewhere in the row.
         """
         keys = set()
-        path = self.csv_path.get()
+        if path is None:
+            path = self.csv_path.get()
 
         if not os.path.exists(path):
             return keys
@@ -401,7 +457,20 @@ class BZ98GuiApp:
     def _write_localization_row(self, file_handle, row):
         file_handle.write(self._encode_localization_row(row))
 
+    def _snapshot_settings(self):
+        """Copy the translation settings a worker needs, on the UI thread."""
+        self._settings_snapshot = {}
+        self._settings_snapshot = {
+            name: self._get_string_setting(name)
+            for name in ("bulk_translation_backend", "google_credentials_path", "google_project_id")
+        }
+
     def _get_string_setting(self, attribute_name):
+        # Worker threads read the copy taken when their run started; the UI
+        # thread always reads the live (possibly just edited) value.
+        snapshot = getattr(self, "_settings_snapshot", None)
+        if snapshot and attribute_name in snapshot and not self._on_main_thread():
+            return snapshot[attribute_name]
         value = getattr(self, attribute_name, "")
         if hasattr(value, "get"):
             value = value.get()
@@ -1127,24 +1196,29 @@ class BZ98GuiApp:
         except ValueError as e:
             messagebox.showerror("Localization Table Format Error", str(e))
             return
-        threading.Thread(target=self.process_manual, daemon=True).start()
-
-    def process_manual(self):
+        # Read Tk widgets/variables here; the worker must not touch them.
         raw_text = self.text_input.get("1.0", tk.END).strip()
         if not raw_text:
             return
 
         lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+        csv_path = self.csv_path.get()
+        self._snapshot_settings()
         self.btn_run.config(state='disabled')
         self.progress['maximum'] = len(lines)
         self.progress['value'] = 0
+        threading.Thread(
+            target=self.process_manual, args=(lines, csv_path), daemon=True
+        ).start()
 
-        existing_keys = self.get_existing_keys()
+    def process_manual(self, lines, csv_path):
+        progress = 0
+        existing_keys = self.get_existing_keys(csv_path)
         added_count = 0
         failed_count = 0
 
         try:
-            with open(self.csv_path.get(), 'a+b') as f:
+            with open(csv_path, 'a+b') as f:
                 self._ensure_append_boundary(f)
                 for line in lines:
                     if "~" in line and ".bzn" in line.lower():
@@ -1157,13 +1231,15 @@ class BZ98GuiApp:
                             safe_key = self.make_names_key(english_text)
                         except ValueError as e:
                             failed_count += 1
-                            self.progress['value'] += 1
+                            progress += 1
+                            self._queue_ui_call(self._set_progress_ui, progress)
                             self.log(f"Skipping invalid line: {line} ({e})")
                             continue
 
                     if safe_key in existing_keys:
                         self.log(f"Skipping (Duplicate): {safe_key}")
-                        self.progress['value'] += 1
+                        progress += 1
+                        self._queue_ui_call(self._set_progress_ui, progress)
                         continue
 
                     self.log(f"Translating: {english_text}...")
@@ -1171,7 +1247,8 @@ class BZ98GuiApp:
                         translations = self.translate_text(english_text)
                     except TranslationRateLimitError as e:
                         failed_count += 1
-                        self.progress['value'] += 1
+                        progress += 1
+                        self._queue_ui_call(self._set_progress_ui, progress)
                         self.log(
                             f"Google translation is still rate-limited; stopping "
                             f"this batch so it can be resumed later. ({e})"
@@ -1179,7 +1256,8 @@ class BZ98GuiApp:
                         break
                     except Exception as e:
                         failed_count += 1
-                        self.progress['value'] += 1
+                        progress += 1
+                        self._queue_ui_call(self._set_progress_ui, progress)
                         self.log(f"Skipping failed translation: {safe_key} ({e})")
                         continue
 
@@ -1187,34 +1265,36 @@ class BZ98GuiApp:
                     self._write_localization_row(f, row)
                     existing_keys.add(safe_key)
                     added_count += 1
-                    self.progress['value'] += 1
+                    progress += 1
+                    self._queue_ui_call(self._set_progress_ui, progress)
 
             self.log(
                 f"BATCH COMPLETE! Added {added_count} new entries; "
                 f"{failed_count} failed."
             )
-            messagebox.showinfo(
-                "Success",
+            self._queue_ui_call(
+                self._show_message_ui, "info", "Success",
                 f"Added {added_count} entries. Failed translations: {failed_count}."
             )
-            self.text_input.delete("1.0", tk.END)
+            self._queue_ui_call(self._clear_manual_input_ui)
         except Exception as e:
             self.log(f"Critical Error: {e}")
-            messagebox.showerror("Error", str(e))
+            self._queue_ui_call(self._show_message_ui, "error", "Error", str(e))
 
-        self.btn_run.config(state='normal')
-        self.progress['value'] = 0
+        self._queue_ui_call(self._set_button_state_ui, self.btn_run, 'normal')
+        self._queue_ui_call(self._set_progress_ui, 0)
 
     def start_scan_thread(self):
         if not os.path.exists(self.scan_folder_path.get()):
             messagebox.showerror("Error", "Please select a valid folder to scan.")
             return
-        threading.Thread(target=self.perform_scan, daemon=True).start()
+        threading.Thread(
+            target=self.perform_scan, args=(self.scan_folder_path.get(),), daemon=True
+        ).start()
 
-    def perform_scan(self):
-        folder = self.scan_folder_path.get()
+    def perform_scan(self, folder):
         self.log(f"Scanning folder: {folder}")
-        self.odf_list.delete(0, tk.END)
+        self._queue_ui_call(self._reset_odf_list_ui)
         self.discovered_odfs = []  # List of tuples (path, display_name, key)
 
         odf_count = 0
@@ -1244,15 +1324,16 @@ class BZ98GuiApp:
 
                 seen_keys.add(key)
                 self.discovered_odfs.append((path, unit_name, key))
-                self.odf_list.insert(tk.END, f"{unit_name} ({file})")
+                self._queue_ui_call(self._add_odf_ui, f"{unit_name} ({file})")
 
         self.log(
             f"Scan complete. Found {len(self.discovered_odfs)} player-visible "
             f"unit names in {odf_count} ODF files; skipped "
             f"{skipped_without_display_name} ODFs without unitName."
         )
-        self.btn_bulk.config(
-            state="normal" if self.discovered_odfs else "disabled"
+        self._queue_ui_call(
+            self._set_button_state_ui, self.btn_bulk,
+            "normal" if self.discovered_odfs else "disabled",
         )
 
     def extract_unit_name(self, path):
@@ -1276,28 +1357,32 @@ class BZ98GuiApp:
         except ValueError as e:
             messagebox.showerror("Localization Table Format Error", str(e))
             return
-        threading.Thread(target=self.process_bulk, daemon=True).start()
-
-    def process_bulk(self):
+        # Snapshot Tk variables here; the worker must not read them.
+        csv_path = self.csv_path.get()
+        self._snapshot_settings()
         self.btn_bulk.config(state="disabled")
         self.progress['maximum'] = len(self.discovered_odfs)
         self.progress['value'] = 0
+        threading.Thread(target=self.process_bulk, args=(csv_path,), daemon=True).start()
 
-        existing_keys = self.get_existing_keys()
+    def process_bulk(self, csv_path):
+        progress = 0
+        existing_keys = self.get_existing_keys(csv_path)
         pending = []
 
         for path, english_text, safe_key in self.discovered_odfs:
             if safe_key in existing_keys:
                 self.log(f"Skipping (Duplicate): {safe_key}")
-                self.progress['value'] += 1
+                progress += 1
+                self._queue_ui_call(self._set_progress_ui, progress)
                 continue
             pending.append((path, english_text, safe_key))
 
         if not pending:
             self.log("BULK SCAN COMPLETE! No untranslated entries were found.")
-            messagebox.showinfo("Success", "No untranslated entries were found.")
-            self.btn_bulk.config(state="normal")
-            self.progress['value'] = 0
+            self._queue_ui_call(self._show_message_ui, "info", "Success", "No untranslated entries were found.")
+            self._queue_ui_call(self._set_button_state_ui, self.btn_bulk, "normal")
+            self._queue_ui_call(self._set_progress_ui, 0)
             return
 
         backend = self._get_string_setting("bulk_translation_backend")
@@ -1318,9 +1403,9 @@ class BZ98GuiApp:
                 translated_rows = self.translate_batch_free_http(source_texts)
         except Exception as e:
             self.log(f"Bulk translation failed; no rows were written. ({e})")
-            messagebox.showerror("Translation Error", str(e))
-            self.btn_bulk.config(state="normal")
-            self.progress['value'] = 0
+            self._queue_ui_call(self._show_message_ui, "error", "Translation Error", str(e))
+            self._queue_ui_call(self._set_button_state_ui, self.btn_bulk, "normal")
+            self._queue_ui_call(self._set_progress_ui, 0)
             return
 
         added_count = 0
@@ -1330,28 +1415,29 @@ class BZ98GuiApp:
                 (safe_key, self._encode_localization_row([safe_key, english_text] + translations))
                 for (_, english_text, safe_key), translations in zip(pending, translated_rows)
             ]
-            with open(self.csv_path.get(), 'a+b') as f:
+            with open(csv_path, 'a+b') as f:
                 self._ensure_append_boundary(f)
                 for safe_key, encoded in encoded_rows:
                     f.write(encoded)
                     existing_keys.add(safe_key)
                     added_count += 1
-                    self.progress['value'] += 1
+                    progress += 1
+                    self._queue_ui_call(self._set_progress_ui, progress)
 
             self.log(
                 f"BULK SCAN COMPLETE! Added {added_count} new entries using "
                 f"{backend}."
             )
-            messagebox.showinfo(
-                "Success",
+            self._queue_ui_call(
+                self._show_message_ui, "info", "Success",
                 f"Bulk translation complete. Added {added_count} units."
             )
         except Exception as e:
             self.log(f"Could not append translated rows: {e}")
-            messagebox.showerror("Error", str(e))
+            self._queue_ui_call(self._show_message_ui, "error", "Error", str(e))
 
-        self.btn_bulk.config(state="normal")
-        self.progress['value'] = 0
+        self._queue_ui_call(self._set_button_state_ui, self.btn_bulk, "normal")
+        self._queue_ui_call(self._set_progress_ui, 0)
 
 if __name__ == "__main__":
     root = tk.Tk()

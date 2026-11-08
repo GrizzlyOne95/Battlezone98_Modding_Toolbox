@@ -2,6 +2,7 @@ import os
 import sys
 import csv
 import threading
+from queue import Empty, Queue
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import ctypes
@@ -115,8 +116,31 @@ class BZRadio(EmbeddedRoot):
         except Exception:
             pass
 
+        self._main_thread_id = threading.get_ident()
+        self._ui_queue = Queue()
+
         self.setup_styles()
         self.setup_ui()
+        self._process_ui_queue()
+
+    def _queue_ui_call(self, callback, *args, **kwargs):
+        self._ui_queue.put((callback, args, kwargs))
+
+    def _process_ui_queue(self):
+        try:
+            while True:
+                callback, args, kwargs = self._ui_queue.get_nowait()
+                try:
+                    callback(*args, **kwargs)
+                except tk.TclError:
+                    pass
+        except Empty:
+            pass
+
+        try:
+            self.after(50, self._process_ui_queue)
+        except tk.TclError:
+            pass
 
     def load_custom_fonts(self):
         self.font_name = bz_font(self.font_name)
@@ -308,6 +332,9 @@ class BZRadio(EmbeddedRoot):
             self.btn_radio.config(text="INITIATE WAV PROCESSING")
 
     def log(self, text, tag=None):
+        if threading.get_ident() != self._main_thread_id:
+            self._queue_ui_call(self.log, text, tag)
+            return
         self.log_box.config(state="normal")
         ts = datetime.now().strftime("[%H:%M:%S] ")
         self.log_box.insert("end", ts, "timestamp")
@@ -340,33 +367,29 @@ class BZRadio(EmbeddedRoot):
         self.btn_radio.state(['disabled'])
         self.btn_ogg.state(['disabled'])
         
-        threading.Thread(target=self.process_logic, args=(files, mode), daemon=True).start()
-
-    def process_logic(self, files, mode):
-        total = len(files)
+        # Snapshot Tk variables on the UI thread; the worker must not read them.
         wav_profile = self.get_wav_profile() if mode == "wav" else None
-        out_subdir = "bz98_radio_export" if mode == "wav" and wav_profile == WAV_PROFILE_RADIO else \
-                     "bz98_loop_export" if mode == "wav" else "bz98_music_export"
-        out_dir = os.path.join(os.path.dirname(files[0]), out_subdir)
-        os.makedirs(out_dir, exist_ok=True)
-        
         keep_tags = not self.strip_metadata_var.get()
         settings = None
         if mode == "wav" and wav_profile == WAV_PROFILE_RADIO:
             choice = self.beep_var.get()
-            beep = COMM_BEEP if "comm" in choice else \
-                   UNIT_BEEP if "unit" in choice else \
-                   getattr(self, "custom_beep_path", None) if choice == "Custom..." else None
+            beep = COMM_BEEP if "comm" in choice else                    UNIT_BEEP if "unit" in choice else                    getattr(self, "custom_beep_path", None) if choice == "Custom..." else None
             settings = processing.RadioSettings(
                 intensity=self.intensity_var.get(), phaser=self.phaser_var.get(), echo=self.echo_var.get(),
                 echo_delay_ms=int(self.echo_delay_var.get()), beep_path=beep)
 
+        threading.Thread(target=self.process_logic, args=(files, mode, wav_profile, keep_tags, settings), daemon=True).start()
+
+    def process_logic(self, files, mode, wav_profile, keep_tags, settings):
+        total = len(files)
+        out_subdir = "bz98_radio_export" if mode == "wav" and wav_profile == WAV_PROFILE_RADIO else                      "bz98_loop_export" if mode == "wav" else "bz98_music_export"
+        out_dir = os.path.join(os.path.dirname(files[0]), out_subdir)
+        os.makedirs(out_dir, exist_ok=True)
+
         for index, f in enumerate(files):
             # Update Progress
             prog = (index + 1) / total * 100
-            self.progress['value'] = prog
-            self.status_label.config(text=f"PROCESSING {index+1}/{total}: {os.path.basename(f)}")
-            self.update_idletasks()
+            self._queue_ui_call(self._set_progress_ui, prog, f"PROCESSING {index+1}/{total}: {os.path.basename(f)}")
 
             out_ext = ".wav" if mode == "wav" else ".ogg"
             out_f = os.path.join(out_dir, os.path.splitext(os.path.basename(f))[0] + out_ext)
@@ -382,6 +405,13 @@ class BZRadio(EmbeddedRoot):
                 self.log(f"Error processing {os.path.basename(f)}: {e}", "error")
 
         # Completion
+        self._queue_ui_call(self._finish_ui, total)
+
+    def _set_progress_ui(self, value, text):
+        self.progress['value'] = value
+        self.status_label.config(text=text)
+
+    def _finish_ui(self, total):
         self.status_label.config(text="OPERATION COMPLETE")
         self.btn_radio.state(['!disabled'])
         self.btn_ogg.state(['!disabled'])

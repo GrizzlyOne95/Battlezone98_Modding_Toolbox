@@ -299,21 +299,38 @@ class Shell:
         active = self.jobs.active
         if not active:
             self.jobs_button.configure(text="No background tasks")
+            self.jobs_progress.stop()
+            self.jobs_progress.configure(mode="determinate", value=0)   # next busy job restarts the animation
             self.jobs_progress.pack_forget()
             return
+        running = [j for j in active if j.status == "running"]
+        queued = len(active) - len(running)
         if len(active) == 1:
             job = active[0]
             label = f"{job.title}: {job.message}" if job.message else job.title
+            if job.status == "queued":
+                label = f"{job.title}: waiting"
+            elif job.cancelled:
+                label = f"{job.title}: stopping"
         else:
-            label = f"{len(active)} tasks running"
+            label = f"{len(running)} tasks running"
+            if queued:
+                label += f", {queued} waiting"
+            if len(running) == 1:
+                label = f"{running[0].title} ({label})"
         self.jobs_button.configure(text=label[:90])
-        known = [j.progress for j in active if j.progress is not None]
+        if not self.jobs_progress.winfo_ismapped():
+            self.jobs_progress.pack(side="right", padx=8)
+        known = [j.progress for j in running if j.progress is not None]
         if known:
-            if not self.jobs_progress.winfo_ismapped():
-                self.jobs_progress.pack(side="right", padx=8)
+            if str(self.jobs_progress.cget("mode")) != "determinate":
+                self.jobs_progress.stop()
+                self.jobs_progress.configure(mode="determinate")
             self.jobs_progress.configure(value=100 * sum(known) / len(known))
-        else:
-            self.jobs_progress.pack_forget()
+        elif str(self.jobs_progress.cget("mode")) != "indeterminate":
+            # Unknown progress still shows motion, so a long scan never looks hung.
+            self.jobs_progress.configure(mode="indeterminate", value=0)
+            self.jobs_progress.start(30)
 
     # ------------------------------------------------------------------ updates
     def check_for_updates(self, force: bool = False,

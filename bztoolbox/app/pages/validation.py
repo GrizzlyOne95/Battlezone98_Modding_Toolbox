@@ -153,7 +153,10 @@ class ValidationPage(ttk.Frame):
 
         def work(job):
             target = _extract_zip(folder) if archive else folder
-            fingerprint = (os.path.normcase(folder), tuple(checks), None if archive else folder_fingerprint(folder))
+            job.report(message="Checking for changes")
+            fingerprint = (os.path.normcase(folder), tuple(checks),
+                           None if archive else folder_fingerprint(folder, cancel=job.cancel_event))
+            job.check_cancelled()
             if only_if_changed and fingerprint == previous:
                 return None   # nothing changed since the results on screen
             try:
