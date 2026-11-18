@@ -233,27 +233,6 @@ class UpdateNotesDialogTests(unittest.TestCase):
                 pass  # Shell.close() already destroyed the Tk application.
 
 
-class WheelTests(unittest.TestCase):
-    def test_lists_and_text_that_scroll_keep_the_wheel(self):
-        from bztoolbox.app.widgets import _handles_wheel_itself
-
-        root = _make_root()
-        try:
-            text = tk.Text(root, height=2)
-            text.pack()
-            root.update()
-            self.assertFalse(_handles_wheel_itself(text))          # nothing to scroll: the page may scroll
-            text.insert("1.0", "line\n" * 50)
-            root.update()
-            self.assertTrue(_handles_wheel_itself(text))
-            canvas = tk.Canvas(root)
-            canvas.bind("<Button-4>", lambda e: None)                  # a zoomable canvas
-            self.assertTrue(_handles_wheel_itself(canvas))
-            self.assertFalse(_handles_wheel_itself(tk.Frame(root)))
-        finally:
-            root.destroy()
-
-
 class ShellSmokeTests(unittest.TestCase):
     def test_every_page_loads(self):
         root = _make_root()
@@ -284,6 +263,25 @@ class ShellSmokeTests(unittest.TestCase):
                 self.assertEqual(localization.scan_folder_path.get(), str(mod))
                 # Older tools restyle ".", but every page keeps the toolbox's fallback font.
                 self.assertEqual(tk.ttk.Style(root).lookup(".", "font"), baseline_font)
+
+                # The page does not scroll while a list, text box or zoomable canvas under the
+                # pointer takes the wheel (checked on this root: a second Tk root that showed
+                # windows makes later roots unstable on macOS).
+                from bztoolbox.app.widgets import _handles_wheel_itself
+
+                probe = tk.Toplevel(root)
+                text = tk.Text(probe, height=2)
+                text.pack()
+                root.update()
+                self.assertFalse(_handles_wheel_itself(text))         # nothing to scroll: the page may
+                text.insert("1.0", "line\n" * 50)
+                root.update()
+                self.assertTrue(_handles_wheel_itself(text))
+                canvas = tk.Canvas(probe)
+                canvas.bind("<Button-4>", lambda e: None)               # a zoomable canvas
+                self.assertTrue(_handles_wheel_itself(canvas))
+                self.assertFalse(_handles_wheel_itself(tk.Frame(probe)))
+                probe.destroy()
 
                 # An upload runs outside the job system; closing must still see it.
                 self.assertEqual(shell.busy_pages(), [])
