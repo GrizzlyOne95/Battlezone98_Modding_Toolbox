@@ -81,6 +81,28 @@ class Shell:
     # ------------------------------------------------------------- pre-warming
     def _schedule_background_prewarm(self) -> None:
         """Schedule pre-warming of heavier tool modules when the UI has settled."""
+        if sys.platform == "darwin":
+            # Tk on macOS is not thread-safe at all: a background import can run the
+            # garbage collector, which frees Tk objects (variables, images) off the
+            # Tk thread and crashes the app. Import there on the Tk thread, one
+            # module per idle moment, instead.
+            pending = list(self._PREWARM_MODULES)
+
+            def step() -> None:
+                if not pending:
+                    return
+                self._import_quietly(pending.pop(0))
+                try:
+                    self.root.after(150, lambda: self.root.after_idle(step))
+                except tk.TclError:
+                    pass
+
+            try:
+                self.root.after(800, lambda: self.root.after_idle(step))
+            except tk.TclError:
+                pass
+            return
+
         def launch_thread() -> None:
             try:
                 if not self.root.winfo_exists():
@@ -95,24 +117,29 @@ class Shell:
         except tk.TclError:
             pass
 
+    _PREWARM_MODULES = (
+        "bztoolbox.modules.terrain_generator.gui",
+        "bztoolbox.modules.world.world_builder",
+        "bztoolbox.modules.textures.tex_man",
+        "bztoolbox.modules.publishing.uploader",
+        "bztoolbox.modules.localization.localization",
+    )
+
     @staticmethod
-    def _prewarm_modules() -> None:
+    def _import_quietly(module_name: str) -> None:
         import importlib
 
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            pass
+
+    @classmethod
+    def _prewarm_modules(cls) -> None:
         # Pre-import modules for heavier toolsets off the main thread so
         # navigating to them in the sidebar does not stall the Tk UI.
-        candidates = (
-            "bztoolbox.modules.terrain_generator.gui",
-            "bztoolbox.modules.world.world_builder",
-            "bztoolbox.modules.textures.tex_man",
-            "bztoolbox.modules.publishing.uploader",
-            "bztoolbox.modules.localization.localization",
-        )
-        for module_name in candidates:
-            try:
-                importlib.import_module(module_name)
-            except Exception:
-                pass
+        for module_name in cls._PREWARM_MODULES:
+            cls._import_quietly(module_name)
 
     # ------------------------------------------------------------------ layout
     def _initial_geometry(self) -> str:
