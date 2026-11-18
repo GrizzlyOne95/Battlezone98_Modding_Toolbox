@@ -148,24 +148,9 @@ class JobTests(unittest.TestCase):
         self.assertIn(("done", 1.0), updates)
 
     def test_cancel(self):
-        from bztoolbox.app.jobs import CANCELLED, JobManager
-
-        self.jobs = JobManager(self.root, poll_ms=10)
-
-        def work(job):
-            while True:
-                job.check_cancelled()
-                time.sleep(0.01)
-
-        job = self.jobs.submit("loop", work)
-        pump(self.root, 0.2)
-        job.cancel()
-        pump(self.root, 2, until=lambda: job.status == CANCELLED)
-        self.assertEqual(job.status, CANCELLED)
-
-
-    def test_on_finally_runs_after_every_outcome_including_cancel(self):
-        from bztoolbox.app.jobs import CANCELLED, JobManager
+        # One test (one Tk root) covers cancel and on_finally: on macOS every extra
+        # root created before the shell smoke test makes that test's root unstable.
+        from bztoolbox.app.jobs import CANCELLED, DONE, JobManager
 
         self.jobs = JobManager(self.root, poll_ms=10)
         ended, done = [], []
@@ -181,9 +166,10 @@ class JobTests(unittest.TestCase):
         job.cancel()
         pump(self.root, 2, until=lambda: len(ended) == 2)
         self.assertEqual(job.status, CANCELLED)
-        self.assertEqual(sorted(ended), ["cancelled", "done"])
-        self.assertEqual(done, [7])                     # on_done still runs before on_finally
-        self.assertEqual(ok.status, "done")
+        # on_finally runs after every outcome, cancel included; on_done still runs first.
+        self.assertEqual(sorted(ended), [CANCELLED, DONE])
+        self.assertEqual(done, [7])
+        self.assertEqual(ok.status, DONE)
 
 
 class UpdateNotesDialogTests(unittest.TestCase):

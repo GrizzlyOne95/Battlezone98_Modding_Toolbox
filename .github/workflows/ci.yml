@@ -192,6 +192,14 @@ jobs:
         # Tk is process-global on macOS. The HD integration test runs above in
         # its own pytest process so preceding GUI tests cannot contaminate it.
         run: python -X faulthandler -m pytest -vv --timeout=90 --timeout-method=thread --ignore=tests/app/test_hd_terrain_page.py
+      - name: Native crash reports (macOS)
+        # A Tk crash shows only "update" in the Python dump; macOS's report has the C stack.
+        if: failure() && runner.os == 'macOS'
+        run: |
+          for f in ~/Library/Logs/DiagnosticReports/*Python*; do
+            [ -e "$f" ] || continue
+            echo "::group::$f"; head -c 60000 "$f"; echo; echo "::endgroup::"
+          done
       - name: CLI smoke test
         run: python -m bztoolbox help
 
