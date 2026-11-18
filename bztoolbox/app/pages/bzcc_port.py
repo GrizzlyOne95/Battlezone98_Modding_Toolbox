@@ -12,8 +12,8 @@ from tkinter import messagebox, ttk
 from battlezone.bzn.port_form import build_port_arguments
 from bztoolbox.app.widgets import Card, LogView, PathPicker, ScrollableFrame
 
-BZN_TYPES = (("BZN missions", "*.bzn"), ("All files", "*.*"))
-JSON_TYPES = (("JSON", "*.json"), ("All files", "*.*"))
+BZN_TYPES = (("BZN missions", "*.bzn"), ("All files", "*"))
+JSON_TYPES = (("JSON", "*.json"), ("All files", "*"))
 
 # Defaults a first conversion can rely on: class-compatible auto-mapping only;
 # nothing approximate, unsafe or partial is written unless asked for.
@@ -199,7 +199,8 @@ class BZCCPortPage(ScrollableFrame):
             return code, text
 
         self.job = self.shell.jobs.submit(f"Port {Path(args[0]).name}", work,
-                                          on_done=self._converted, on_error=self._failed)
+                                          on_done=self._converted, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _converted(self, result) -> None:
         code, text = result
@@ -214,6 +215,12 @@ class BZCCPortPage(ScrollableFrame):
         self.log.write(f"Done: {output}", "success")
         self.validate_button.state(["!disabled"])
         self.shell.status(f"Ported mission written to {output}")
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.convert_button,):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         self.convert_button.state(["!disabled"])

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from bztoolbox.app.widgets import Card, LogView, ScrollableFrame
 from bztoolbox import launch
+from bztoolbox.system import open_in_file_manager
 
 POLL_MS = 2000
 
@@ -19,6 +21,7 @@ class TestLaunchPage(ScrollableFrame):
         self.shell = shell
         self.process = None
         self.watch = None
+        self.deploy_job = None
         saved = self._saved()
         self.installs = launch.detect_installs(shell.settings)
         extra_dir = saved.get("install", "")
@@ -31,7 +34,7 @@ class TestLaunchPage(ScrollableFrame):
         self.extra = tk.StringVar(value=saved.get("extra", ""))
         self.deploy = tk.BooleanVar(value=saved.get("deploy", True))
         self.deploy_name = tk.StringVar()
-        self.via_steam = tk.BooleanVar(value=saved.get("via_steam", False))
+        self.via_steam = tk.BooleanVar(value=saved.get("via_steam", sys.platform != "win32"))
         mode = saved.get("test_mode", "as is")
         self.test_mode = tk.StringVar(value=mode if mode in launch.TEST_MODES else "as is")
         self.flag_vars: dict = {}
@@ -70,7 +73,8 @@ class TestLaunchPage(ScrollableFrame):
         row.pack(fill="x", pady=(4, 2))
         ttk.Label(row, text="Extra arguments", style="Toolbox.Surface.TLabel", width=18).pack(side="left")
         ttk.Entry(row, textvariable=self.extra, style="Toolbox.TEntry").pack(side="left", fill="x", expand=True)
-        self.steam_check = ttk.Checkbutton(form, text="Launch through Steam (steam.exe -applaunch)",
+        self.steam_check = ttk.Checkbutton(form, text="Launch through Steam" + (" (steam.exe -applaunch)" if sys.platform == "win32"
+                                                                         else " (Proton)"),
                                            variable=self.via_steam, style="Toolbox.Surface.TCheckbutton",
                                            command=self._refresh_command)
         self.steam_check.pack(anchor="w")
@@ -78,7 +82,7 @@ class TestLaunchPage(ScrollableFrame):
         ttk.Label(form, text="Deploy", style="Toolbox.CardTitle.TLabel").pack(anchor="w", pady=(8, 2))
         row = ttk.Frame(form, style="Toolbox.Surface.TFrame")
         row.pack(fill="x", pady=2)
-        ttk.Checkbutton(row, text="Copy the project into addon\\", variable=self.deploy,
+        ttk.Checkbutton(row, text="Copy the project into the addon folder as", variable=self.deploy,
                         style="Toolbox.Surface.TCheckbutton", command=self._refresh_command).pack(side="left")
         ttk.Entry(row, textvariable=self.deploy_name, style="Toolbox.TEntry", width=28).pack(side="left", padx=(4, 6))
         ttk.Button(row, text="Remove deployed copy", style="Toolbox.TButton",
@@ -174,7 +178,8 @@ class TestLaunchPage(ScrollableFrame):
                 box = ttk.Checkbutton(self.flags_frame, text=text, variable=var, style="Toolbox.Surface.TCheckbutton",
                                       command=self._refresh_command)
                 box.grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 18))
-        steam_ok = install is not None and install.kind == "redux" and install.store == "steam" and launch.steam_exe()
+        steam_ok = (install is not None and install.kind == "redux" and install.store == "steam"
+                    and launch.steam_command([]) is not None)
         self.steam_check.state(["!disabled"] if steam_ok else ["disabled"])
         if not steam_ok:
             self.via_steam.set(False)
@@ -232,6 +237,8 @@ class TestLaunchPage(ScrollableFrame):
         if self.process is not None and self.process.poll() is None:
             messagebox.showinfo("Test in game", "The game from the last launch is still running.")
             return
+        if self.deploy_job is not None and self.deploy_job.status in ("queued", "running"):
+            return
         try:
             install, plan = self._plan()
         except (ValueError, FileNotFoundError, OSError) as exc:
@@ -239,29 +246,57 @@ class TestLaunchPage(ScrollableFrame):
             return
         self.log.clear()
         project = self.shell.project
-        if self.deploy.get() and project is not None:
-            name = self.deploy_name.get().strip()
-            if not name:
-                messagebox.showerror("Test in game", "Give the addon folder a name, or turn off deploying.")
-                return
-            try:
-                result = launch.deploy_project(project.mod_path, install, name)
-            except (OSError, ValueError) as exc:
-                messagebox.showerror("Test in game", f"Deploy failed: {exc}")
-                return
-            self.log.write(f"Deployed to {result.target}: {len(result.copied)} copied, {result.unchanged} unchanged"
-                           + (f", {len(result.skipped)} editor files skipped" if result.skipped else ""), "info")
-            mode = self._map_mode()
+        if not (self.deploy.get() and project is not None):
+            self._start(install, plan)
+            return
+        name = self.deploy_name.get().strip()
+        if not name:
+            messagebox.showerror("Test in game", "Give the addon folder a name, or turn off deploying.")
+            return
+        try:
+            launch.check_deploy(project.mod_path, install, name)
+        except ValueError as exc:
+            messagebox.showerror("Test in game", f"Cannot deploy: {exc}")
+            return
+        mode, mission, source = self._map_mode(), self.mission.get(), project.mod_path
+
+        def work(job):
+            job.report(message="Copying changed files")
+            result = launch.deploy_project(source, install, name, cancel=lambda: job.cancelled,
+                                           progress=lambda rel: job.report(message=rel))
+            notes, problem = [], ""
             if mode != "as is":
                 try:
-                    notes = launch.prepare_map_test(result.target, self.mission.get(), mode)
+                    notes = launch.prepare_map_test(result.target, mission, mode)
                 except (OSError, ValueError) as exc:
-                    messagebox.showerror("Test in game", f"Could not set the map up for a {mode} test: {exc}")
-                    return
-                for note in notes:
-                    self.log.write("  " + note, "info")
-                if mode == "multiplayer":
-                    self.log.write("Open Multiplayer in the game's menu to find the map.", "muted")
+                    problem = f"Could not set the map up for a {mode} test: {exc}"
+            return result, notes, problem
+
+        def done(outcome) -> None:
+            result, notes, problem = outcome
+            self.log.write(f"Deployed to {result.target}: {len(result.copied)} copied, {result.unchanged} unchanged"
+                           + (f", {len(result.removed)} removed (no longer in the project)" if result.removed else "")
+                           + (f", {len(result.skipped)} editor files skipped" if result.skipped else ""), "info")
+            if problem:
+                messagebox.showerror("Test in game", problem)
+                return
+            for note in notes:
+                self.log.write("  " + note, "info")
+            if mode == "multiplayer":
+                self.log.write("Open Multiplayer in the game's menu to find the map.", "muted")
+            self._start(install, plan)
+
+        def failed(error: str) -> None:
+            messagebox.showerror("Test in game", f"Deploy failed: {error}")
+
+        def finished(_job) -> None:
+            self.launch_button.state(["!disabled"])
+
+        self.launch_button.state(["disabled"])
+        self.deploy_job = self.shell.jobs.submit(f"Deploy {name}", work, on_done=done, on_error=failed,
+                                                 on_finally=finished)
+
+    def _start(self, install, plan) -> None:
         self._save()
         self.watch = launch.LogWatch(install)
         try:
@@ -294,7 +329,7 @@ class TestLaunchPage(ScrollableFrame):
             install = self._install()
             if install is None:
                 return
-            self.log.write("No launch from this page yet: showing the last 200 lines of each log.", "muted")
+            self.log.write("No launch from this page yet: showing the end (last 20 KB) of each log.", "muted")
             self.watch = launch.LogWatch(install)
             self.watch.offsets = {p: max(0, (p.stat().st_size if p.is_file() else 0) - 20000)
                                   for p in self.watch.offsets}
@@ -374,5 +409,9 @@ class TestLaunchPage(ScrollableFrame):
         install = self._install()
         if install is None:
             return
-        install.addon.mkdir(exist_ok=True)
-        os.startfile(install.addon) if hasattr(os, "startfile") else None
+        try:
+            install.addon.mkdir(exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror("Test in game", f"Cannot create {install.addon}: {exc}")
+            return
+        open_in_file_manager(str(install.addon))

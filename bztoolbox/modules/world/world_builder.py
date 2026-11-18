@@ -151,7 +151,7 @@ class BZ98TRNArchitect(_BaseArchitect):
                        foreground=core.BZ_FG).pack(anchor="w", pady=12)
 
     def _browse_bz2_ter(self):
-        path = core.filedialog.askopenfilename(filetypes=[("BZ2/BZCC terrain", "*.ter"), ("All files", "*.*")])
+        path = core.filedialog.askopenfilename(filetypes=[("BZ2/BZCC terrain", "*.ter"), ("All files", "*")])
         if path:
             self.bz2_ter_path.set(path)
             source_path = Path(path)
@@ -171,7 +171,7 @@ class BZ98TRNArchitect(_BaseArchitect):
 
     def _browse_bz2_trn(self):
         path = core.filedialog.askopenfilename(
-            filetypes=[("BZ2/BZCC terrain config", "*.trn"), ("All files", "*.*")]
+            filetypes=[("BZ2/BZCC terrain config", "*.trn"), ("All files", "*")]
         )
         if path:
             self.bz2_trn_path.set(path)
@@ -385,7 +385,7 @@ class BZ98TRNArchitect(_BaseArchitect):
     def _browse_stock_parameter_file(self):
         path = core.filedialog.askopenfilename(
             title="Select MakeTRN layer parameter file",
-            filetypes=[("MakeTRN Layer Config", "*.ini *.txt *.trn"), ("All Files", "*.*")],
+            filetypes=[("MakeTRN Layer Config", "*.ini *.txt *.trn"), ("All Files", "*")],
         )
         if path:
             self.stock_param_path.set(path)
@@ -463,7 +463,7 @@ class BZ98TRNArchitect(_BaseArchitect):
     def browse_terrain_obj(self):
         path = core.filedialog.askopenfilename(
             title="Import Terrain OBJ",
-            filetypes=[("Wavefront OBJ", "*.obj"), ("All Files", "*.*")],
+            filetypes=[("Wavefront OBJ", "*.obj"), ("All Files", "*")],
         )
         if not path:
             return
@@ -969,7 +969,7 @@ class BZ98TRNArchitect(_BaseArchitect):
 
     def load_auto_painter_config(self):
         path = core.filedialog.askopenfilename(
-            filetypes=[("MakeTRN / Terrain Config", "*.ini *.trn *.txt"), ("All Files", "*.*")]
+            filetypes=[("MakeTRN / Terrain Config", "*.ini *.trn *.txt"), ("All Files", "*")]
         )
         if not path:
             return

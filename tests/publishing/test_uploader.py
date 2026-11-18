@@ -32,6 +32,11 @@ with patch.dict(sys.modules, _HEADLESS_STUBS):
     # the same module object the class above uses, so patches reach its globals
     from bztoolbox.modules.publishing import steamworks_tags
 
+
+def _run_inline(work, then, busy=""):
+    """The uploader's off-UI scan, run in place so a test sees the whole publish flow."""
+    then(work(), None)
+
 class DummyVar:
     def __init__(self, value=""):
         self._value = value
@@ -1609,6 +1614,7 @@ class TestWorkshopUploader(unittest.TestCase):
         self.uploader.show_safety_warning = MagicMock(return_value=True)
         self.uploader.save_config = MagicMock()
         self.uploader._confirm_upload_plan = MagicMock(return_value=True)
+        self.uploader._run_off_ui = _run_inline
 
         with patch.object(uploader.threading, "Thread") as thread_mock:
             thread_instance = MagicMock()
@@ -1643,6 +1649,7 @@ class TestWorkshopUploader(unittest.TestCase):
         u.save_config = MagicMock()
         u._confirm_upload_plan = MagicMock(return_value=True)
         u._workshop_dirs = MagicMock(return_value=[])
+        u._run_off_ui = _run_inline
         return content
 
     def _upload_starts(self):

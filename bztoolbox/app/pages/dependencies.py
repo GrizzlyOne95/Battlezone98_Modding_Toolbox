@@ -216,7 +216,12 @@ class DependenciesPage(ttk.Frame):
             self.shell.status(f"Dependency scan failed: {error}")
 
         self.job = self.shell.jobs.submit(f"Dependencies of {os.path.basename(folder) or folder}", work,
-                                          on_done=self._done, on_error=failed)
+                                          on_done=self._done, on_error=failed, on_finally=self._cancelled)
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            self.run_button.configure(state="normal" if self.shell.project else "disabled")
+            self.shell.status("Dependency scan cancelled.")
 
     def _done(self, result) -> None:
         if result is None:

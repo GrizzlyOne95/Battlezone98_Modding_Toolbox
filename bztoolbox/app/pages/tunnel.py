@@ -83,7 +83,7 @@ class TunnelPage(ScrollableFrame):
         card.pack(fill="x", pady=(0, 12))
         form = card.body
         PathPicker(form, "Heightmap (.hg2)", self.vars["hg2"], kind="file",
-                   filetypes=(("Redux HG2", "*.hg2"), ("All files", "*.*")), surface=True,
+                   filetypes=(("Redux HG2", "*.hg2"), ("All files", "*")), surface=True,
                    on_change=self._hg2_chosen).pack(fill="x", pady=2)
 
         coords = ttk.Frame(form, style="Toolbox.Surface.TFrame")
@@ -94,7 +94,7 @@ class TunnelPage(ScrollableFrame):
         ttk.Radiobutton(coords, text="world (as in the mission)", value="world", variable=self.vars["coords"],
                         style="Toolbox.Surface.TRadiobutton").pack(side="left", padx=(12, 0))
         PathPicker(form, "TRN (MinX/MinZ)", self.vars["trn"], kind="file",
-                   filetypes=(("TRN", "*.trn"), ("All files", "*.*")), surface=True).pack(fill="x", pady=2)
+                   filetypes=(("TRN", "*.trn"), ("All files", "*")), surface=True).pack(fill="x", pady=2)
 
         grid = ttk.Frame(form, style="Toolbox.Surface.TFrame")
         grid.pack(fill="x", pady=(6, 0))
@@ -200,7 +200,8 @@ class TunnelPage(ScrollableFrame):
             return outcome, image
 
         self.job = self.shell.jobs.submit("Carve tunnel" if write else "Preview tunnel", work,
-                                          on_done=lambda result: self._done(result, write), on_error=self._failed)
+                                          on_done=lambda result: self._done(result, write), on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _done(self, result, write: bool) -> None:
         from PIL import ImageTk
@@ -221,6 +222,12 @@ class TunnelPage(ScrollableFrame):
             self.shell.status("Tunnel carved" if outcome.written else "Tunnel: nothing to write")
         else:
             self.log.write("Preview only: nothing was written.", "muted")
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.preview_button, self.carve_button):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         for button in (self.preview_button, self.carve_button):

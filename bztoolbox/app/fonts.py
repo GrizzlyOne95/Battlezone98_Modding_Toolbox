@@ -21,6 +21,10 @@ from bztoolbox import paths
 
 BZ_FONT_FILE = paths.resource("fonts", "BZONE.ttf")
 BZ_FONT_FAMILY = "BZONE"
+# A monospace family every system has: Consolas is Windows-only, and Tk silently
+# swaps a missing family for a proportional one (columns in logs stop lining up).
+# "Monospace" is fontconfig's alias, so it resolves on any Linux desktop.
+MONO_FAMILY = {"win32": "Consolas", "darwin": "Menlo"}.get(sys.platform, "Monospace")
 
 _registered: Set[str] = set()
 _failed: Set[str] = set()
@@ -88,7 +92,7 @@ def register_font_file(path) -> bool:
     return ok
 
 
-def bz_font(fallback: str = "Consolas") -> str:
+def bz_font(fallback: str = MONO_FAMILY) -> str:
     """The Battlezone font family if it could be registered, else ``fallback``."""
     return BZ_FONT_FAMILY if register_font_file(BZ_FONT_FILE) else fallback
 

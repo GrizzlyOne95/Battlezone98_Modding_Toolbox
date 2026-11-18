@@ -1,13 +1,11 @@
 import os
-import shutil
 import sys
-import subprocess
 import tkinter as tk
 from tkinter import ttk, colorchooser, filedialog, messagebox
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import math
 import ctypes
-from bztoolbox.app.fonts import BZ_FONT_FILE, bz_font
+from bztoolbox.app.fonts import BZ_FONT_FILE, bz_font, MONO_FAMILY
 
 # Platform check
 IS_WINDOWS = sys.platform == "win32"
@@ -22,13 +20,24 @@ def default_output_dir():
     return os.path.join(documents if os.path.isdir(documents) else os.path.expanduser("~"), "BZ HoloText")
 
 
-def find_texconv():
-    """texconv on PATH, else beside the working directory as the original tool expected."""
-    found = shutil.which("texconv")
-    if found:
-        return found
-    legacy = os.path.join(os.getcwd(), "texconv.exe")
-    return legacy if os.path.exists(legacy) else None
+def png_to_dds(png_path):
+    """Write ``<name>.dds`` (DXT5 with a full mip chain) beside ``png_path``; returns its path.
+
+    In-process, so it works the same on Windows, macOS and Linux; this replaced a
+    texconv.exe step that only existed on Windows and deleted the PNGs even when
+    the conversion failed.
+    """
+    import numpy as np
+
+    from battlezone.images import dds
+
+    with Image.open(png_path) as img:
+        rgba = np.asarray(img.convert("RGBA"), dtype=np.uint8)
+    height, width = rgba.shape[:2]
+    levels, _ = dds.build_chain([rgba], width, height)
+    target = os.path.splitext(png_path)[0] + ".dds"
+    dds.write_dds(target, width, height, [dds.encode_level(level, "DXT5") for level in levels], "DXT5")
+    return target
 
 
 class BZFontGenerator:
@@ -59,7 +68,7 @@ class BZFontGenerator:
         self.variant_count.trace_add("write", lambda *args: self.update_preview())
 
     def load_custom_fonts(self):
-        self.current_font = bz_font("Consolas")
+        self.current_font = bz_font()
 
     def setup_styles(self):
         style = ttk.Style()
@@ -176,7 +185,7 @@ class BZFontGenerator:
         self.lua_input.pack(fill="x", pady=(0, 10))
         self.lua_input.bind("<KeyRelease>", lambda e: self.update_preview()) # Also update preview from here
         
-        self.lua_output = tk.Text(lua_frame, height=20, font=("Consolas", 10), bg="#050505", fg="#d4d4d4", padx=10, pady=10, borderwidth=1, highlightthickness=1, highlightbackground=self.colors["dark_highlight"])
+        self.lua_output = tk.Text(lua_frame, height=20, font=(MONO_FAMILY, 10), bg="#050505", fg="#d4d4d4", padx=10, pady=10, borderwidth=1, highlightthickness=1, highlightbackground=self.colors["dark_highlight"])
         self.lua_output.pack(fill="both", expand=True, pady=10)
         
         btn_lua = ttk.Button(lua_frame, text="GENERATE LUA BLOCK", command=self.generate_lua_block)
@@ -247,7 +256,7 @@ class BZFontGenerator:
 
     def get_auto_font(self, target_px):
         try:
-            fpath = self.font_path.get() if os.path.exists(self.font_path.get()) else "arial.ttf"
+            fpath = self.font_path.get() if os.path.exists(self.font_path.get()) else BUNDLED_FONT
             test_size = 10
             font = ImageFont.truetype(fpath, test_size)
             bbox = font.getbbox("W")
@@ -267,6 +276,7 @@ class BZFontGenerator:
         for code, name in self.get_ascii_map().items(): chars.append((f"ui_{name}", chr(code)))
 
         mode = self.export_mode.get()
+        self._written_pngs = []
         
         with open(os.path.join(out, "master_font.material"), "w") as mf:
             mf.write('import * from "sprites.material"\n\n')
@@ -275,13 +285,34 @@ class BZFontGenerator:
             else:
                 self.build_individual(chars, out, mf)
 
-        tconv = find_texconv()
-        if tconv:
-            subprocess.run([tconv, "-f", "BC3_UNORM", "-y", "-o", out, os.path.join(out, "*.png")], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            for f in os.listdir(out):
-                if f.endswith(".png"): os.remove(os.path.join(out, f))
-        
-        messagebox.showinfo("Success", f"Build finished in {mode} mode.")
+        # The materials point at .dds files: encode the PNGs this build wrote (and only
+        # those), off the Tk thread, removing each PNG only once its DDS exists.
+        pngs = list(self._written_pngs)
+        self.root.config(cursor="watch")
+
+        def convert():
+            failed = []
+            for png in pngs:
+                try:
+                    png_to_dds(png)
+                    os.remove(png)
+                except Exception as exc:  # noqa: BLE001 - keep the PNG and report it
+                    failed.append(f"{os.path.basename(png)}: {exc}")
+
+            def report():
+                self.root.config(cursor="")
+                if failed:
+                    messagebox.showwarning(
+                        "Build finished with problems",
+                        f"{len(failed)} of {len(pngs)} texture(s) could not be written as DDS; their PNGs "
+                        f"were kept in\n{out}\n\n" + "\n".join(failed[:10]))
+                else:
+                    messagebox.showinfo("Build finished",
+                                        f"Built {len(pngs)} DDS texture(s) in {mode} mode in\n{out}")
+            self.root.after(0, report)
+
+        import threading
+        threading.Thread(target=convert, daemon=True).start()
 
     def build_sheet(self, chars, out, mf, cell=96):
         sheet_dim = 1024
@@ -306,6 +337,7 @@ class BZFontGenerator:
                 self.write_odf(out, vn, vn) 
 
         sheet.save(os.path.join(out, "font_sheet.png"))
+        self._written_pngs.append(os.path.join(out, "font_sheet.png"))
         with open(os.path.join(out, "spritea.sta"), "w") as f: f.write("\n".join(sta_lines))
 
     def build_individual(self, chars, out, mf):
@@ -316,6 +348,7 @@ class BZFontGenerator:
             bbox = draw.textbbox((0, 0), char, font=fnt)
             draw.text(((64-(bbox[2]-bbox[0]))/2, (64-(bbox[3]-bbox[1]))/2 - bbox[1]), char, font=fnt, fill=self.text_color)
             img.save(os.path.join(out, f"{base}.png"))
+            self._written_pngs.append(os.path.join(out, f"{base}.png"))
 
             for i in range(1, self.variant_count.get() + 1):
                 vn = f"{base}{i}"

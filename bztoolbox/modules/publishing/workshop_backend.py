@@ -53,8 +53,13 @@ class WorkshopBackend:
 
     def launch_steamcmd(self, exe, user, pwd, vdf, use_cached, guard_code="", is_windows=False):
         cmd = self.build_steamcmd_command(exe, user, pwd, vdf, use_cached, guard_code=guard_code)
-        creation_flags = subprocess.CREATE_NEW_CONSOLE if is_windows else 0
-        process = subprocess.Popen(cmd, creationflags=creation_flags)
+        if is_windows:
+            # its own console window, where SteamCMD can ask for a Steam Guard code
+            process = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            # No console to type into on macOS/Linux: with no stdin a Steam Guard prompt
+            # ends the run with an error instead of waiting forever for an answer.
+            process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL)
         return process, cmd
 
     def classify_steamcmd_login_output(self, output, returncode=None, timed_out=False):

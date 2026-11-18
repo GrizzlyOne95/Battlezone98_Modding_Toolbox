@@ -20,7 +20,8 @@ class LaunchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             redux = _install(Path(tmp), "redux")
             self.assertEqual(redux.kind, "redux")
-            plan = launch.build_launch(redux, "missions/misn05.bzn", ["nointro", "win"], '/extra "two words"')
+            plan = launch.build_launch(redux, "missions/misn05.bzn", ["nointro", "win"], '/extra "two words"',
+                                       platform="win32")
             # Options in the game's own order, then extra arguments, then the bare mission name.
             self.assertEqual(plan.argv[1:], ["/win", "/nointro", "/extra", '"two words"', "misn05.bzn"])
             self.assertEqual(plan.cwd, str(Path(tmp)))
@@ -28,7 +29,7 @@ class LaunchTests(unittest.TestCase):
                 launch.build_launch(redux, "", ["sw"])                    # a 1.5-only option
         with tempfile.TemporaryDirectory() as tmp:
             legacy = _install(Path(tmp), "1.5")
-            self.assertEqual(launch.build_launch(legacy, "", ["sw"]).argv[1:], ["/SW"])
+            self.assertEqual(launch.build_launch(legacy, "", ["sw"], platform="win32").argv[1:], ["/SW"])
             with self.assertRaises(ValueError):
                 launch.build_launch(legacy, "", [], via_steam=True)
         self.assertIsNone(launch.install_at(tempfile.gettempdir() + "/definitely-not-a-game"))
@@ -59,6 +60,60 @@ class LaunchTests(unittest.TestCase):
             self.assertFalse((install.addon / "mymod").exists())
             self.assertFalse(launch.remove_deployment(install, ".."))
 
+    def test_launch_off_windows_goes_through_steam_or_wine(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp) / "steamapps" / "common" / "Battlezone 98 Redux"
+            game.mkdir(parents=True)
+            redux = _install(game, "redux")
+            self.assertEqual(redux.store, "steam")
+            with mock.patch.object(launch.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"):
+                plan = launch.build_launch(redux, "misn05.bzn", ["win"], via_steam=True, platform="linux")
+                self.assertEqual(plan.argv, ["/usr/bin/steam", "-applaunch", "301650", "/win", "misn05.bzn"])
+                direct = launch.build_launch(redux, "", ["win"], platform="linux")
+                self.assertEqual(direct.argv, ["/usr/bin/wine", str(redux.exe), "/win"])
+            with mock.patch.object(launch.shutil, "which", return_value=None):
+                with self.assertRaisesRegex(ValueError, "Launch through Steam"):
+                    launch.build_launch(redux, "", [], platform="linux")
+                with self.assertRaisesRegex(ValueError, "Steam was not found"):
+                    launch.build_launch(redux, "", [], via_steam=True, platform="linux")
+            mac = launch.build_launch(redux, "misn05.bzn", ["win"], via_steam=True, platform="darwin")
+            self.assertEqual(mac.argv, ["open", "steam://run/301650//%2Fwin%20misn05.bzn/"])
+
+    def test_deploy_refuses_to_copy_into_itself(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp) / "game"
+            game.mkdir()
+            install = _install(game, "redux")
+            (install.addon / "mymod").mkdir(parents=True)
+            (install.addon / "mymod" / "a.odf").write_text("x")
+            for project in (install.addon, install.addon / "mymod", game):   # addon, inside addon, game root
+                with self.assertRaises(ValueError):
+                    launch.deploy_project(project, install, "copy")
+            self.assertEqual(sorted(p.name for p in install.addon.iterdir()), ["mymod"])
+
+    def test_deploy_removes_files_the_project_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "game").mkdir()
+            install = _install(root / "game", "redux")
+            project = root / "mymod"
+            (project / "odf").mkdir(parents=True)
+            (project / "odf" / "old.odf").write_text("x")
+            (project / "keep.odf").write_text("x")
+            launch.deploy_project(project, install)
+            target = install.addon / "mymod"
+            (target / "game_wrote_this.log").write_text("not ours")
+            (project / "odf" / "old.odf").unlink()
+            result = launch.deploy_project(project, install)
+            self.assertEqual(result.removed, ["odf/old.odf"])
+            self.assertFalse((target / "odf").exists())                   # emptied folder removed
+            self.assertTrue((target / "keep.odf").is_file())
+            self.assertTrue((target / "game_wrote_this.log").is_file())   # never copied by a deploy: kept
+            with self.assertRaises(InterruptedError):
+                launch.deploy_project(project, install, cancel=lambda: True)
+
     def test_log_watch_reads_appended_and_rewritten_logs(self):
         with tempfile.TemporaryDirectory() as tmp:
             install = _install(Path(tmp), "1.5")
@@ -75,7 +130,7 @@ class LaunchTests(unittest.TestCase):
             self.assertEqual(watch.new_lines(), {"symlog.txt": ["fresh"]})
 
     def test_flagged_skips_noise_and_substrings(self):
-        lines = ["MOD FOUND bvdblter.ini at addon\IAMP_DoubleTerror",       # 'Terror' is not 'error'
+        lines = [r"MOD FOUND bvdblter.ini at addon\IAMP_DoubleTerror",       # 'Terror' is not 'error'
                  "23:43:45: Invalid target for D3D11 shader 'X' - 'vs_4_0'",
                  "[INFO] engine addresses: verified=70 failed=0",
                  "12:00:01 WARNING: unknown mapType 'NONE' in 'a.ini'",

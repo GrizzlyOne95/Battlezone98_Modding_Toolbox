@@ -83,7 +83,7 @@ class ReduxToLegacyPage(ScrollableFrame):
         for row, (value, label) in enumerate(PALETTE_CHOICES):
             ttk.Radiobutton(choices, text=label, value=value, variable=self.palette,
                             style="Toolbox.Surface.TRadiobutton").grid(row=row, column=0, sticky="w")
-        PathPicker(form, "ACT file", self.act, kind="file", filetypes=(("ACT palettes", "*.act"), ("All files", "*.*")),
+        PathPicker(form, "ACT file", self.act, kind="file", filetypes=(("ACT palettes", "*.act"), ("All files", "*")),
                    surface=True).pack(fill="x", pady=2)
         ttk.Label(form, text="1.5 draws everything through the world palette: entries 0-95 and 224-255 are shared "
                              "with the interface and objects, 96-223 belong to the world. Redux never reads the "
@@ -190,7 +190,8 @@ class ReduxToLegacyPage(ScrollableFrame):
             return port_redux_to_legacy(source, output, options)
 
         self.job = self.shell.jobs.submit(f"Port {Path(source).name} to 1.5", work,
-                                          on_done=self._done, on_error=self._failed)
+                                          on_done=self._done, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _done(self, report) -> None:
         self.convert_button.state(["!disabled"])
@@ -203,6 +204,12 @@ class ReduxToLegacyPage(ScrollableFrame):
         else:
             self.log.write("Finished with errors; see above and the report in the output folder.", "error")
             self.shell.status("1.5 port finished with errors")
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.convert_button,):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         self.convert_button.state(["!disabled"])

@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import webbrowser
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 from bztoolbox.app.widgets import ScrollableFrame
 from bztoolbox.modules.fonts import atlas
 
@@ -115,7 +115,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(tw, text=self.text, justify='left',
                        background=self.bg, foreground=self.fg, 
-                       relief='solid', borderwidth=1, font=("Consolas", "9"))
+                       relief='solid', borderwidth=1, font=(MONO_FAMILY, "9"))
         label.pack(ipadx=1)
 
     def hide_tip(self, event=None):
@@ -396,7 +396,7 @@ class BzoneApp:
         self.canvas = tk.Canvas(canvas_container, bg="black", width=512, height=512, highlightthickness=1, highlightbackground=self.colors["dark_highlight"])
         self.canvas.place(relx=0.5, rely=0.5, anchor="center")
 
-        self.log_box = tk.Text(right, height=10, state="disabled", bg="#050505", fg=self.colors["fg"], font=("Consolas", 9))
+        self.log_box = tk.Text(right, height=10, state="disabled", bg="#050505", fg=self.colors["fg"], font=(MONO_FAMILY, 9))
         self.log_box.pack(fill="x", side="bottom", pady=(10, 0))
 
         self.update_preview()
@@ -562,7 +562,7 @@ class BzoneApp:
     def set_overlay_path(self):
         selected = filedialog.askopenfilename(
             title="Choose stock overlay atlas",
-            filetypes=[("Images", "*.png *.dds *.tga"), ("All files", "*.*")],
+            filetypes=[("Images", "*.png *.dds *.tga"), ("All files", "*")],
         )
         if selected:
             self.overlay_path = selected

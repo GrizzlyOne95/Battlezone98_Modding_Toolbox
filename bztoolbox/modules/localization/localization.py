@@ -14,7 +14,7 @@ import ctypes
 import re
 import sys
 from battlezone.odf.names import read_unit_name
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 
 # Platform check
 IS_WINDOWS = sys.platform == "win32"
@@ -60,7 +60,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(tw, text=self.text, justify='left',
                        background=self.bg, foreground=self.fg, 
-                       relief='solid', borderwidth=1, font=("Consolas", "9"))
+                       relief='solid', borderwidth=1, font=(MONO_FAMILY, "9"))
         label.pack(ipadx=1)
 
     def hide_tip(self, event=None):
@@ -113,8 +113,8 @@ class BZ98GuiApp:
         self._process_ui_queue()
 
     def load_custom_font(self):
-        self.main_font = "Consolas"
-        self.header_font = bz_font("Consolas")
+        self.main_font = MONO_FAMILY
+        self.header_font = bz_font()
 
     def setup_styles(self):
         style = ttk.Style()
@@ -227,7 +227,7 @@ class BZ98GuiApp:
         log_frame.pack(fill="both", expand=True, pady=(10, 0))
         
         self.log_area = scrolledtext.ScrolledText(log_frame, height=10, bg="#050505", fg=self.colors["fg"], 
-                                                 font=("Consolas", 10), insertbackground=self.colors["highlight"])
+                                                 font=(MONO_FAMILY, 10), insertbackground=self.colors["highlight"])
         self.log_area.pack(fill="both", expand=True)
         self.log_area.configure(state='disabled')
 
@@ -238,7 +238,7 @@ class BZ98GuiApp:
     def setup_manual_tab(self):
         ttk.Label(self.manual_tab, text="Paste English text (one per line):").pack(anchor="w")
         self.text_input = scrolledtext.ScrolledText(self.manual_tab, height=15, bg="#1a1a1a", fg=self.colors["accent"], 
-                                                   font=("Consolas", 11), insertbackground=self.colors["highlight"])
+                                                   font=(MONO_FAMILY, 11), insertbackground=self.colors["highlight"])
         self.text_input.pack(fill="both", expand=True, pady=5)
         
         btn_run = ttk.Button(self.manual_tab, text="TRANSLATE & APPEND", style="Primary.TButton", command=self.start_manual_thread)
@@ -260,7 +260,7 @@ class BZ98GuiApp:
         res_frame.pack(fill="both", expand=True)
         
         self.odf_list = tk.Listbox(res_frame, bg="#1a1a1a", fg=self.colors["accent"], selectbackground=self.colors["dark_highlight"], 
-                                   selectforeground=self.colors["highlight"], font=("Consolas", 10), borderwidth=0)
+                                   selectforeground=self.colors["highlight"], font=(MONO_FAMILY, 10), borderwidth=0)
         self.odf_list.pack(side="left", fill="both", expand=True)
         
         sb = ttk.Scrollbar(res_frame, orient="vertical", command=self.odf_list.yview)
@@ -331,7 +331,7 @@ class BZ98GuiApp:
         self.log(f"Path set to {version.upper()} default.")
 
     def browse_csv(self):
-        f = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
+        f = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv"), ("All Files", "*")])
         if f: self.csv_path.set(f)
 
     def browse_scan_folder(self):
@@ -340,7 +340,7 @@ class BZ98GuiApp:
 
     def browse_google_credentials(self):
         f = filedialog.askopenfilename(
-            filetypes=[("Google credentials", "*.json"), ("All Files", "*.*")]
+            filetypes=[("Google credentials", "*.json"), ("All Files", "*")]
         )
         if f:
             self.google_credentials_path.set(f)

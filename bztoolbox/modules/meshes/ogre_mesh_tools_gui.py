@@ -14,7 +14,7 @@ from battlezone.meshes import ogre
 
 from bztoolbox.app.host import ctk_embedded_root
 from bztoolbox.app.widgets import open_in_file_manager
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -68,7 +68,7 @@ def apply_window_icon(window):
         pass
 
 
-_set_app_user_model_id()
+# Only a standalone run has its own taskbar identity; inside the toolbox the shell's applies.
 
 WORKER_THREAD_NAME = "ogre-mesh-tools-job"
 
@@ -158,7 +158,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         self.after(50, self._process_ui_queue)
         
     def load_custom_fonts(self):
-        self.main_font = bz_font("Consolas")
+        self.main_font = bz_font()
 
     def setup_ui(self):
         # Header
@@ -280,7 +280,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
         self.log_label = ctk.CTkLabel(self.left_col, text="TERMINAL OUTPUT", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"])
         self.log_label.pack(anchor="w", padx=5, pady=(10, 0))
         
-        self.log_box = ctk.CTkTextbox(self.left_col, fg_color="#050505", text_color=self.colors["fg"], font=("Consolas", 12), border_width=1, border_color=self.colors["highlight"])
+        self.log_box = ctk.CTkTextbox(self.left_col, fg_color="#050505", text_color=self.colors["fg"], font=(MONO_FAMILY, 12), border_width=1, border_color=self.colors["highlight"])
         self.log_box.pack(fill="both", expand=True, padx=5, pady=(5, 10))
 
     def _queue_ui_call(self, callback, *args, **kwargs):
@@ -384,7 +384,7 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
             d = filedialog.askdirectory()
             if d: self.input_path.set(d)
         else:
-            f = filedialog.askopenfilename(filetypes=[("Ogre Mesh", "*.mesh"), ("Ogre XML", "*.xml"), ("All Files", "*.*")])
+            f = filedialog.askopenfilename(filetypes=[("Ogre Mesh", "*.mesh"), ("Ogre XML", "*.xml"), ("All Files", "*")])
             if f: self.input_path.set(f)
 
     def browse_output(self):
@@ -632,5 +632,6 @@ class OgreMeshToolsGUI(ctk_embedded_root()):
             self._set_run_state(True, "PROCESS MESHES")
 
 if __name__ == "__main__":
+    _set_app_user_model_id()
     app = OgreMeshToolsGUI()
     app.mainloop()

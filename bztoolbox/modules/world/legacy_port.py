@@ -5,6 +5,7 @@ import re
 import shutil
 import sys
 from dataclasses import dataclass
+from bztoolbox.app.fonts import MONO_FAMILY
 
 
 @dataclass(frozen=True)
@@ -453,7 +454,7 @@ def install_world_builder_legacy_package_patch() -> None:
             frame,
             textvariable=self.legacy_package_info,
             foreground=core.BZ_CYAN,
-            font=("Consolas", 9),
+            font=(MONO_FAMILY, 9),
         ).pack(anchor="w")
 
     def scan_legacy_folder_with_package(self, path):

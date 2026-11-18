@@ -5,6 +5,7 @@ import sys
 import threading
 
 from bztoolbox.modules.world.legacy_batch import discover_legacy_batch_folders, run_legacy_batch
+from bztoolbox.app.fonts import MONO_FAMILY
 
 
 def install_world_builder_legacy_batch_patch() -> None:
@@ -79,7 +80,7 @@ def install_world_builder_legacy_batch_patch() -> None:
             batch_f,
             textvariable=self.legacy_batch_info,
             foreground=core.BZ_CYAN,
-            font=("Consolas", 9),
+            font=(MONO_FAMILY, 9),
         ).pack(anchor="w", pady=(3, 3))
 
         self.btn_legacy_batch = core.ttk.Button(

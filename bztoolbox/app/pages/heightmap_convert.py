@@ -10,7 +10,7 @@ from tkinter import messagebox, ttk
 from bztoolbox.app.widgets import Card, LogView, PathPicker, ScrollableFrame
 
 HEIGHTMAP_TYPES = (("Heightmaps", "*.hgt *.hg2"), ("Legacy HGT", "*.hgt"), ("Redux HG2", "*.hg2"),
-                   ("All files", "*.*"))
+                   ("All files", "*"))
 ROUNDING = ("half-up", "engine")
 
 
@@ -60,7 +60,7 @@ class HeightmapConvertPage(ScrollableFrame):
         PathPicker(form, "Output", self.output, kind="save", filetypes=HEIGHTMAP_TYPES, surface=True).pack(fill="x", pady=2)
 
         ttk.Label(form, text="HGT → HG2", style="Toolbox.CardTitle.TLabel").pack(anchor="w", pady=(8, 2))
-        PathPicker(form, "TRN (size)", self.trn, kind="file", filetypes=(("TRN", "*.trn"), ("All files", "*.*")),
+        PathPicker(form, "TRN (size)", self.trn, kind="file", filetypes=(("TRN", "*.trn"), ("All files", "*")),
                    surface=True).pack(fill="x", pady=2)
         grid = ttk.Frame(form, style="Toolbox.Surface.TFrame")
         grid.pack(fill="x", pady=2)
@@ -144,7 +144,8 @@ class HeightmapConvertPage(ScrollableFrame):
             return convert_heightmap(source, output, **options)
 
         self.job = self.shell.jobs.submit(f"Convert {Path(source).name}", work,
-                                          on_done=self._done, on_error=self._failed)
+                                          on_done=self._done, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _done(self, report) -> None:
         self.convert_button.state(["!disabled"])
@@ -152,6 +153,12 @@ class HeightmapConvertPage(ScrollableFrame):
             self.log.write(line, "warning" if line.startswith("WARNING") else "")
         self.log.write(f"Done: {report.target}", "success")
         self.shell.status(f"Heightmap written to {report.target}")
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.convert_button, self.relight_button,):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         self.convert_button.state(["!disabled"])
@@ -190,7 +197,8 @@ class HeightmapConvertPage(ScrollableFrame):
             result = relight([target], only_broken=only_broken, log=lines.append)
             return result, lines
 
-        self.job = self.shell.jobs.submit("Rebake light maps", work, on_done=self._relit, on_error=self._failed)
+        self.job = self.shell.jobs.submit("Rebake light maps", work, on_done=self._relit, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _relit(self, outcome) -> None:
         result, lines = outcome

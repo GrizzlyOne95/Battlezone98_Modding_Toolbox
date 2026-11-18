@@ -34,7 +34,7 @@ BZ_CYAN = "#00ffff"
 
 from bztoolbox.app.widgets import register_wheel_target
 from bztoolbox.paths import module_data_dir
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 
 CONFIG_FILE = str(module_data_dir("world") / "world_builder_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.WorldBuilder"
@@ -86,7 +86,7 @@ def apply_window_icon(window, base_dir, resource_dir):
         pass
 
 
-_set_app_user_model_id()
+# Only a standalone run has its own taskbar identity; inside the toolbox the shell's applies.
 
 class BZMapFormat:
     INDEXED, ARGB4444, RGB565, ARGB8888, XRGB8888 = 0, 1, 2, 3, 4
@@ -161,7 +161,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(tw, text=self.text, justify='left',
                        background="#1a1a1a", foreground=BZ_CYAN, 
-                       relief='solid', borderwidth=1, font=("Consolas", "9"))
+                       relief='solid', borderwidth=1, font=(MONO_FAMILY, "9"))
         label.pack(ipadx=1)
 
     def hide_tip(self, event=None):
@@ -905,7 +905,7 @@ class BZ98TRNArchitect:
         self.audio_loop_last = tk.IntVar(value=27)
         self.audio_loop_skip = tk.IntVar(value=-1)
 
-        self.custom_font_name = bz_font("Consolas")
+        self.custom_font_name = bz_font()
 
         apply_window_icon(self.root, self.base_dir, self.resource_dir)
 
@@ -1004,7 +1004,7 @@ class BZ98TRNArchitect:
         left_col.pack(side="left", fill="both", expand=True, padx=(0, 20))
 
         ttk.Label(left_col, text="ATLAS CREATOR", font=(self.custom_font_name, 11, "bold"), foreground=BZ_GREEN).pack(anchor="w")
-        help_box_left = tk.Text(left_col, font=("Consolas", 10), bg="#050505", fg=BZ_FG, relief="flat", wrap="word", insertbackground=BZ_GREEN)
+        help_box_left = tk.Text(left_col, font=(MONO_FAMILY, 10), bg="#050505", fg=BZ_FG, relief="flat", wrap="word", insertbackground=BZ_GREEN)
         help_box_left.pack(fill="both", expand=True, pady=10)
 
         atlas_guide = (
@@ -1046,7 +1046,7 @@ class BZ98TRNArchitect:
         right_col.pack(side="right", fill="both", expand=True, padx=(20, 0))
 
         ttk.Label(right_col, text="WORLD BUILDER TOOLS", font=(self.custom_font_name, 11, "bold"), foreground=BZ_CYAN).pack(anchor="w")
-        help_box_right = tk.Text(right_col, font=("Consolas", 10), bg="#050505", fg=BZ_FG, relief="flat", wrap="word", insertbackground=BZ_GREEN)
+        help_box_right = tk.Text(right_col, font=(MONO_FAMILY, 10), bg="#050505", fg=BZ_FG, relief="flat", wrap="word", insertbackground=BZ_GREEN)
         help_box_right.pack(fill="both", expand=True, pady=10)
 
         tools_guide = (
@@ -1173,7 +1173,7 @@ class BZ98TRNArchitect:
             messagebox.showerror("Error", "Invalid numeric values")
             
     def load_bzn_paths(self):
-        path = filedialog.askopenfilename(filetypes=[("Battlezone Mission", "*.bzn"), ("All Files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("Battlezone Mission", "*.bzn"), ("All Files", "*")])
         if not path:
             return
             
@@ -1198,7 +1198,7 @@ class BZ98TRNArchitect:
             messagebox.showerror("Error", f"Failed to load BZN: {e}")
 
     def browse_ap_mask(self):
-        path = filedialog.askopenfilename(filetypes=[("Mask Image", "*.png *.bmp *.jpg *.tga"), ("All Files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("Mask Image", "*.png *.bmp *.jpg *.tga"), ("All Files", "*")])
         if path:
             self.ap_mask_path.delete(0, 'end')
             self.ap_mask_path.insert(0, path)
@@ -1251,7 +1251,7 @@ class BZ98TRNArchitect:
             messagebox.showerror("Error", f"Failed: {e}")
 
     def load_auto_painter_config(self):
-        path = filedialog.askopenfilename(filetypes=[("Paint Config", "*.trn *.ini *.txt"), ("All Files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("Paint Config", "*.trn *.ini *.txt"), ("All Files", "*")])
         if not path:
             return
 
@@ -1890,7 +1890,7 @@ class BZ98TRNArchitect:
         self.log_frame = ttk.Frame(self.root, padding=5)
         self.log_frame.pack(side="bottom", fill="x", before=self.notebook)
         ttk.Label(self.log_frame, text="WORLD BUILDER LOG", foreground="#666666").pack(anchor="w")
-        self.log_box = tk.Text(self.log_frame, height=6, state="disabled", bg="#050505", fg=BZ_FG, font=("Consolas", 9))
+        self.log_box = tk.Text(self.log_frame, height=6, state="disabled", bg="#050505", fg=BZ_FG, font=(MONO_FAMILY, 9))
         self.log_box.pack(fill="both", expand=True)
         self.log_box.tag_config("info", foreground=BZ_CYAN)
         self.log_box.tag_config("success", foreground=BZ_GREEN)
@@ -1946,7 +1946,7 @@ class BZ98TRNArchitect:
             ("Loop Last:", self.audio_loop_last, "The ending track index of the ambient playlist loop."),
             ("Loop Skip:", self.audio_loop_skip, "A track index within the range to SKIP (e.g. victory themes). Set -1 to skip nothing.")
         ]):
-            ttk.Label(aud_grid, text=label, font=("Consolas", 8)).grid(row=i//2, column=(i%2)*2, sticky="w", padx=5)
+            ttk.Label(aud_grid, text=label, font=(MONO_FAMILY, 8)).grid(row=i//2, column=(i%2)*2, sticky="w", padx=5)
             ent = ttk.Entry(aud_grid, textvariable=var, width=5)
             ent.grid(row=i//2, column=(i%2)*2+1, sticky="w")
             ToolTip(ent, tip)
@@ -2003,7 +2003,7 @@ class BZ98TRNArchitect:
         ttk.Button(src_inner, text="Browse", command=self.browse_legacy_source).pack(side="left")
         
         self.legacy_trn_info = tk.StringVar()
-        ttk.Label(src_f, textvariable=self.legacy_trn_info, foreground=BZ_CYAN, font=("Consolas", 9)).pack(anchor="w", padx=5, pady=(5,0))
+        ttk.Label(src_f, textvariable=self.legacy_trn_info, foreground=BZ_CYAN, font=(MONO_FAMILY, 9)).pack(anchor="w", padx=5, pady=(5,0))
         
         # Output
         out_f = ttk.LabelFrame(container, text=" Output Directory ", padding=10)
@@ -2584,7 +2584,7 @@ class BZ98TRNArchitect:
 
     def load_source_sky_lighting(self):
         path = filedialog.askopenfilename(title="Load source time and ambient/diffuse lighting",
-                                         filetypes=[("BZ2/BZCC sky", "*.sky"), ("All files", "*.*")])
+                                         filetypes=[("BZ2/BZCC sky", "*.sky"), ("All files", "*")])
         if not path:
             return
         try:
@@ -3478,17 +3478,17 @@ class BZ98TRNArchitect:
         
         # 1. Background Map
         ttk.Label(left_col, text="1. BACKGROUND MAP", font=(self.custom_font_name, 11, "bold"), foreground=BZ_GREEN).pack(anchor="w")
-        ttk.Label(left_col, text="Load an image or HG2 to verify alignment.", font=("Consolas", 8), foreground="#888888").pack(anchor="w", pady=(0, 5))
+        ttk.Label(left_col, text="Load an image or HG2 to verify alignment.", font=(MONO_FAMILY, 8), foreground="#888888").pack(anchor="w", pady=(0, 5))
         
         ttk.Button(left_col, text="📂 Load Map Image/HG2", command=self.browse_mission_bg).pack(fill="x", pady=(0, 15))
         
         # 2. Mission Overlay
         ttk.Label(left_col, text="2. MISSION DATA", font=(self.custom_font_name, 11, "bold"), foreground=BZ_GREEN).pack(anchor="w")
-        ttk.Label(left_col, text="Load .bzn (ASCII) to visualize objects.", font=("Consolas", 8), foreground="#888888").pack(anchor="w", pady=(0, 5))
+        ttk.Label(left_col, text="Load .bzn (ASCII) to visualize objects.", font=(MONO_FAMILY, 8), foreground="#888888").pack(anchor="w", pady=(0, 5))
         ttk.Button(left_col, text="📂 Load .bzn Mission", command=self.load_mission_overlay).pack(fill="x", pady=(0, 15))
         
         # Info Box
-        self.mission_info = tk.Text(left_col, height=10, bg="#050505", fg=BZ_FG, relief="flat", font=("Consolas", 9))
+        self.mission_info = tk.Text(left_col, height=10, bg="#050505", fg=BZ_FG, relief="flat", font=(MONO_FAMILY, 9))
         self.mission_info.pack(fill="x", pady=5)
         self.mission_info.insert("1.0", "Expected TRN Offset: N/A\nObjects Loaded: 0")
         self.mission_info.config(state="disabled")
@@ -3502,6 +3502,8 @@ class BZ98TRNArchitect:
         
         # Bind Mouse Zoom/Pan (Reuse logic?)
         self.mission_canvas.bind("<MouseWheel>", self._on_mission_zoom)
+        self.mission_canvas.bind("<Button-4>", self._on_mission_zoom)    # Linux (X11) wheel up
+        self.mission_canvas.bind("<Button-5>", self._on_mission_zoom)    # Linux (X11) wheel down
         self.mission_canvas.bind("<ButtonPress-1>", self._on_mission_pan_start)
         self.mission_canvas.bind("<B1-Motion>", self._on_mission_pan_move)
         
@@ -3529,14 +3531,35 @@ class BZ98TRNArchitect:
                 img = Image.open(path).convert("L") # Mode L for grayscale map
                 
             self.mission_bg_img = img
+            self.mission_bg_photo = None              # a new image: scale it afresh
+            low, high = self._mission_zoom_limits()
+            self.mission_zoom = max(low, min(high, self.mission_zoom))
             self.redraw_mission_canvas()
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load map: {e}")
 
+    # A zoomed background is a real image in memory: past this many pixels on a side it
+    # would take gigabytes, so zooming in stops there (and zooming out stops at 32 px).
+    MISSION_MAX_SIDE = 8192
+    MISSION_MIN_SIDE = 32
+
+    def _mission_zoom_limits(self):
+        if not self.mission_bg_img:
+            return 0.1, 10.0
+        longest = max(self.mission_bg_img.size) or 1
+        return self.MISSION_MIN_SIDE / longest, self.MISSION_MAX_SIDE / longest
+
     def _on_mission_zoom(self, event):
-        scale = 1.1 if event.delta > 0 else 0.9
-        self.mission_zoom *= scale
+        delta = getattr(event, "delta", 0) or 0
+        zoom_in = getattr(event, "num", None) == 4 or delta > 0
+        if not zoom_in and getattr(event, "num", None) != 5 and delta == 0:
+            return
+        low, high = self._mission_zoom_limits()
+        zoom = max(low, min(high, self.mission_zoom * (1.1 if zoom_in else 0.9)))
+        if zoom == self.mission_zoom:
+            return
+        self.mission_zoom = zoom
         self.redraw_mission_canvas()
 
     def _on_mission_pan_start(self, event):
@@ -3561,12 +3584,15 @@ class BZ98TRNArchitect:
         if self.mission_bg_img:
             # Scale and Position
             w, h = self.mission_bg_img.size
-            new_w = int(w * self.mission_zoom)
-            new_h = int(h * self.mission_zoom)
-            
-            # Optimization: Don't resize if huge? Tkinter handles it okayish.
-            resized = self.mission_bg_img.resize((new_w, new_h), Image.Resampling.NEAREST)
-            self.mission_bg_photo = ImageTk.PhotoImage(resized)
+            new_w = max(1, int(w * self.mission_zoom))
+            new_h = max(1, int(h * self.mission_zoom))
+
+            # Re-scale only when the zoom or image changed: panning reuses the scaled copy.
+            key = (new_w, new_h)
+            if self.mission_bg_photo is None or getattr(self, "_mission_bg_key", None) != key:
+                resized = self.mission_bg_img.resize((new_w, new_h), Image.Resampling.NEAREST)
+                self.mission_bg_photo = ImageTk.PhotoImage(resized)
+                self._mission_bg_key = key
             
             # Center + Pan
             x = cw//2 + self.mission_pan_x
@@ -3701,4 +3727,5 @@ class BZ98TRNArchitect:
         self.refresh_rules_list()
 
 if __name__ == "__main__":
+    _set_app_user_model_id()
     root = tk.Tk(); app = BZ98TRNArchitect(root); root.mainloop()

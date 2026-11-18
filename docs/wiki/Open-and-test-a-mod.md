@@ -28,11 +28,13 @@ Some findings have **Apply fix**. Read the proposed fix before applying it. A mi
 2. Select the correct **Game** installation. If it is missing, click **Other…** and select the folder containing `battlezone98redux.exe`.
 3. Under **Mission**, choose a BZN from your project. You can also enter a stock mission such as `misn01.bzn` to test an asset replacement. Leaving this field empty starts the game at its menu.
 4. Leave **Windowed** and **Skip intro movie** selected for a quick test. Leave **Extra arguments** empty initially.
-5. Keep **Copy the project into addon\** selected. Use a distinct folder name such as `StarterTest`.
+5. Keep **Copy the project into the addon folder as** selected. Use a distinct folder name such as `StarterTest`.
 6. For a map, with copying selected, **Test the map as** can deploy it for Instant Action (**offline**) or the Multiplayer menu (**multiplayer**); see [Make a playable map](Make-a-playable-map#test-it).
 7. Check **Command**. It shows the destination folder and launch command.
 8. Click **Launch**.
 9. Test the change, close the game, and read **RUN**. Click **Read logs now** if needed. When launching through Steam, use **Read logs now** after finishing the test.
+
+On Linux and macOS the game is a Windows program, so **Launch through Steam** starts it through Steam (Proton) and is on by default. With it off, the toolbox starts the game with `wine` when Wine is installed.
 
 <img src="https://raw.githubusercontent.com/wiki/GrizzlyOne95/Battlezone98_Modding_Toolbox/images/test-in-game.png" width="440" alt="Test in Game page showing mission, options, deployment folder, command and launch controls">
 
@@ -42,7 +44,7 @@ The screenshot uses example project and game paths. The verification used a temp
 
 The deployed copy lives at `<game>\addon\StarterTest`. Continue editing your working folder and launch again to copy changed files.
 
-Deployment does **not** remove old files from the destination. If you rename or delete an asset in the source, remove its stale deployed copy too. **Remove deployed copy** removes that deployment folder; check the name before using it. If your working folder is already the destination addon folder, turn off copying.
+Each deployment removes files that an earlier deployment copied and that are no longer in your working folder, so a renamed or deleted asset stops loading from the deployed copy. Files the toolbox did not copy there are left alone. It keeps track in `.bztoolbox-deploy.json` inside the deployed folder. A folder deployed by an older toolbox version gets cleaned from its next deployment onward. **Remove deployed copy** removes that deployment folder; check the name before using it. If your working folder is already inside the game's addon folder, the game loads it directly: turn off copying (the toolbox refuses to copy it into itself).
 
 Errors in a log are clues, not a complete test result. Check the actual mission, models, textures and sounds in game.
 

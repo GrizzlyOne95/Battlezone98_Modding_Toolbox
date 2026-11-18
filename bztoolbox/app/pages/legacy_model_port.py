@@ -11,8 +11,8 @@ from bztoolbox.app.widgets import Card, LogView, PathPicker, ScrollableFrame
 
 PORTABLE = (".vdf", ".sdf", ".odf", ".geo", ".map")
 MODEL_TYPES = (("Legacy models", "*.vdf *.sdf *.odf *.geo *.map"), ("Vehicles", "*.vdf"), ("Structures", "*.sdf"),
-               ("Object definitions", "*.odf"), ("Single part", "*.geo"), ("Texture", "*.map"), ("All files", "*.*"))
-PALETTE_TYPES = (("ACT palette", "*.act"), ("All files", "*.*"))
+               ("Object definitions", "*.odf"), ("Single part", "*.geo"), ("Texture", "*.map"), ("All files", "*"))
+PALETTE_TYPES = (("ACT palette", "*.act"), ("All files", "*"))
 TRISTATE = ("auto", "yes", "no")
 
 
@@ -194,7 +194,7 @@ class LegacyModelPortPage(ScrollableFrame):
         chosen = filedialog.askopenfilename(title=f"Select {suffix.upper()} asset",
                                             initialdir=str(Path(current).parent) if current else None,
                                             filetypes=((f"{suffix.upper()} files", f"*{suffix}"),
-                                                       ("All files", "*.*")))
+                                                       ("All files", "*")))
         if chosen:
             self.model.set(os.path.normpath(chosen))
             self.output.set(default_output(self.model.get()))
@@ -258,7 +258,8 @@ class LegacyModelPortPage(ScrollableFrame):
                              palette=resolve_palette(palette or None), options=options)
 
         self.job = self.shell.jobs.submit(f"Port {Path(model).name}", work, on_done=self._done,
-                                          on_error=self._failed)
+                                          on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _done(self, result) -> None:
         self.port_button.state(["!disabled"])
@@ -272,6 +273,12 @@ class LegacyModelPortPage(ScrollableFrame):
             ok = any(m.submeshes for _, m in result.meshes())
         self.log.write(f"Done: {len(result.written)} files", "success" if ok else "warning")
         self.shell.status(f"Ported {result.name}")
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.port_button, self.batch_button,):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         self.port_button.state(["!disabled"])
@@ -339,7 +346,8 @@ class LegacyModelPortPage(ScrollableFrame):
             return results
 
         self.job = self.shell.jobs.submit(f"Port {len(sources)} legacy assets", work,
-                                          on_done=self._batch_done, on_error=self._failed)
+                                          on_done=self._batch_done, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _batch_done(self, results) -> None:
         self.port_button.state(["!disabled"])

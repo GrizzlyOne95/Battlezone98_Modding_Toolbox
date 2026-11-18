@@ -131,7 +131,7 @@ class ValidationPage(ttk.Frame):
 
     def run_zip(self) -> None:
         path = filedialog.askopenfilename(title="Validate ZIP", filetypes=[("ZIP archives", "*.zip"),
-                                                                           ("All files", "*.*")])
+                                                                           ("All files", "*")])
         if path:
             self._start(path, archive=True)
 
@@ -166,7 +166,8 @@ class ValidationPage(ttk.Frame):
                 raise
 
         self.job = self.shell.jobs.submit(f"Validate {os.path.basename(folder) or folder}", work,
-                                          on_done=self._done, on_error=self._failed)
+                                          on_done=self._done, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _done(self, result) -> None:
         if result is None:
@@ -184,6 +185,11 @@ class ValidationPage(ttk.Frame):
         self.shell.status("Validation passed with no errors." if report.ok
                           else f"Validation found {counts['error']} error(s).")
         self._render()
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled" and job is self.job:
+            self.run_button.configure(state="normal" if self.shell.project else "disabled")
+            self.shell.status("Validation cancelled.")
 
     def _failed(self, error: str) -> None:
         self.run_button.configure(state="normal" if self.shell.project else "disabled")
@@ -324,9 +330,12 @@ def _extract_zip(path: str) -> str:
     import tempfile
     import zipfile
 
-    folder = tempfile.mkdtemp(prefix="bztoolbox-zip-")
     if not _ZIP_DIRS:
         atexit.register(lambda: [shutil.rmtree(d, ignore_errors=True) for d in _ZIP_DIRS])
+    # Only the newest ZIP's results can be on screen: free the copies of earlier ones now.
+    while _ZIP_DIRS:
+        shutil.rmtree(_ZIP_DIRS.pop(), ignore_errors=True)
+    folder = tempfile.mkdtemp(prefix="bztoolbox-zip-")
     _ZIP_DIRS.append(folder)
     with zipfile.ZipFile(path) as archive:
         archive.extractall(folder)   # extractall drops absolute and ".." member paths

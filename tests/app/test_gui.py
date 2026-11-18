@@ -151,6 +151,28 @@ class JobTests(unittest.TestCase):
         self.assertEqual(job.status, CANCELLED)
 
 
+    def test_on_finally_runs_after_every_outcome_including_cancel(self):
+        from bztoolbox.app.jobs import CANCELLED, JobManager
+
+        self.jobs = JobManager(self.root, poll_ms=10)
+        ended, done = [], []
+
+        def work(job):
+            while True:
+                job.check_cancelled()
+                time.sleep(0.01)
+
+        job = self.jobs.submit("loop", work, on_done=done.append, on_finally=lambda j: ended.append(j.status))
+        ok = self.jobs.submit("ok", lambda job: 7, on_done=done.append, on_finally=lambda j: ended.append(j.status))
+        pump(self.root, 0.2)
+        job.cancel()
+        pump(self.root, 2, until=lambda: len(ended) == 2)
+        self.assertEqual(job.status, CANCELLED)
+        self.assertEqual(sorted(ended), ["cancelled", "done"])
+        self.assertEqual(done, [7])                     # on_done still runs before on_finally
+        self.assertEqual(ok.status, "done")
+
+
 class UpdateNotesDialogTests(unittest.TestCase):
     def test_upgrade_requires_review_and_confirm_before_downloading(self):
         from unittest.mock import Mock
@@ -198,6 +220,27 @@ class UpdateNotesDialogTests(unittest.TestCase):
                 pass  # Shell.close() already destroyed the Tk application.
 
 
+class WheelTests(unittest.TestCase):
+    def test_lists_and_text_that_scroll_keep_the_wheel(self):
+        from bztoolbox.app.widgets import _handles_wheel_itself
+
+        root = _make_root()
+        try:
+            text = tk.Text(root, height=2)
+            text.pack()
+            root.update()
+            self.assertFalse(_handles_wheel_itself(text))          # nothing to scroll: the page may scroll
+            text.insert("1.0", "line\n" * 50)
+            root.update()
+            self.assertTrue(_handles_wheel_itself(text))
+            canvas = tk.Canvas(root)
+            canvas.bind("<Button-4>", lambda e: None)                  # a zoomable canvas
+            self.assertTrue(_handles_wheel_itself(canvas))
+            self.assertFalse(_handles_wheel_itself(tk.Frame(root)))
+        finally:
+            root.destroy()
+
+
 class ShellSmokeTests(unittest.TestCase):
     def test_every_page_loads(self):
         root = _make_root()
@@ -211,6 +254,7 @@ class ShellSmokeTests(unittest.TestCase):
                 mod.mkdir()
                 (mod / "mymod.ini").write_text('[WORKSHOP]\nmapType = "mod"\n')
                 shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                baseline_font = tk.ttk.Style(root).lookup(".", "font")
                 shell.open_project(str(mod))
                 failures = []
                 for page in PAGES:
@@ -225,6 +269,14 @@ class ShellSmokeTests(unittest.TestCase):
                 self.assertEqual(os.path.normpath(publish.mod_path.get()), str(mod))
                 localization = shell._pages["project.localization"].app
                 self.assertEqual(localization.scan_folder_path.get(), str(mod))
+                # Older tools restyle ".", but every page keeps the toolbox's fallback font.
+                self.assertEqual(tk.ttk.Style(root).lookup(".", "font"), baseline_font)
+
+                # An upload runs outside the job system; closing must still see it.
+                self.assertEqual(shell.busy_pages(), [])
+                publish._active_operations.add("Upload")
+                self.assertIn("Workshop upload", shell.busy_pages()[0])
+                publish._active_operations.discard("Upload")
 
                 # Native pages run their work on the job system.
                 deps = shell._pages["project.dependencies"].widget
