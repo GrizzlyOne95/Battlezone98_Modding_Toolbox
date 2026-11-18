@@ -290,29 +290,34 @@ class BZFontGenerator:
         pngs = list(self._written_pngs)
         self.root.config(cursor="watch")
 
-        def convert():
-            failed = []
+        failed, finished = [], []
+
+        def convert():   # worker thread: no Tk calls here (they crash Tk on macOS)
             for png in pngs:
                 try:
                     png_to_dds(png)
                     os.remove(png)
                 except Exception as exc:  # noqa: BLE001 - keep the PNG and report it
                     failed.append(f"{os.path.basename(png)}: {exc}")
+            finished.append(True)
 
-            def report():
-                self.root.config(cursor="")
-                if failed:
-                    messagebox.showwarning(
-                        "Build finished with problems",
-                        f"{len(failed)} of {len(pngs)} texture(s) could not be written as DDS; their PNGs "
-                        f"were kept in\n{out}\n\n" + "\n".join(failed[:10]))
-                else:
-                    messagebox.showinfo("Build finished",
-                                        f"Built {len(pngs)} DDS texture(s) in {mode} mode in\n{out}")
-            self.root.after(0, report)
+        def report():   # Tk thread: wait for the worker, then tell the user
+            if not finished:
+                self.root.after(100, report)
+                return
+            self.root.config(cursor="")
+            if failed:
+                messagebox.showwarning(
+                    "Build finished with problems",
+                    f"{len(failed)} of {len(pngs)} texture(s) could not be written as DDS; their PNGs "
+                    f"were kept in\n{out}\n\n" + "\n".join(failed[:10]))
+            else:
+                messagebox.showinfo("Build finished",
+                                    f"Built {len(pngs)} DDS texture(s) in {mode} mode in\n{out}")
 
         import threading
         threading.Thread(target=convert, daemon=True).start()
+        self.root.after(100, report)
 
     def build_sheet(self, chars, out, mf, cell=96):
         sheet_dim = 1024
