@@ -19,6 +19,19 @@ def _make_root():
         raise unittest.SkipTest(f"no display: {exc}")
 
 
+def _pump_named(page_id):
+    """``pump`` under a function named after ``page_id``, so a crash dump (faulthandler) names the page."""
+    import re
+    import types
+
+    name = "pump_page_" + re.sub(r"\W", "_", page_id)
+    names = {"co_name": name}
+    if hasattr(pump.__code__, "co_qualname"):      # Python 3.11+
+        names["co_qualname"] = name
+    code = pump.__code__.replace(**names)
+    return types.FunctionType(code, pump.__globals__, name, pump.__defaults__)
+
+
 def pump(root, seconds=0.3, until=None):
     end = time.time() + seconds
     while time.time() < end:
@@ -259,7 +272,7 @@ class ShellSmokeTests(unittest.TestCase):
                 failures = []
                 for page in PAGES:
                     shell.navigate(page.id)
-                    pump(root, 0.2)
+                    _pump_named(page.id)(root, 0.2)
                     frame = shell._pages[page.id]
                     if frame.widget is None or not frame.widget.winfo_exists():
                         failures.append(page.id)
