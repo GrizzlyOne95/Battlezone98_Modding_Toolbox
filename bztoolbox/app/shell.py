@@ -81,6 +81,28 @@ class Shell:
     # ------------------------------------------------------------- pre-warming
     def _schedule_background_prewarm(self) -> None:
         """Schedule pre-warming of heavier tool modules when the UI has settled."""
+        if sys.platform == "darwin":
+            # Tk on macOS is not thread-safe at all: a background import can run the
+            # garbage collector, which frees Tk objects (variables, images) off the
+            # Tk thread and crashes the app. Import there on the Tk thread, one
+            # module per idle moment, instead.
+            pending = list(self._PREWARM_MODULES)
+
+            def step() -> None:
+                if not pending:
+                    return
+                self._import_quietly(pending.pop(0))
+                try:
+                    self.root.after(150, lambda: self.root.after_idle(step))
+                except tk.TclError:
+                    pass
+
+            try:
+                self.root.after(800, lambda: self.root.after_idle(step))
+            except tk.TclError:
+                pass
+            return
+
         def launch_thread() -> None:
             try:
                 if not self.root.winfo_exists():
@@ -95,24 +117,29 @@ class Shell:
         except tk.TclError:
             pass
 
+    _PREWARM_MODULES = (
+        "bztoolbox.modules.terrain_generator.gui",
+        "bztoolbox.modules.world.world_builder",
+        "bztoolbox.modules.textures.tex_man",
+        "bztoolbox.modules.publishing.uploader",
+        "bztoolbox.modules.localization.localization",
+    )
+
     @staticmethod
-    def _prewarm_modules() -> None:
+    def _import_quietly(module_name: str) -> None:
         import importlib
 
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            pass
+
+    @classmethod
+    def _prewarm_modules(cls) -> None:
         # Pre-import modules for heavier toolsets off the main thread so
         # navigating to them in the sidebar does not stall the Tk UI.
-        candidates = (
-            "bztoolbox.modules.terrain_generator.gui",
-            "bztoolbox.modules.world.world_builder",
-            "bztoolbox.modules.textures.tex_man",
-            "bztoolbox.modules.publishing.uploader",
-            "bztoolbox.modules.localization.localization",
-        )
-        for module_name in candidates:
-            try:
-                importlib.import_module(module_name)
-            except Exception:
-                pass
+        for module_name in cls._PREWARM_MODULES:
+            cls._import_quietly(module_name)
 
     # ------------------------------------------------------------------ layout
     def _initial_geometry(self) -> str:
@@ -458,8 +485,26 @@ class Shell:
 
         button.state(["disabled"])
         self._update_label.configure(text=f"Downloading {APP_NAME} {update.version}…")
+        received = {"done": 0, "total": 0, "running": True}
+
+        def progress(done_bytes: int, total: int) -> None:   # worker thread: plain values only
+            received["done"], received["total"] = done_bytes, total
+
+        def tick() -> None:
+            if not received["running"]:
+                return
+            done_mb, total = received["done"] / 1048576, received["total"]
+            amount = f"{done_mb:.1f} of {total / 1048576:.1f} MB" if total else f"{done_mb:.1f} MB"
+            try:
+                self._update_label.configure(text=f"Downloading {APP_NAME} {update.version}… {amount}")
+                self.root.after(250, tick)
+            except tk.TclError:
+                pass
+
+        self.root.after(250, tick)
 
         def done(path, error):
+            received["running"] = False
             if error is not None or path is None:
                 button.state(["!disabled"])
                 self._update_label.configure(text=f"{APP_NAME} {update.version} is available.")
@@ -477,14 +522,28 @@ class Shell:
                 return
             self.close()
 
-        self._run_in_background(lambda: updates.download(update), done)
+        self._run_in_background(lambda: updates.download(update, progress=progress), done)
 
     # -------------------------------------------------------------------- close
+    def busy_pages(self) -> List[str]:
+        """What open pages are doing that closing would interrupt (uploads run outside the job system)."""
+        found = []
+        for page in self._pages.values():
+            description = page.busy_description()
+            if description:
+                found.append(description)
+        return found
+
     def close(self, confirm: bool = True) -> None:
         active = [job for job in self.jobs.jobs if job.status not in FINISHED]
-        if confirm and active and not messagebox.askyesno(
-                "Exit", f"{len(active)} background task(s) are still running. Cancel them and exit?"):
-            return
+        busy = self.busy_pages()
+        if confirm and (active or busy):
+            lines = list(busy)
+            if active:
+                lines.append(f"{len(active)} background task(s) are still running.")
+            if not messagebox.askyesno("Exit", "\n\n".join(lines) + "\n\nStop them and exit?",
+                                       icon="warning", default="no"):
+                return
         for page in list(self._pages.values()):
             page.request_close()
         self.jobs.shutdown()
@@ -553,8 +612,13 @@ class PageFrame(ttk.Frame):
             if self.spec.kind == "legacy":
                 host = ttk.Frame(self.content, style="Toolbox.TFrame")
                 host.pack(fill="both", expand=True)
+                style = ttk.Style(self)
+                baseline = _root_style_snapshot(style)
                 self.widget, self.app = factory(host)
                 self.widget.pack(fill="both", expand=True)
+                # Older tools restyle "." (every ttk widget's fallback) with their own font;
+                # put the toolbox's back so other pages keep one look.
+                _restore_root_style(style, baseline)
                 self._project_hook = self.spec.load_project_hook()
                 if hasattr(self.app, "on_folder_selected"):
                     # the tool picked a folder itself: make it the toolbox project
@@ -615,6 +679,16 @@ class PageFrame(ttk.Frame):
         except Exception:  # noqa: BLE001
             traceback.print_exc()
 
+    def busy_description(self) -> str:
+        target = self.app if self.spec.kind == "legacy" else self.widget
+        method = getattr(target, "toolbox_busy_description", None)
+        if not callable(method):
+            return ""
+        try:
+            return method() or ""
+        except Exception:  # noqa: BLE001 - never block exit
+            return ""
+
     def request_close(self) -> None:
         try:
             if self.spec.kind == "legacy" and self.widget is not None:
@@ -659,6 +733,20 @@ def _apply_generic_baseline(root: tk.Tk) -> None:
     style.configure("Treeview", background="#070907", fieldbackground="#070907", foreground=theme.FG)
 
 
+_ROOT_STYLE_KEYS = ("font", "background", "foreground", "fieldbackground", "bordercolor", "troughcolor")
+
+
+def _root_style_snapshot(style: ttk.Style) -> dict:
+    return {key: style.lookup(".", key) for key in _ROOT_STYLE_KEYS}
+
+
+def _restore_root_style(style: ttk.Style, snapshot: dict) -> None:
+    try:
+        style.configure(".", **{key: value for key, value in snapshot.items() if value not in ("", None)})
+    except tk.TclError:
+        pass
+
+
 def _set_app_user_model_id() -> None:
     if sys.platform != "win32":
         return
@@ -670,13 +758,18 @@ def _set_app_user_model_id() -> None:
         pass
 
 
+# X11 WM_CLASS of the main window; the Linux .desktop entry's StartupWMClass matches
+# it, so docks and taskbars show the running window under the toolbox's own icon.
+WINDOW_CLASS = "BZModdingToolbox"
+
+
 def _make_root() -> tk.Tk:
     try:
         from tkinterdnd2 import TkinterDnD  # drag & drop for the texture tools
 
-        return TkinterDnD.Tk()
+        return TkinterDnD.Tk(className=WINDOW_CLASS)
     except Exception:  # noqa: BLE001
-        return tk.Tk()
+        return tk.Tk(className=WINDOW_CLASS)
 
 
 def run(project: Optional[str] = None, page: Optional[str] = None) -> int:

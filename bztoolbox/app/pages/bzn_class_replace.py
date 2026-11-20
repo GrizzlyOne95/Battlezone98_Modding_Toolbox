@@ -10,7 +10,7 @@ from battlezone.bzn.class_replace import (
 )
 from bztoolbox.app.widgets import Card, LogView, PathPicker, ScrollableFrame
 
-BZN_TYPES = (("BZN missions", "*.bzn"), ("All files", "*.*"))
+BZN_TYPES = (("BZN missions", "*.bzn"), ("All files", "*"))
 
 
 class BZNClassReplacePage(ScrollableFrame):
@@ -125,7 +125,8 @@ class BZNClassReplacePage(ScrollableFrame):
             self._buttons(False)
             self.log.write(f"Loaded {len(rows[0])} mission objects and {len(rows[1])} prototype objects.")
 
-        self.job = self.shell.jobs.submit("Load BZN objects", work, on_done=done, on_error=self._failed)
+        self.job = self.shell.jobs.submit("Load BZN objects", work, on_done=done, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def preview(self):
         if self._busy():
@@ -159,7 +160,7 @@ class BZNClassReplacePage(ScrollableFrame):
 
         self.job = self.shell.jobs.submit("Preview BZN class replacement",
             lambda _job: preview_replacement(source, template, indices, int(donor[0]), target),
-            on_done=done, on_error=self._failed)
+            on_done=done, on_error=self._failed, on_finally=self._cancelled)
 
     def apply(self):
         if self._busy() or self.plan is None:
@@ -182,7 +183,13 @@ class BZNClassReplacePage(ScrollableFrame):
             self.shell.status("BZN records replaced. Reload the map in Redux to check its behaviour.")
 
         self.job = self.shell.jobs.submit("Write BZN class replacement",
-            lambda _job: apply_replacement(plan, output), on_done=done, on_error=self._failed)
+            lambda _job: apply_replacement(plan, output), on_done=done, on_error=self._failed,
+            on_finally=self._cancelled)
+
+    def _cancelled(self, job):
+        if job.status == "cancelled":
+            self._buttons(False)
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error):
         self._invalidate()

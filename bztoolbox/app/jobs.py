@@ -11,6 +11,10 @@ queue, so job functions never touch widgets directly::
         return result
 
     jobs.submit("Validate project", work, on_done=show_report)
+
+``on_finally`` runs on the Tk thread after every outcome, including a
+cancellation (which calls neither ``on_done`` nor ``on_error``), so a page can
+re-enable the button that started the job.
 """
 
 from __future__ import annotations
@@ -106,6 +110,7 @@ class JobManager:
         func: Callable[[Job], Any],
         on_done: Optional[Callable[[Any], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        on_finally: Optional[Callable[[Job], None]] = None,
     ) -> Job:
         job = Job(next(self._ids), title, _manager=self)
         self.jobs.append(job)
@@ -139,6 +144,15 @@ class JobManager:
                         callback = lambda: on_error(job.error)
             finally:
                 job.finished = time.monotonic()
+                if on_finally is not None:
+                    outcome = callback
+
+                    def callback() -> None:
+                        try:
+                            if outcome is not None:
+                                outcome()
+                        finally:
+                            on_finally(job)
                 self._post(job, callback)
 
         self._executor.submit(run)

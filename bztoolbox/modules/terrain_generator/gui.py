@@ -25,6 +25,7 @@ from .preview import make_hg2_height_image, make_lgt_preview_image, make_shaded_
 from . import RECIPES, generate
 from .settings import GeneratorSettings, random_seed
 from .starter_layouts import LAYOUT_CONTROLS
+from bztoolbox.app.fonts import MONO_FAMILY
 
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.HeightmapGen"
 
@@ -160,7 +161,7 @@ def run_gui(root=None) -> None:
     worker_results: queue.Queue[tuple] = queue.Queue()
 
     # --- Left panel: Header ---
-    ttk.Label(left, text="HEIGHTMAP GENERATOR", font=("Consolas", 13, "bold")).pack(anchor="w", pady=(0, 4))
+    ttk.Label(left, text="HEIGHTMAP GENERATOR", font=(MONO_FAMILY, 13, "bold")).pack(anchor="w", pady=(0, 4))
     ttk.Label(
         left,
         text="New map: pick a layout, set the size, press Generate, then Export HG2. "
@@ -179,7 +180,7 @@ def run_gui(root=None) -> None:
         basic,
         text="Flat Field, Simple Arena and Two Bases are simple starting shapes. The rest are random styles.",
         wraplength=335,
-        font=("Consolas", 7),
+        font=(MONO_FAMILY, 7),
         foreground="#aaaaaa",
     ).pack(anchor="w", pady=(0, 6))
 
@@ -191,7 +192,7 @@ def run_gui(root=None) -> None:
     ttk.Label(dims, text="Zones Z").pack(side="left")
     sp_z = ttk.Spinbox(dims, textvariable=vars_["zones_z"], from_=1, to=8, width=5)
     sp_z.pack(side="left", padx=5)
-    ttk.Label(basic, text="One zone is 1280 m square.", font=("Consolas", 7), foreground="#aaaaaa").pack(anchor="w")
+    ttk.Label(basic, text="One zone is 1280 m square.", font=(MONO_FAMILY, 7), foreground="#aaaaaa").pack(anchor="w")
 
     # Starter-layout controls; only the ones the chosen layout uses are shown.
     starter = ttk.Frame(basic)
@@ -235,17 +236,17 @@ def run_gui(root=None) -> None:
         basic,
         text="For a fair two-team map. Mirror X: left and right halves match. Mirror Z: top and bottom halves match.",
         wraplength=335,
-        font=("Consolas", 7),
+        font=(MONO_FAMILY, 7),
         foreground="#aaaaaa",
     ).pack(anchor="w")
 
     # Terrain Contrast / Vertical Relief — prominent with help
-    ttk.Label(basic, text="Terrain Contrast / Vertical Relief", font=("Consolas", 9, "bold")).pack(anchor="w", pady=(6, 0))
+    ttk.Label(basic, text="Terrain Contrast / Vertical Relief", font=(MONO_FAMILY, 9, "bold")).pack(anchor="w", pady=(6, 0))
     ttk.Label(
         basic,
         text="Lower = compressed height differences, shallower grades in-game. 1.0 = default. Higher = exaggerated relief. Exact flats stay exact.",
         wraplength=335,
-        font=("Consolas", 7),
+        font=(MONO_FAMILY, 7),
         foreground="#aaaaaa",
     ).pack(anchor="w")
     scale_contrast = tk.Scale(
@@ -268,7 +269,7 @@ def run_gui(root=None) -> None:
     btns = ttk.Frame(left)
     btns.pack(fill="x", pady=(4, 0))
     # info line for seed visibility
-    seed_info = ttk.Label(left, text="", font=("Consolas", 8), foreground="#9cdcfe")
+    seed_info = ttk.Label(left, text="", font=(MONO_FAMILY, 8), foreground="#9cdcfe")
     seed_info.pack(anchor="w", pady=(6, 0))
 
     # --- Advanced (collapsible via button) ---
@@ -378,7 +379,7 @@ def run_gui(root=None) -> None:
     guard_wheel(left)
 
     # --- Right: Preview area with tabs ---
-    info = ttk.Label(right, text="Generate a terrain to preview it.", font=("Consolas", 8))
+    info = ttk.Label(right, text="Generate a terrain to preview it.", font=(MONO_FAMILY, 8))
     info.pack(anchor="w", pady=(0, 4))
 
     notebook = ttk.Notebook(right)
@@ -398,9 +399,9 @@ def run_gui(root=None) -> None:
         canvases[name] = c
 
     # Tooltips / help for contrast already provided above; additional labels
-    ttk.Label(tab_hg2, text="Raw HG2 height field (0..4095 fixed mapping, no percentile renormalization).", font=("Consolas", 7), foreground="#888888").pack(side="bottom", fill="x")
-    ttk.Label(tab_lgt, text="BZ LGT-style lighting (slope normals + NW sun + 25% ambient floor). Not an engine-valid .LGT export unless verified.", font=("Consolas", 7), foreground="#888888").pack(side="bottom", fill="x")
-    ttk.Label(tab_shaded, text="Combined elevation + hillshade (legacy preview).", font=("Consolas", 7), foreground="#888888").pack(side="bottom", fill="x")
+    ttk.Label(tab_hg2, text="Raw HG2 height field (0..4095 fixed mapping, no percentile renormalization).", font=(MONO_FAMILY, 7), foreground="#888888").pack(side="bottom", fill="x")
+    ttk.Label(tab_lgt, text="BZ LGT-style lighting (slope normals + NW sun + 25% ambient floor). Not an engine-valid .LGT export unless verified.", font=(MONO_FAMILY, 7), foreground="#888888").pack(side="bottom", fill="x")
+    ttk.Label(tab_shaded, text="Combined elevation + hillshade (legacy preview).", font=(MONO_FAMILY, 7), foreground="#888888").pack(side="bottom", fill="x")
 
     def settings_from_ui() -> GeneratorSettings:
         return GeneratorSettings(
@@ -593,7 +594,7 @@ def run_gui(root=None) -> None:
         path = filedialog.askopenfilename(
             filetypes=[
                 ("Heightmaps", "*.hg2 *.png *.bmp *.jpg *.jpeg *.tif *.tiff"),
-                ("All files", "*.*"),
+                ("All files", "*"),
             ]
         )
         if not path:
@@ -621,7 +622,7 @@ def run_gui(root=None) -> None:
         if current.get("map") is None:
             schedule_generate(preserve_seed=True, immediate=True)
             return
-        path = filedialog.asksaveasfilename(defaultextension=".hg2", filetypes=[("Battlezone HG2", "*.hg2"), ("All files", "*.*")])
+        path = filedialog.asksaveasfilename(defaultextension=".hg2", filetypes=[("Battlezone HG2", "*.hg2"), ("All files", "*")])
         if path and isinstance(current.get("map"), HG2Map):
             try:
                 current["map"].write(path)  # type: ignore
@@ -631,7 +632,7 @@ def run_gui(root=None) -> None:
     def export_png16() -> None:
         if current.get("map") is None:
             return
-        path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("16-bit PNG", "*.png"), ("All files", "*.*")])
+        path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("16-bit PNG", "*.png"), ("All files", "*")])
         if path and isinstance(current.get("map"), HG2Map):
             try:
                 current["map"].write_png16(path)  # type: ignore
@@ -675,7 +676,7 @@ def run_gui(root=None) -> None:
         m = current.get("map")
         if not isinstance(m, HG2Map):
             return
-        path = filedialog.asksaveasfilename(defaultextension=".lgt", filetypes=[("Battlezone LGT", "*.lgt"), ("All files", "*.*")])
+        path = filedialog.asksaveasfilename(defaultextension=".lgt", filetypes=[("Battlezone LGT", "*.lgt"), ("All files", "*")])
         if path:
             try:
                 # Export at the 256-per-zone resolution used by most observed
@@ -713,7 +714,7 @@ def run_gui(root=None) -> None:
     ttk.Button(adv_btns, text="Export Shaded Preview PNG...", command=export_shaded_preview_png).pack(fill="x", pady=2)
 
     # Help text for exports
-    ttk.Label(btns, text="Images: 16-bit PNG = HG2 x 8 (lossless); 8-bit = 1 m per grey level. HG2 stores heights; LGT is lighting.", wraplength=345, font=("Consolas", 7), foreground="#777777").pack(anchor="w", pady=(4, 0))
+    ttk.Label(btns, text="Images: 16-bit PNG = HG2 x 8 (lossless); 8-bit = 1 m per grey level. HG2 stores heights; LGT is lighting.", wraplength=345, font=(MONO_FAMILY, 7), foreground="#777777").pack(anchor="w", pady=(4, 0))
 
     # Canvas resize should not regenerate terrain — just re-thumbnail
     for c in canvases.values():

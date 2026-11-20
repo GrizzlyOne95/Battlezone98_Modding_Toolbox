@@ -10,7 +10,7 @@ from datetime import datetime
 
 from bztoolbox.modules.audio import processing
 from bztoolbox.app.host import EmbeddedRoot
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 
 # --- UTILITY FUNCTIONS ---
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.AudioTool"
@@ -54,7 +54,7 @@ def apply_window_icon(window):
         pass
 
 
-_set_app_user_model_id()
+# Only a standalone run has its own taskbar identity; inside the toolbox the shell's applies.
 
 # Resource Constants
 COMM_BEEP = get_resource_path("commbeep.wav")
@@ -82,7 +82,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(tw, text=self.text, justify='left',
                        background=self.bg, foreground=self.fg, 
-                       relief='solid', borderwidth=1, font=("Consolas", "9"))
+                       relief='solid', borderwidth=1, font=(MONO_FAMILY, "9"))
         label.pack(ipadx=1)
 
     def hide_tip(self, event=None):
@@ -107,7 +107,7 @@ class BZRadio(EmbeddedRoot):
         self.configure(bg=self.colors["bg"])
         
         # Font Loading
-        self.font_name = "Consolas"
+        self.font_name = MONO_FAMILY
         self.load_custom_fonts()
 
         # Set the window icon (canonical branding/app_icon).
@@ -285,7 +285,7 @@ class BZRadio(EmbeddedRoot):
         log_frame.pack(fill="both", expand=True, pady=5)
         
         self.log_box = tk.Text(log_frame, height=10, bg="#050505", fg=self.colors["fg"], 
-                             font=("Consolas", 9), state="disabled", relief="flat", padx=5, pady=5)
+                             font=(MONO_FAMILY, 9), state="disabled", relief="flat", padx=5, pady=5)
         self.log_box.pack(fill="both", expand=True)
 
         # Log Tags
@@ -297,7 +297,7 @@ class BZRadio(EmbeddedRoot):
         self.progress = ttk.Progressbar(main_frame, style="BZ.Horizontal.TProgressbar", mode="determinate")
         self.progress.pack(fill="x", pady=(5, 0))
         
-        self.status_label = tk.Label(main_frame, text="SYSTEM READY", bg=self.colors["bg"], fg="#666666", font=("Consolas", 8))
+        self.status_label = tk.Label(main_frame, text="SYSTEM READY", bg=self.colors["bg"], fg="#666666", font=(MONO_FAMILY, 8))
         self.status_label.pack(pady=2)
 
         self.update_wav_profile_ui()
@@ -437,5 +437,6 @@ class BZRadio(EmbeddedRoot):
         self.log(f"Manifest exported with {count} entries to: {save_path}", "success")
 
 if __name__ == "__main__":
+    _set_app_user_model_id()
     app = BZRadio()
     app.mainloop()

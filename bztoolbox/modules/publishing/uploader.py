@@ -1,4 +1,5 @@
 import os
+import queue
 import sys
 import subprocess
 import threading
@@ -21,7 +22,7 @@ from bztoolbox.modules.publishing.project_store import ProjectStore
 from bztoolbox.modules.publishing.upload_preflight import UploadPreflight
 from bztoolbox.modules.publishing import steam_errors
 from bztoolbox.modules.publishing.steamworks_tags import UPDATE_STATUS, SteamworksTagUpdater, steam_client_running
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 from bztoolbox.system import open_in_file_manager
 from bztoolbox.modules.terrain_generator.starter_layouts import STARTER_LAYOUTS
 from bztoolbox.modules.world.new_map import WORLDS, create_new_map, ini_text
@@ -108,7 +109,7 @@ def apply_window_icon(window):
         pass
 
 
-_set_app_user_model_id()
+# Only a standalone run has its own taskbar identity; inside the toolbox the shell's applies.
 
 class ToolTip:
     def __init__(self, widget, text, bg="#1a1a1a", fg="#00ffff"):
@@ -128,7 +129,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(tw, text=self.text, justify='left',
                        background=self.bg, foreground=self.fg, 
-                       relief='solid', borderwidth=1, font=("Consolas", "9"))
+                       relief='solid', borderwidth=1, font=(MONO_FAMILY, "9"))
         label.pack(ipadx=1)
 
     def hide_tip(self, event=None):
@@ -170,7 +171,7 @@ class TemplateWizard(tk.Toplevel):
         frame = ttk.Frame(self, padding=20)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="CREATE NEW BZR CONTENT" if self.heights is None else "SAVE TERRAIN AS MAP", font=("Consolas", 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
+        ttk.Label(frame, text="CREATE NEW BZR CONTENT" if self.heights is None else "SAVE TERRAIN AS MAP", font=(MONO_FAMILY, 14, "bold"), foreground=c["highlight"]).pack(pady=(0, 20))
 
         # Name
         ttk.Label(frame, text="Content Name (a map: 1-8 letters or digits):").pack(anchor="w")
@@ -357,6 +358,10 @@ class WorkshopUploader:
         self.owner_status_var = tk.StringVar(value="Workshop owner: not resolved")
         self._active_operations = set()
         self._busy_lock = threading.Lock()
+        # Work on background threads hands its UI updates to the Tk thread through this
+        # queue: calling into Tk from another thread crashes Tk on macOS.
+        self._ui_calls = queue.Queue()
+        self._ui_drain_after = None
         self._warned_no_keyring = False
         self.current_project_profile_path = ""
         self.current_inventory = []
@@ -379,6 +384,11 @@ class WorkshopUploader:
         # Watch is always on: a cheap stat-only poll that rescans readiness
         # when files in the content folder change. Started once the UI is up.
         self.watch_mode_var = tk.BooleanVar(value=True)
+        # Plain copies for the watch thread: Tk variables may only be read on the Tk thread.
+        self._watch_enabled = True
+        self._watch_dir = ""
+        self.watch_mode_var.trace_add("write", lambda *_: setattr(self, "_watch_enabled", bool(self.watch_mode_var.get())))
+        self.mod_path.trace_add("write", lambda *_: setattr(self, "_watch_dir", self.mod_path.get()))
         self.watch_thread = None
         self.last_watch_signature = None
         self.last_watch_summary = None
@@ -432,15 +442,16 @@ class WorkshopUploader:
         self._toggle_auth_fields()
         self._refresh_steamcmd_status()
         self._on_api_key_changed()
-        self.root.after(0, self._bootstrap_steam_environment)
+        self._call_on_ui(self._bootstrap_steam_environment)
         self.root.after(1500, self._start_watch)
 
         # Apply theme
         self.root.configure(bg=self.colors["bg"])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self._drain_ui_calls()
 
     def load_custom_fonts(self):
-        self.current_font = bz_font("Consolas")
+        self.current_font = bz_font()
 
     def load_config(self):
         candidate_paths = [self.config_path]
@@ -637,7 +648,7 @@ class WorkshopUploader:
         if callback is not None:
             # Saves also come from worker threads; the shell is Tk, so hop over.
             try:
-                self.root.after(0, lambda path=profile_path: callback(path))
+                self._call_on_ui(lambda path=profile_path: callback(path))
             except Exception:
                 pass
         return profile_path
@@ -1295,7 +1306,7 @@ class WorkshopUploader:
         win.configure(bg="#1a1a1a")
         ttk.Label(win, text="REVIEW AND PUBLISH", font=(self.current_font, 14, "bold"), foreground=self.colors["highlight"], background="#1a1a1a").pack(anchor="w", padx=12, pady=(12, 6))
 
-        summary = tk.Text(win, height=10, bg="#050505", fg="#d4d4d4", insertbackground="#d4d4d4", font=("Consolas", 10))
+        summary = tk.Text(win, height=10, bg="#050505", fg="#d4d4d4", insertbackground="#d4d4d4", font=(MONO_FAMILY, 10))
         summary.pack(fill="x", padx=12, pady=(0, 10))
         item_id = plan["item_id"]
         if plan["mode"].startswith("UPDATE"):
@@ -1466,16 +1477,16 @@ class WorkshopUploader:
         try:
             ok, detail = self._get_steam_service().validate_api_key(api_key)
             if ok:
-                self.root.after(0, lambda: self.api_key_status_var.set("API key: verified"))
-                self.root.after(0, lambda: self.log(detail))
-                self.root.after(0, lambda: self.refresh_workshop_items(quiet=True))
+                self._call_on_ui(lambda: self.api_key_status_var.set("API key: verified"))
+                self._call_on_ui(lambda: self.log(detail))
+                self._call_on_ui(lambda: self.refresh_workshop_items(quiet=True))
             else:
-                self.root.after(0, lambda: self.api_key_status_var.set("API key: failed"))
-                self.root.after(0, lambda: self.log(f"API key check failed: {detail}"))
+                self._call_on_ui(lambda: self.api_key_status_var.set("API key: failed"))
+                self._call_on_ui(lambda: self.log(f"API key check failed: {detail}"))
         except Exception as e:
             friendly = self._friendly_api_error(e)
-            self.root.after(0, lambda: self.api_key_status_var.set("API key: failed"))
-            self.root.after(0, lambda: self.log(f"API key check failed: {friendly}"))
+            self._call_on_ui(lambda: self.api_key_status_var.set("API key: failed"))
+            self._call_on_ui(lambda: self.log(f"API key check failed: {friendly}"))
         finally:
             self._set_busy("API Key Test", False)
 
@@ -1509,7 +1520,7 @@ class WorkshopUploader:
             self.owner_status_var.set(f"Workshop owner: {steam_id}")
             self.log(f"Resolved Workshop owner: {steam_id}")
             if not quiet:
-                self.root.after(0, lambda: self.refresh_workshop_items(quiet=True))
+                self._call_on_ui(lambda: self.refresh_workshop_items(quiet=True))
             return steam_id
 
         self.owner_status_var.set("Workshop owner: could not resolve")
@@ -1525,7 +1536,7 @@ class WorkshopUploader:
                 self._active_operations.discard(operation)
             active = sorted(self._active_operations)
         status_text = "STATUS: IDLE" if not active else f"STATUS: BUSY ({', '.join(active)})"
-        self.root.after(0, lambda: self._apply_busy_state(status_text, bool(active)))
+        self._call_on_ui(lambda: self._apply_busy_state(status_text, bool(active)))
 
     def _apply_busy_state(self, status_text, is_busy):
         self.busy_status_var.set(status_text)
@@ -1652,8 +1663,49 @@ class WorkshopUploader:
         if self.api_key_var.get().strip() and self.manage_identity_var.get().strip():
             self.refresh_workshop_items(quiet=True)
 
+    def _call_on_ui(self, func):
+        """Run ``func`` on the Tk thread soon; safe to call from any thread."""
+        if threading.current_thread() is threading.main_thread():
+            self.root.after(0, func)
+            return
+        self._ui_calls.put(func)
+
+    def _drain_ui_calls(self):
+        """Tk thread: run what background threads queued, then look again shortly."""
+        while True:
+            try:
+                func = self._ui_calls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                func()
+            except Exception:  # noqa: BLE001 - one failed update must not stop the others
+                import traceback
+
+                traceback.print_exc()
+        try:
+            self._ui_drain_after = self.root.after(50, self._drain_ui_calls)
+        except tk.TclError:   # window closed
+            self._ui_drain_after = None
+
+    def toolbox_busy_description(self):
+        """What closing the toolbox now would interrupt ("" when nothing is running)."""
+        with self._busy_lock:
+            active = sorted(self._active_operations)
+        if "Upload" in active:
+            return "A Workshop upload is in progress; closing now stops it part-way."
+        if active:
+            return f"Workshop / Publish is busy ({', '.join(active)})."
+        return ""
+
     def on_close(self):
         self.watch_mode_var.set(False)
+        if self._ui_drain_after:
+            try:
+                self.root.after_cancel(self._ui_drain_after)
+            except Exception:
+                pass
+            self._ui_drain_after = None
         self.save_config()
         if self.project_autosave_token:
             try:
@@ -1682,8 +1734,8 @@ class WorkshopUploader:
         style.theme_use('default')
         
         c = self.colors
-        main_font = ("Consolas", 10)
-        bold_font = ("Consolas", 10, "bold")
+        main_font = (MONO_FAMILY, 10)
+        bold_font = (MONO_FAMILY, 10, "bold")
         display_font = (self.current_font, 11, "bold")
         
         style.configure(".", background=c["bg"], foreground=c["fg"], font=main_font, bordercolor=c["dark_highlight"])
@@ -2001,7 +2053,7 @@ class WorkshopUploader:
         self.title_char_label.grid(row=4, column=3, sticky="w")
 
         ttk.Label(frame, text="Description:").grid(row=5, column=0, sticky="nw", pady=5)
-        self.desc_text = tk.Text(frame, height=6, bg="#1a1a1a", fg=self.colors["accent"], insertbackground=self.colors["highlight"], font=("Consolas", 10))
+        self.desc_text = tk.Text(frame, height=6, bg="#1a1a1a", fg=self.colors["accent"], insertbackground=self.colors["highlight"], font=(MONO_FAMILY, 10))
         self.desc_text.grid(row=5, column=1, columnspan=3, sticky="nsew", padx=5, pady=5)
         self.desc_text.bind("<KeyRelease>", self._on_description_changed)
 
@@ -2124,7 +2176,7 @@ class WorkshopUploader:
             state="disabled",
             bg="#050505",
             fg=self.colors["fg"],
-            font=("Consolas", 9),
+            font=(MONO_FAMILY, 9),
         )
         self.log_box.pack(fill="both", expand=True)
         log_actions = ttk.Frame(self.activity_log_frame)
@@ -2294,7 +2346,7 @@ class WorkshopUploader:
     def _test_steamcmd_login_worker(self, exe, user, pwd, use_cached, guard_code):
         def report_state(state):
             if state in ("guard_required", "mobile_approval", "checking"):
-                self.root.after(0, lambda value=state: self._set_auth_state(value))
+                self._call_on_ui(lambda value=state: self._set_auth_state(value))
 
         try:
             result = self._get_workshop_backend().test_steamcmd_login(
@@ -2322,25 +2374,25 @@ class WorkshopUploader:
                     self.steam_guard_var.set("")
                     self._set_auth_state("verified")
                     self.log("SteamCMD login verified; cached login mode enabled.")
-                self.root.after(0, mark_verified)
+                self._call_on_ui(mark_verified)
             elif state == "guard_required":
-                self.root.after(0, lambda value="guard_required": apply_failure_state(value))
-                self.root.after(0, lambda: self.log("SteamCMD requires a Steam Guard code. Enter the code shown by Steam and retry."))
+                self._call_on_ui(lambda value="guard_required": apply_failure_state(value))
+                self._call_on_ui(lambda: self.log("SteamCMD requires a Steam Guard code. Enter the code shown by Steam and retry."))
             elif state == "mobile_approval":
-                self.root.after(0, lambda value="mobile_approval": apply_failure_state(value))
-                self.root.after(0, lambda: self.log("SteamCMD is waiting for approval in the Steam mobile app."))
+                self._call_on_ui(lambda value="mobile_approval": apply_failure_state(value))
+                self._call_on_ui(lambda: self.log("SteamCMD is waiting for approval in the Steam mobile app."))
             elif state == "bad_credentials":
-                self.root.after(0, lambda value="bad_credentials": apply_failure_state(value))
-                self.root.after(0, lambda: self.log(f"SteamCMD rejected the supplied credentials.\n{tail}"))
+                self._call_on_ui(lambda value="bad_credentials": apply_failure_state(value))
+                self._call_on_ui(lambda: self.log(f"SteamCMD rejected the supplied credentials.\n{tail}"))
             elif state == "timeout":
-                self.root.after(0, lambda value="timeout": apply_failure_state(value))
-                self.root.after(0, lambda: self.log("SteamCMD authentication timed out while waiting for confirmation."))
+                self._call_on_ui(lambda value="timeout": apply_failure_state(value))
+                self._call_on_ui(lambda: self.log("SteamCMD authentication timed out while waiting for confirmation."))
             else:
-                self.root.after(0, lambda value="failed": apply_failure_state(value))
-                self.root.after(0, lambda: self.log(f"SteamCMD login check failed.\n{tail}"))
+                self._call_on_ui(lambda value="failed": apply_failure_state(value))
+                self._call_on_ui(lambda: self.log(f"SteamCMD login check failed.\n{tail}"))
         except Exception as e:
-            self.root.after(0, lambda: self._set_auth_state("failed"))
-            self.root.after(0, lambda e=e: self.log(f"SteamCMD login check failed: {e}"))
+            self._call_on_ui(lambda: self._set_auth_state("failed"))
+            self._call_on_ui(lambda e=e: self.log(f"SteamCMD login check failed: {e}"))
         finally:
             self._set_busy("SteamCMD Login Test", False)
 
@@ -2414,7 +2466,7 @@ class WorkshopUploader:
             messagebox.showerror("Error", f"Failed to import upload profile: {e}")
 
     def log(self, msg):
-        self.root.after(0, lambda: self._log_impl(msg))
+        self._call_on_ui(lambda: self._log_impl(msg))
 
     def _log_impl(self, msg):
         summary = " ".join(str(msg or "").splitlines()).strip()
@@ -2447,12 +2499,12 @@ class WorkshopUploader:
                     self.steamcmd_path.set(exe_path)
                     self._sync_steam_identity_from_local_state()
                     self.save_config()
-                self.root.after(0, apply_downloaded_path)
+                self._call_on_ui(apply_downloaded_path)
                 self.log("SteamCMD successfully downloaded and extracted.")
-                self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD downloaded and path set automatically."))
+                self._call_on_ui(lambda: messagebox.showinfo("Success", "SteamCMD downloaded and path set automatically."))
             except Exception as e:
                 self.log(f"Download Error: {e}")
-                self.root.after(0, lambda e=e: messagebox.showerror("Download Error", f"Failed to download SteamCMD: {e}"))
+                self._call_on_ui(lambda e=e: messagebox.showerror("Download Error", f"Failed to download SteamCMD: {e}"))
                 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -2462,6 +2514,8 @@ class WorkshopUploader:
     def _start_watch(self):
         if not self.watch_mode_var.get():
             return
+        self._watch_enabled = True
+        self._watch_dir = self.mod_path.get()
         self.last_watch_signature = None
         self.last_watch_summary = None
         if not self.watch_thread or not self.watch_thread.is_alive():
@@ -2471,60 +2525,68 @@ class WorkshopUploader:
     def _watch_loop(self):
         import time
         watched_dir = None
-        while self.watch_mode_var.get():
-            mod_dir = self.mod_path.get()
-            if mod_dir != watched_dir:
-                # a newly selected folder is scanned by its own activation
-                watched_dir = mod_dir
-                self.last_watch_signature = None
-                self.last_watch_summary = None
-                if mod_dir and os.path.exists(mod_dir):
-                    try:
-                        self.last_watch_signature = self._fingerprint_inventory(self._build_mod_inventory(mod_dir))
-                    except Exception:
-                        pass
-                time.sleep(3)
-                continue
+        while self._watch_enabled:
+            try:
+                watched_dir = self._watch_once(watched_dir)
+            except Exception:   # the window is gone (shutdown) or the folder vanished mid-scan
+                if not self._watch_enabled:
+                    return
+            time.sleep(3)
+
+    def _watch_once(self, watched_dir):
+        """One pass of the watch loop (worker thread); returns the folder now watched."""
+        mod_dir = self._watch_dir
+        if mod_dir != watched_dir:
+            # a newly selected folder is scanned by its own activation
+            watched_dir = mod_dir
+            self.last_watch_signature = None
+            self.last_watch_summary = None
             if mod_dir and os.path.exists(mod_dir):
                 try:
-                    inventory = self._build_mod_inventory(mod_dir)
-                    current_signature = self._fingerprint_inventory(inventory)
+                    self.last_watch_signature = self._fingerprint_inventory(self._build_mod_inventory(mod_dir))
+                except Exception:
+                    pass
+            return watched_dir
+        if mod_dir and os.path.exists(mod_dir):
+            try:
+                inventory = self._build_mod_inventory(mod_dir)
+                current_signature = self._fingerprint_inventory(inventory)
 
-                    if self.last_watch_signature is None:
-                        self.last_watch_signature = current_signature
-                        self.root.after(0, self.refresh_current_project_readiness)
-                    elif current_signature != self.last_watch_signature:
-                        self.last_watch_signature = current_signature
-                        self.log("Change detected! Scanning...")
-                        findings = self._collect_mod_findings(mod_dir, inventory=inventory)
-                        self.current_inventory = inventory
-                        self.current_findings = findings
-                        summary = (
-                            len(findings["issues"]),
-                            len(findings["validation_errors"]),
-                            len(findings["validation_warnings"]),
-                            len(findings["trn_line_endings"]),
-                            len(findings["trn_duplicate_headers"]),
-                            len(findings["legacy_files"]),
-                        )
-                        if summary != self.last_watch_summary:
-                            self.last_watch_summary = summary
-                            if any(summary):
-                                self.log(
-                                    "Watch Alert: "
-                                    f"{summary[0]} safety issues, "
-                                    f"{summary[1]} validation errors, "
-                                    f"{summary[2]} warnings, "
-                                    f"{summary[3]} TRN line-ending issues, "
-                                    f"{summary[4]} duplicate TRN headers, "
-                                    f"{summary[5]} legacy files."
-                                )
-                            else:
-                                self.log("Watch: Files verified.")
-                        self.root.after(0, self.refresh_current_project_readiness)
-                except Exception as e:
-                    self.log(f"Watch error: {e}")
-            time.sleep(3)
+                if self.last_watch_signature is None:
+                    self.last_watch_signature = current_signature
+                    self._call_on_ui(self.refresh_current_project_readiness)
+                elif current_signature != self.last_watch_signature:
+                    self.last_watch_signature = current_signature
+                    self.log("Change detected! Scanning...")
+                    findings = self._collect_mod_findings(mod_dir, inventory=inventory)
+                    self.current_inventory = inventory
+                    self.current_findings = findings
+                    summary = (
+                        len(findings["issues"]),
+                        len(findings["validation_errors"]),
+                        len(findings["validation_warnings"]),
+                        len(findings["trn_line_endings"]),
+                        len(findings["trn_duplicate_headers"]),
+                        len(findings["legacy_files"]),
+                    )
+                    if summary != self.last_watch_summary:
+                        self.last_watch_summary = summary
+                        if any(summary):
+                            self.log(
+                                "Watch Alert: "
+                                f"{summary[0]} safety issues, "
+                                f"{summary[1]} validation errors, "
+                                f"{summary[2]} warnings, "
+                                f"{summary[3]} TRN line-ending issues, "
+                                f"{summary[4]} duplicate TRN headers, "
+                                f"{summary[5]} legacy files."
+                            )
+                        else:
+                            self.log("Watch: Files verified.")
+                    self._call_on_ui(self.refresh_current_project_readiness)
+            except Exception as e:
+                self.log(f"Watch error: {e}")
+        return watched_dir
 
     def browse_content(self):
         d = filedialog.askdirectory(title="Select Workshop Content Folder")
@@ -2555,7 +2617,7 @@ class WorkshopUploader:
                 self.log(f"Could not open {folder} as the toolbox project: {e}")
 
     def browse_preview(self):
-        f = filedialog.askopenfilename(filetypes=[("Images", "*.jpg;*.png;*.jpeg")])
+        f = filedialog.askopenfilename(filetypes=[("Images", "*.jpg *.png *.jpeg")])
         if f: 
             self.preview_path.set(f)
             if not HAS_PIL:
@@ -2614,7 +2676,7 @@ class WorkshopUploader:
         self.qr_win.configure(bg="#1a1a1a")
         self.qr_win.resizable(False, False)
         
-        ttk.Label(self.qr_win, text="SCAN WITH STEAM MOBILE APP", font=("Consolas", 12, "bold"), foreground=self.colors["highlight"], background="#1a1a1a").pack(pady=10)
+        ttk.Label(self.qr_win, text="SCAN WITH STEAM MOBILE APP", font=(MONO_FAMILY, 12, "bold"), foreground=self.colors["highlight"], background="#1a1a1a").pack(pady=10)
         ttk.Label(
             self.qr_win,
             text="This verifies the web QR session only. Use TEST STEAMCMD LOGIN to verify publishing credentials.",
@@ -2644,7 +2706,7 @@ class WorkshopUploader:
             self.qr_label.config(text=f"Failed to render QR\n{e}")
 
         ttk.Label(self.qr_win, text="1. Open Steam Mobile App\n2. Go to Steam Guard\n3. Select 'Scan a QR Code'", background="#1a1a1a", foreground="#d4d4d4", justify="left").pack(pady=10)
-        link_box = tk.Text(self.qr_win, height=3, wrap="word", bg="#050505", fg="#d4d4d4", insertbackground="#d4d4d4", font=("Consolas", 9))
+        link_box = tk.Text(self.qr_win, height=3, wrap="word", bg="#050505", fg="#d4d4d4", insertbackground="#d4d4d4", font=(MONO_FAMILY, 9))
         link_box.pack(fill="x", padx=20, pady=(0, 10))
         link_box.insert("1.0", challenge_url)
         link_box.config(state="disabled")
@@ -2821,7 +2883,7 @@ class WorkshopUploader:
         win.geometry("700x500")
         win.configure(bg="#1a1a1a")
 
-        ttk.Label(win, text="⚠️ SECURITY WARNING", font=("Consolas", 14, "bold"), foreground="orange", background="#1a1a1a").pack(pady=(10, 5))
+        ttk.Label(win, text="⚠️ SECURITY WARNING", font=(MONO_FAMILY, 14, "bold"), foreground="orange", background="#1a1a1a").pack(pady=(10, 5))
         ttk.Label(win, text="The following ODF files contain unrecognized headers.", foreground="#d4d4d4", background="#1a1a1a").pack()
         
         tree_frame = ttk.Frame(win)
@@ -2996,11 +3058,30 @@ class WorkshopUploader:
         self.save_current_project_state(quiet=True)
         return None
 
-    def _check_publish(self, content, inventory):
+    def _run_off_ui(self, work, then, busy="Working"):
+        """Run ``work()`` on a worker thread, then ``then(result, error)`` back on the Tk thread."""
+        self._set_busy(busy, True)
+
+        def runner():
+            try:
+                result, error = work(), None
+            except Exception as exc:  # noqa: BLE001 - reported by ``then``
+                result, error = None, exc
+
+            def finish():
+                self._set_busy(busy, False)
+                then(result, error)
+
+            self._call_on_ui(finish)
+
+        threading.Thread(target=runner, daemon=True).start()
+
+    def _check_publish(self, content, inventory, item_id=None):
         from bztoolbox.modules.publishing import publish_guard
 
+        item_id = self.item_id_var.get().strip() if item_id is None else item_id
         return publish_guard.check_publish(
-            content, self.item_id_var.get().strip(), inventory,
+            content, item_id, inventory,
             (self.current_project_data or {}).get("last_upload_inventory"),
             self.project_store.list_projects(), self._workshop_dirs())
 
@@ -3032,7 +3113,7 @@ class WorkshopUploader:
             new_id = match.group(1)
             if new_id == "0":
                 return None
-            self.root.after(0, lambda value=new_id: self.item_id_var.set(value))
+            self._call_on_ui(lambda value=new_id: self.item_id_var.set(value))
             self.log(f"Detected new Workshop ID: {new_id}")
             return new_id
         except Exception as e:
@@ -3040,6 +3121,9 @@ class WorkshopUploader:
             return None
 
     def start_upload(self):
+        with self._busy_lock:
+            if self._active_operations:   # a second click while checking or uploading
+                return
         title = self.title_var.get()
         desc = self._get_desc_text_value()
 
@@ -3072,104 +3156,115 @@ class WorkshopUploader:
             messagebox.showerror(validation_error[0], validation_error[1])
             return
 
-        inventory = self._build_mod_inventory(content)
-        guard = self._check_publish(content, inventory)
-        if guard.linked_elsewhere:
-            from bztoolbox.modules.publishing import publish_guard
-
-            item_id_text = self.item_id_var.get().strip()
-            if not messagebox.askyesno(
-                    "Workshop item linked twice",
-                    f"Another local upload profile also targets Workshop item #{item_id_text}:\n\n"
-                    + publish_guard.describe_profiles(guard.linked_elsewhere)
-                    + f"\n\nThis folder:\n  {content}\n\n"
-                    "Unlink the other profile and publish from this folder?\n"
-                    "(The other profile and its folder are kept, but no longer point at the item.)",
-                    icon="warning", default="no"):
-                self.log("Publish cancelled: Workshop item is linked to another upload profile.")
+        def proceed(scanned, scan_error):
+            if scan_error is not None:
+                messagebox.showerror("Publish", f"Could not scan {content}:\n{scan_error}")
                 return
-            self._unlink_other_profiles(item_id_text, content)
-            guard = self._check_publish(content, inventory)
-        if guard.blocks:
-            messagebox.showerror("Publish blocked", "\n\n".join(guard.blocks))
-            self.log("Publish blocked: " + " | ".join(b.splitlines()[0] for b in guard.blocks))
-            return
-        findings = self._collect_mod_findings(content, inventory=inventory)
-        plan = self._build_publish_plan(content, preview, use_cached, findings, inventory)
+            inventory, guard, findings = scanned
+            if guard.linked_elsewhere:
+                from bztoolbox.modules.publishing import publish_guard
 
-        if hasattr(self, "readiness_tree"):
-            publish_ok, selected_fixups = self._confirm_publish_review(plan, findings)
-        else:
-            publish_ok = self._confirm_upload_plan(content, preview, use_cached)
-            selected_fixups = []
-        if not publish_ok:
-            return
-        for concern in guard.confirms:   # each risk is confirmed on its own; "No" is the default
-            if not messagebox.askyesno("Confirm publish", concern + "\n\nPublish anyway?", icon="warning",
-                                       default="no"):
-                self.log("Publish cancelled.")
+                item_id_text = self.item_id_var.get().strip()
+                if not messagebox.askyesno(
+                        "Workshop item linked twice",
+                        f"Another local upload profile also targets Workshop item #{item_id_text}:\n\n"
+                        + publish_guard.describe_profiles(guard.linked_elsewhere)
+                        + f"\n\nThis folder:\n  {content}\n\n"
+                        "Unlink the other profile and publish from this folder?\n"
+                        "(The other profile and its folder are kept, but no longer point at the item.)",
+                        icon="warning", default="no"):
+                    self.log("Publish cancelled: Workshop item is linked to another upload profile.")
+                    return
+                self._unlink_other_profiles(item_id_text, content)
+                guard = self._check_publish(content, inventory)
+            if guard.blocks:
+                messagebox.showerror("Publish blocked", "\n\n".join(guard.blocks))
+                self.log("Publish blocked: " + " | ".join(b.splitlines()[0] for b in guard.blocks))
+                return
+            plan = self._build_publish_plan(content, preview, use_cached, findings, inventory)
+
+            if hasattr(self, "readiness_tree"):
+                publish_ok, selected_fixups = self._confirm_publish_review(plan, findings)
+            else:
+                publish_ok = self._confirm_upload_plan(content, preview, use_cached)
+                selected_fixups = []
+            if not publish_ok:
+                return
+            for concern in guard.confirms:   # each risk is confirmed on its own; "No" is the default
+                if not messagebox.askyesno("Confirm publish", concern + "\n\nPublish anyway?", icon="warning",
+                                           default="no"):
+                    self.log("Publish cancelled.")
+                    return
+
+            if selected_fixups:
+                findings = self._apply_publish_fixups(findings, selected_fixups)
+                inventory = self.current_inventory or self._build_mod_inventory(content)
+
+            self.save_config()
+            self.save_current_project_state(quiet=True)
+
+            if self._publish_via_steamworks:
+                staged_preview = self._stage_preview_for_upload(preview) if preview else ""
+                self.pending_publish_preview = staged_preview
+                self.pending_publish_signature = self._fingerprint_inventory(inventory)
+                self.pending_publish_inventory = self._build_inventory_snapshot(inventory)
+                self._set_busy("Upload", True)
+                threading.Thread(
+                    target=self.run_steamworks_publish,
+                    kwargs=dict(
+                        item_id=self.item_id_var.get().strip(),
+                        appid=self.games[self.game_var.get()]["appid"],
+                        content=content,
+                        preview=staged_preview,
+                        title=title,
+                        description=desc,
+                        visibility=self._visibility_code(),
+                        tags=self._current_tags(),
+                        change_note=self.note_var.get(),
+                    ),
+                    daemon=True,
+                ).start()
                 return
 
-        if selected_fixups:
-            findings = self._apply_publish_fixups(findings, selected_fixups)
-            inventory = self.current_inventory or self._build_mod_inventory(content)
+            # Create VDF
+            try:
+                appid = self.games[self.game_var.get()]["appid"]
+                vis = self._visibility_code()
+                staged_preview = self._stage_preview_for_upload(preview) if preview else ""
+                self.pending_publish_preview = staged_preview
+                vdf_path = self._get_upload_preflight().write_upload_vdf(
+                    base_dir=self.base_dir,
+                    appid=appid,
+                    publishedfileid=self.item_id_var.get(),
+                    contentfolder=content,
+                    previewfile=staged_preview,
+                    visibility=vis,
+                    title=self.title_var.get(),
+                    description=desc,
+                    changenote=self.note_var.get(),
+                    build_upload_vdf_content=self._build_upload_vdf_content,
+                )
+                self.log(f"Generated VDF at {vdf_path}")
+            
+            except Exception as e:
+                self.log(f"Error creating VDF: {e}")
+                return
 
-        self.save_config()
-        self.save_current_project_state(quiet=True)
-
-        if self._publish_via_steamworks:
-            staged_preview = self._stage_preview_for_upload(preview) if preview else ""
-            self.pending_publish_preview = staged_preview
+            # Run SteamCMD
+            # We use a separate thread to not freeze UI, but we might need a new console for 2FA
             self.pending_publish_signature = self._fingerprint_inventory(inventory)
             self.pending_publish_inventory = self._build_inventory_snapshot(inventory)
             self._set_busy("Upload", True)
-            threading.Thread(
-                target=self.run_steamworks_publish,
-                kwargs=dict(
-                    item_id=self.item_id_var.get().strip(),
-                    appid=self.games[self.game_var.get()]["appid"],
-                    content=content,
-                    preview=staged_preview,
-                    title=title,
-                    description=desc,
-                    visibility=self._visibility_code(),
-                    tags=self._current_tags(),
-                    change_note=self.note_var.get(),
-                ),
-                daemon=True,
-            ).start()
-            return
+            threading.Thread(target=self.run_steamcmd, args=(sc, user, pwd, vdf_path), daemon=True).start()
 
-        # Create VDF
-        try:
-            appid = self.games[self.game_var.get()]["appid"]
-            vis = self._visibility_code()
-            staged_preview = self._stage_preview_for_upload(preview) if preview else ""
-            self.pending_publish_preview = staged_preview
-            vdf_path = self._get_upload_preflight().write_upload_vdf(
-                base_dir=self.base_dir,
-                appid=appid,
-                publishedfileid=self.item_id_var.get(),
-                contentfolder=content,
-                previewfile=staged_preview,
-                visibility=vis,
-                title=self.title_var.get(),
-                description=desc,
-                changenote=self.note_var.get(),
-                build_upload_vdf_content=self._build_upload_vdf_content,
-            )
-            self.log(f"Generated VDF at {vdf_path}")
-            
-        except Exception as e:
-            self.log(f"Error creating VDF: {e}")
-            return
+        # Scanning a large mod takes a while: do it off the Tk thread, then ask on it.
+        def scan():
+            inventory = self._build_mod_inventory(content)
+            guard = self._check_publish(content, inventory, item_id=item_id)
+            return inventory, guard, self._collect_mod_findings(content, inventory=inventory)
 
-        # Run SteamCMD
-        # We use a separate thread to not freeze UI, but we might need a new console for 2FA
-        self.pending_publish_signature = self._fingerprint_inventory(inventory)
-        self.pending_publish_inventory = self._build_inventory_snapshot(inventory)
-        self._set_busy("Upload", True)
-        threading.Thread(target=self.run_steamcmd, args=(sc, user, pwd, vdf_path), daemon=True).start()
+        self.log("Checking the mod before publishing...")
+        self._run_off_ui(scan, proceed, busy="Checking mod")
 
     def _stage_preview_for_upload(self, preview):
         """Copy the preview to a name derived from its content.
@@ -3253,7 +3348,7 @@ class WorkshopUploader:
         def on_created(new_id, needs_legal):
             # Link the new item at once, so a failed upload is retried as an update.
             self.log(f"Created Workshop item {new_id}.")
-            self.root.after(0, lambda: self.item_id_var.set(new_id))
+            self._call_on_ui(lambda: self.item_id_var.set(new_id))
 
         try:
             creator = self._item_creator_app(item_id, api_key, appid) if is_update else str(appid)
@@ -3273,11 +3368,11 @@ class WorkshopUploader:
             )
             uploaded_item_id = result["publishedfileid"]
             self.log(f"Published Workshop item {uploaded_item_id} through Steamworks.")
-            self.root.after(0, lambda: self.item_id_var.set(uploaded_item_id))
+            self._call_on_ui(lambda: self.item_id_var.set(uploaded_item_id))
             self._record_successful_publish(uploaded_item_id)
             if preview:
                 self._ensure_steam_preview(uploaded_item_id, preview, api_key, appid, creator_app_id=creator)
-            self.root.after(0, self.refresh_current_project_readiness)
+            self._call_on_ui(self.refresh_current_project_readiness)
             message = "Published to the Steam Workshop.\nUpload profile and publish snapshot were updated."
             status = self._steam_item_status(uploaded_item_id)
             if status:
@@ -3287,18 +3382,18 @@ class WorkshopUploader:
                 self.log("Steam reports the Workshop legal agreement is not accepted yet; the item stays hidden until it is.")
                 message += ("\n\nSteam says you have not accepted the Workshop legal agreement yet, so the item "
                             "stays hidden. Accept it at steamcommunity.com/sharedfiles/workshoplegalagreement")
-            self.root.after(0, lambda: messagebox.showinfo("Published", message))
+            self._call_on_ui(lambda: messagebox.showinfo("Published", message))
         except Exception as e:
             created_id = getattr(e, "created_item_id", None)
             if created_id:
-                self.root.after(0, lambda: self.item_id_var.set(created_id))
-                self.root.after(0, lambda: self.save_current_project_state(quiet=True))
+                self._call_on_ui(lambda: self.item_id_var.set(created_id))
+                self._call_on_ui(lambda: self.save_current_project_state(quiet=True))
             detail = steam_errors.explain_steamworks_message(str(e))
             status = self._steam_item_status(item_id) if is_update else None
             if status:
                 detail += f"\n\nThis item is currently {status['label'].lower()}. {status['message']}"
             self.log(f"Steamworks publish failed: {detail}")
-            self.root.after(0, lambda detail=detail: messagebox.showerror("Publish failed", detail))
+            self._call_on_ui(lambda detail=detail: messagebox.showerror("Publish failed", detail))
         finally:
             self.pending_publish_signature = None
             self.pending_publish_inventory = None
@@ -3316,6 +3411,12 @@ class WorkshopUploader:
             else:
                 self.log("Attempting login using cached credentials (no username provided)...")
         
+        if pwd and not use_cached:
+            self.log("SteamCMD takes the password on its command line, where other programs on this computer "
+                     "can see it while it runs; once signed in, USE CACHED LOGIN avoids sending it again.")
+        if not IS_WINDOWS and not use_cached and not guard_code:
+            self.log("SteamCMD runs without a console here, so it cannot ask for a Steam Guard code: "
+                     "enter the current code in the Steam Guard field first if your account uses one.")
         started_at = time.time()
         try:
             self.steamcmd_process, _cmd = self._get_workshop_backend().launch_steamcmd(
@@ -3347,8 +3448,8 @@ class WorkshopUploader:
                 # sometimes reports a preview upload that Steam never applies.
                 self._finish_publish_on_steam(uploaded_item_id, self.pending_publish_preview)
 
-                self.root.after(0, self.refresh_current_project_readiness)
-                self.root.after(0, lambda: messagebox.showinfo("Success", "SteamCMD finished.\nUpload profile and publish snapshot were updated."))
+                self._call_on_ui(self.refresh_current_project_readiness)
+                self._call_on_ui(lambda: messagebox.showinfo("Success", "SteamCMD finished.\nUpload profile and publish snapshot were updated."))
             else:
                 msg = hidden_error or self._steamcmd_failure_message(p.returncode, use_cached, since=started_at)
                 self.log(msg)
@@ -3356,7 +3457,7 @@ class WorkshopUploader:
                 def show_err():
                     if messagebox.askyesno("Upload Error", f"{msg}\n\nOpen logs to investigate?"):
                         self.show_steam_logs()
-                self.root.after(0, show_err)
+                self._call_on_ui(show_err)
                 
         except Exception as e:
             self.log(f"Execution Error: {e}")
@@ -3387,6 +3488,10 @@ class WorkshopUploader:
                     "password (Test Login in SETUP / ADVANCED), use QR Login, or publish with Steam running.")
         else:
             msg += "\n\nThe SteamCMD logs held no explained error; open them for the full output."
+        if not IS_WINDOWS and not use_cached and not self.steam_guard_var.get().strip():
+            msg += ("\n\nOn this system SteamCMD has no console to ask for a Steam Guard code: enter the "
+                    "current code in the Steam Guard field and publish again, or sign in once with "
+                    "Test Login so the cached login can be used.")
         return msg
 
     def _steam_item_status(self, item_id):
@@ -3425,7 +3530,7 @@ class WorkshopUploader:
         entry = ttk.Entry(top, textvariable=search_var)
         entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
-        text = tk.Text(win, bg="#050505", fg="#d4d4d4", font=("Consolas", 9), wrap="word")
+        text = tk.Text(win, bg="#050505", fg="#d4d4d4", font=(MONO_FAMILY, 9), wrap="word")
         text.pack(fill="both", expand=True, padx=5, pady=(0, 5))
         text.tag_config("head", foreground="#ffff44")
 
@@ -3503,7 +3608,7 @@ class WorkshopUploader:
             current = self._selected_library_item()
             if current is not None and str(current.get("publishedfileid")) == item_id:
                 self._show_library_detail(current)
-        self.root.after(0, show)
+        self._call_on_ui(show)
 
     def _show_library_detail(self, item):
         label = getattr(self, "library_thumb_label", None)
@@ -3752,28 +3857,28 @@ class WorkshopUploader:
             )
 
             if not steam_id:
-                self.root.after(0, lambda: self.owner_status_var.set("Workshop owner: could not resolve"))
-                self.root.after(0, lambda: self.log("Error: Could not resolve owner. Use SteamID64, profile URL, vanity URL, or 'USE CURRENT LOGIN'."))
+                self._call_on_ui(lambda: self.owner_status_var.set("Workshop owner: could not resolve"))
+                self._call_on_ui(lambda: self.log("Error: Could not resolve owner. Use SteamID64, profile URL, vanity URL, or 'USE CURRENT LOGIN'."))
                 return
 
-            self.root.after(0, lambda: self.manage_identity_var.set(steam_id))
-            self.root.after(0, lambda: self.owner_status_var.set(f"Workshop owner: {steam_id}"))
-            self.root.after(0, lambda: self.api_key_status_var.set("API key: accepted"))
+            self._call_on_ui(lambda: self.manage_identity_var.set(steam_id))
+            self._call_on_ui(lambda: self.owner_status_var.set(f"Workshop owner: {steam_id}"))
+            self._call_on_ui(lambda: self.api_key_status_var.set("API key: accepted"))
             
             def show_items():
                 self.library_items = list(items)
                 self.library_preview_cache = {}
                 self._render_library()
-            self.root.after(0, show_items)
+            self._call_on_ui(show_items)
             pages = meta.get("pages", 0)
             total = meta.get("total", len(items))
-            self.root.after(0, lambda: self.library_status_var.set(f"Loaded {len(items)} of {total} Workshop items for {steam_id} across {pages} page(s)."))
-            self.root.after(0, lambda: self.log(f"Workshop library ready: {len(items)} item(s) loaded across {pages} page(s)."))
+            self._call_on_ui(lambda: self.library_status_var.set(f"Loaded {len(items)} of {total} Workshop items for {steam_id} across {pages} page(s)."))
+            self._call_on_ui(lambda: self.log(f"Workshop library ready: {len(items)} item(s) loaded across {pages} page(s)."))
 
         except Exception as e:
-            self.root.after(0, lambda: self.library_status_var.set("Workshop library load failed."))
-            self.root.after(0, lambda: self.api_key_status_var.set("API key: failed or unauthorized"))
-            self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
+            self._call_on_ui(lambda: self.library_status_var.set("Workshop library load failed."))
+            self._call_on_ui(lambda: self.api_key_status_var.set("API key: failed or unauthorized"))
+            self._call_on_ui(lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
             self._set_busy("Refresh", False)
 
@@ -3932,7 +4037,7 @@ class WorkshopUploader:
             backend = self._get_workshop_backend()
             details = backend.fetch_workshop_item_details(api_key=api_key, item_id=item_id)
             if not details or not details.get("title"):
-                self.root.after(0, lambda: self.log(f"Could not read Workshop item {item_id} from Steam."))
+                self._call_on_ui(lambda: self.log(f"Could not read Workshop item {item_id} from Steam."))
                 return
 
             project = project or {}
@@ -3977,9 +4082,9 @@ class WorkshopUploader:
                 self.save_current_project_state(quiet=True)
                 self.log(f"Editor updated from Steam: {details.get('title', item_id)}")
 
-            self.root.after(0, do_populate)
+            self._call_on_ui(do_populate)
         except Exception as e:
-            self.root.after(0, lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
+            self._call_on_ui(lambda e=e: self.log(f"API Error: {self._friendly_api_error(e)}"))
         finally:
             self._set_busy("Sync from Steam", False)
 
@@ -4011,7 +4116,7 @@ class WorkshopUploader:
             f = ttk.Frame(nb)
             nb.add(f, text=name)
             
-            st = tk.Text(f, bg="#050505", fg="#d4d4d4", font=("Consolas", 9))
+            st = tk.Text(f, bg="#050505", fg="#d4d4d4", font=(MONO_FAMILY, 9))
             st.pack(fill="both", expand=True)
             
             if os.path.exists(path):
@@ -4036,6 +4141,7 @@ class WorkshopUploader:
                 st.insert("end", f"Log file not found at:\n{path}\n\nThis log is usually created after an upload attempt.")
 
 if __name__ == "__main__":
+    _set_app_user_model_id()
     root = tk.Tk()
     app = WorkshopUploader(root)
     root.mainloop()

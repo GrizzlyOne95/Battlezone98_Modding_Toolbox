@@ -60,7 +60,7 @@ CREDENTIALS = (("BattlezoneWorkshopUploader", "steam_web_api_key"),)
 
 # Every name the toolbox itself creates directly inside the user data directory.
 _USER_DATA_NAMES = frozenset({
-    "settings.json", "settings.tmp", "projects", "cache", "modules", "fix-backups",
+    "settings.json", "settings.tmp", "settings.json.bad", "projects", "cache", "modules", "fix-backups",
     "publish-backups", "tunnel-backups", "lgt-backups", "OgrePreview.log",
 })
 

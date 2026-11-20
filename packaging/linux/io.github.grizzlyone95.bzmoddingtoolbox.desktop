@@ -6,5 +6,6 @@ Comment=Battlezone 98 Redux modding: missions, worlds, assets, validation and Wo
 Exec="@EXEC@" gui
 Icon=io.github.grizzlyone95.bzmoddingtoolbox
 Terminal=false
+StartupWMClass=BZModdingToolbox
 Categories=Development;Game;
 Keywords=Battlezone;Redux;mod;modding;terrain;workshop;

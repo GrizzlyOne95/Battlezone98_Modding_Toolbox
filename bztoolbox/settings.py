@@ -31,23 +31,38 @@ class Settings:
 
     def load(self) -> None:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        self._data = {**DEFAULTS, **(data if isinstance(data, dict) else {})}
+            text = self.path.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        data = {}
+        if text.strip():
+            try:
+                data = json.loads(text)
+            except ValueError:
+                data = None
+            if not isinstance(data, dict):
+                # Unreadable: keep a copy before the next save replaces it with the defaults.
+                try:
+                    os.replace(self.path, self.path.with_name(self.path.name + ".bad"))
+                except OSError:
+                    pass
+                data = {}
+        self._data = {**DEFAULTS, **data}
 
     def save(self) -> None:
         with self._lock:
+            payload = json.dumps(dict(self._data), indent=2, sort_keys=True)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self._data, indent=2, sort_keys=True), encoding="utf-8")
+            tmp.write_text(payload, encoding="utf-8")
             os.replace(tmp, self.path)
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, DEFAULTS.get(key, default))
 
     def set(self, key: str, value: Any, save: bool = True) -> None:
-        self._data[key] = value
+        with self._lock:
+            self._data[key] = value
         if save:
             self.save()
 

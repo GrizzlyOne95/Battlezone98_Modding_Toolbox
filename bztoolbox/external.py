@@ -184,7 +184,8 @@ def _steam_roots() -> List[Path]:
                   home / "Library" / "Application Support" / "Steam"]
     seen, unique = set(), []
     for root in roots:
-        key = str(root).lower()
+        # ~/.steam/steam is usually a symlink to ~/.local/share/Steam: one root, not two
+        key = os.path.normcase(os.path.realpath(root))
         if key not in seen and root.is_dir():
             seen.add(key)
             unique.append(root)
@@ -208,20 +209,29 @@ def _steam_libraries(steam_root: Path) -> List[Path]:
 def detect_game_installs(extra_checks: Callable[[], List[Path]] | None = None) -> List[Path]:
     """Folders that look like a Battlezone 98 Redux install."""
     found: List[Path] = []
+    seen = set()
+
+    def add(path: Path) -> None:
+        key = os.path.normcase(os.path.realpath(path))   # the same folder through a symlinked root
+        if key not in seen:
+            seen.add(key)
+            found.append(path)
+
     for root in _steam_roots():
         for library in _steam_libraries(root):
             for name in BZ98R_FOLDER_NAMES:
                 candidate = library / "steamapps" / "common" / name
-                if candidate.is_dir() and candidate not in found:
-                    found.append(candidate)
+                if candidate.is_dir():
+                    add(candidate)
     if IS_WINDOWS:
         for pattern in (r"C:\GOG Games\Battlezone 98 Redux", r"C:\Program Files*\GOG Galaxy\Games\Battlezone 98 Redux"):
             for match in glob.glob(pattern):
                 path = Path(match)
-                if path.is_dir() and path not in found:
-                    found.append(path)
+                if path.is_dir():
+                    add(path)
     if extra_checks:
-        found.extend(p for p in extra_checks() if p not in found)
+        for path in extra_checks():
+            add(path)
     return found
 
 

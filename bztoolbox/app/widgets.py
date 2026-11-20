@@ -52,7 +52,25 @@ def _dispatch_wheel(event) -> None:
         if scroll is not None:
             scroll(units)
             return
+        if _handles_wheel_itself(widget):
+            return   # a list, text box or zoomable canvas under the pointer: only it moves
         widget = widget.master
+
+
+_SELF_SCROLLING = ("Text", "Treeview", "Listbox")
+
+
+def _handles_wheel_itself(widget) -> bool:
+    """True when ``widget`` reacts to the wheel on its own (so the page around it must not scroll too)."""
+    try:
+        if any(widget.bind(sequence) for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>")):
+            return True
+        if widget.winfo_class() in _SELF_SCROLLING:
+            first, last = (float(v) for v in widget.yview())
+            return first > 0.0 or last < 1.0   # it has more to show than fits
+    except (AttributeError, tk.TclError, TypeError, ValueError):
+        pass
+    return False
 
 
 def install_treeview_resize_cursor(root: tk.Misc) -> None:
@@ -180,7 +198,7 @@ class PathPicker(ttk.Frame):
     """Label + entry + browse button bound to a ``StringVar``."""
 
     def __init__(self, master, label: str, variable: tk.StringVar, kind: str = "dir",
-                 filetypes: Sequence = (("All files", "*.*"),), style_prefix: str = "Toolbox",
+                 filetypes: Sequence = (("All files", "*"),), style_prefix: str = "Toolbox",
                  on_change: Optional[Callable[[str], None]] = None, surface: bool = False,
                  on_browse: Optional[Callable[[], None]] = None):
         frame_style = "Toolbox.Surface.TFrame" if surface else "Toolbox.TFrame"

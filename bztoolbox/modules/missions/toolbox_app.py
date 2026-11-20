@@ -64,7 +64,7 @@ def apply_window_icon(window):
         pass
 
 
-_set_app_user_model_id()
+# Only a standalone run has its own taskbar identity; inside the toolbox the shell's applies.
 
 
 SEVERITY_ORDER = {"CRITICAL": 0, "ERROR": 1, "WARNING": 2, "INFO": 3}
@@ -197,7 +197,7 @@ class BZNToolboxApp:
     def _browse_port_file(self, key, kind, save):
         filetypes = ([("BZN files", "*.bzn")] if kind == "bzn" else
                      [("JSON files", "*.json")])
-        filetypes.append(("All files", "*.*"))
+        filetypes.append(("All files", "*"))
         current = self.port_fields[key].get().strip()
         initialdir = str(Path(current).parent) if current else ""
         picker = filedialog.asksaveasfilename if save else filedialog.askopenfilename
@@ -310,7 +310,7 @@ class BZNToolboxApp:
         self.refresh_issues()
 
     def load_file(self):
-        path = filedialog.askopenfilename(filetypes=[("BZN Files", "*.bzn"), ("All Files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("BZN Files", "*.bzn"), ("All Files", "*")])
         if not path:
             return
         self._reset_source("bzn", path)
@@ -327,7 +327,7 @@ class BZNToolboxApp:
         self.notebook.select(self.validation_tab)
 
     def load_zip(self):
-        path = filedialog.askopenfilename(filetypes=[("ZIP archives", "*.zip"), ("All Files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("ZIP archives", "*.zip"), ("All Files", "*")])
         if not path:
             return
         self._reset_source("zip", path)
@@ -505,6 +505,7 @@ class BZNToolboxApp:
 
 
 if __name__ == "__main__":
+    _set_app_user_model_id()
     root = tk.Tk()
     BZNToolboxApp(root)
     root.mainloop()

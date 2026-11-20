@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from battlezone.terrain.trn import TRNDocument
+from bztoolbox.app.fonts import MONO_FAMILY
 
 
 METERS_PER_HG2_SAMPLE = 5
@@ -409,7 +410,7 @@ def install_world_builder_legacy_hgt_patch() -> None:
             frame,
             textvariable=self.legacy_hgt_info,
             foreground=core.BZ_CYAN,
-            font=("Consolas", 9),
+            font=(MONO_FAMILY, 9),
         ).pack(anchor="w", pady=(0, 6))
 
         row = core.ttk.Frame(frame)
@@ -420,7 +421,7 @@ def install_world_builder_legacy_hgt_patch() -> None:
         def browse_hgt():
             path = core.filedialog.askopenfilename(
                 title="Select original Battlezone HGT",
-                filetypes=[("Battlezone Height Terrain", "*.hgt"), ("All Files", "*.*")],
+                filetypes=[("Battlezone Height Terrain", "*.hgt"), ("All Files", "*")],
             )
             if not path:
                 return

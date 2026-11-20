@@ -19,6 +19,19 @@ def _make_root():
         raise unittest.SkipTest(f"no display: {exc}")
 
 
+def _pump_named(page_id):
+    """``pump`` under a function named after ``page_id``, so a crash dump (faulthandler) names the page."""
+    import re
+    import types
+
+    name = "pump_page_" + re.sub(r"\W", "_", page_id)
+    names = {"co_name": name}
+    if hasattr(pump.__code__, "co_qualname"):      # Python 3.11+
+        names["co_qualname"] = name
+    code = pump.__code__.replace(**names)
+    return types.FunctionType(code, pump.__globals__, name, pump.__defaults__)
+
+
 def pump(root, seconds=0.3, until=None):
     end = time.time() + seconds
     while time.time() < end:
@@ -135,20 +148,28 @@ class JobTests(unittest.TestCase):
         self.assertIn(("done", 1.0), updates)
 
     def test_cancel(self):
-        from bztoolbox.app.jobs import CANCELLED, JobManager
+        # One test (one Tk root) covers cancel and on_finally: on macOS every extra
+        # root created before the shell smoke test makes that test's root unstable.
+        from bztoolbox.app.jobs import CANCELLED, DONE, JobManager
 
         self.jobs = JobManager(self.root, poll_ms=10)
+        ended, done = [], []
 
         def work(job):
             while True:
                 job.check_cancelled()
                 time.sleep(0.01)
 
-        job = self.jobs.submit("loop", work)
+        job = self.jobs.submit("loop", work, on_done=done.append, on_finally=lambda j: ended.append(j.status))
+        ok = self.jobs.submit("ok", lambda job: 7, on_done=done.append, on_finally=lambda j: ended.append(j.status))
         pump(self.root, 0.2)
         job.cancel()
-        pump(self.root, 2, until=lambda: job.status == CANCELLED)
+        pump(self.root, 2, until=lambda: len(ended) == 2)
         self.assertEqual(job.status, CANCELLED)
+        # on_finally runs after every outcome, cancel included; on_done still runs first.
+        self.assertEqual(sorted(ended), [CANCELLED, DONE])
+        self.assertEqual(done, [7])
+        self.assertEqual(ok.status, DONE)
 
 
 class UpdateNotesDialogTests(unittest.TestCase):
@@ -211,11 +232,12 @@ class ShellSmokeTests(unittest.TestCase):
                 mod.mkdir()
                 (mod / "mymod.ini").write_text('[WORKSHOP]\nmapType = "mod"\n')
                 shell = Shell(root, Settings(Path(tmp) / "settings.json"))
+                baseline_font = tk.ttk.Style(root).lookup(".", "font")
                 shell.open_project(str(mod))
                 failures = []
                 for page in PAGES:
                     shell.navigate(page.id)
-                    pump(root, 0.2)
+                    _pump_named(page.id)(root, 0.2)
                     frame = shell._pages[page.id]
                     if frame.widget is None or not frame.widget.winfo_exists():
                         failures.append(page.id)
@@ -225,6 +247,33 @@ class ShellSmokeTests(unittest.TestCase):
                 self.assertEqual(os.path.normpath(publish.mod_path.get()), str(mod))
                 localization = shell._pages["project.localization"].app
                 self.assertEqual(localization.scan_folder_path.get(), str(mod))
+                # Older tools restyle ".", but every page keeps the toolbox's fallback font.
+                self.assertEqual(tk.ttk.Style(root).lookup(".", "font"), baseline_font)
+
+                # The page does not scroll while a list, text box or zoomable canvas under the
+                # pointer takes the wheel (checked on this root: a second Tk root that showed
+                # windows makes later roots unstable on macOS).
+                from bztoolbox.app.widgets import _handles_wheel_itself
+
+                probe = tk.Toplevel(root)
+                text = tk.Text(probe, height=2)
+                text.pack()
+                root.update()
+                self.assertFalse(_handles_wheel_itself(text))         # nothing to scroll: the page may
+                text.insert("1.0", "line\n" * 50)
+                root.update()
+                self.assertTrue(_handles_wheel_itself(text))
+                canvas = tk.Canvas(probe)
+                canvas.bind("<Button-4>", lambda e: None)               # a zoomable canvas
+                self.assertTrue(_handles_wheel_itself(canvas))
+                self.assertFalse(_handles_wheel_itself(tk.Frame(probe)))
+                probe.destroy()
+
+                # An upload runs outside the job system; closing must still see it.
+                self.assertEqual(shell.busy_pages(), [])
+                publish._active_operations.add("Upload")
+                self.assertIn("Workshop upload", shell.busy_pages()[0])
+                publish._active_operations.discard("Upload")
 
                 # Native pages run their work on the job system.
                 deps = shell._pages["project.dependencies"].widget

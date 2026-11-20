@@ -54,7 +54,7 @@ BZ_DARK_GREEN = "#004400"
 BZ_CYAN = "#00ffff"
 
 from bztoolbox.paths import module_data_dir
-from bztoolbox.app.fonts import bz_font
+from bztoolbox.app.fonts import bz_font, MONO_FAMILY
 
 CONFIG_FILE = str(module_data_dir("textures") / "tex_man_config.json")
 APP_USER_MODEL_ID = "GrizzlyOne95.Battlezone98Redux.TextureManager"
@@ -107,7 +107,7 @@ def apply_window_icon(window, base_dir, resource_dir):
         pass
 
 
-_set_app_user_model_id()
+# Only a standalone run has its own taskbar identity; inside the toolbox the shell's applies.
 
 class BZMapFormat:
     INDEXED, ARGB4444, RGB565, ARGB8888, XRGB8888 = 0, 1, 2, 3, 4
@@ -181,7 +181,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(tw, text=self.text, justify='left',
                        background="#1a1a1a", foreground=BZ_CYAN, 
-                       relief='solid', borderwidth=1, font=("Consolas", "9"))
+                       relief='solid', borderwidth=1, font=(MONO_FAMILY, "9"))
         label.pack(ipadx=1)
 
     def hide_tip(self, event=None):
@@ -259,7 +259,7 @@ class BZReduxSuite:
         self.resource_dir = os.path.dirname(os.path.abspath(__file__))
         self.base_dir = str(module_data_dir("textures"))
             
-        self.custom_font_name = bz_font("Consolas")
+        self.custom_font_name = bz_font()
             
         apply_window_icon(self.root, self.base_dir, self.resource_dir)
 
@@ -566,7 +566,7 @@ class BZReduxSuite:
             messagebox.showerror("ACT Palette", str(e), parent=self.root)
 
     def import_palette_from_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Image", "*.png;*.bmp;*.gif;*.tif")])
+        path = filedialog.askopenfilename(filetypes=[("Image", "*.png *.bmp *.gif *.tif")])
         if not path: return
         try:
             img = Image.open(path)
@@ -636,14 +636,14 @@ class BZReduxSuite:
         # 4. Source + Convert (a folder converts every .map/.png in it)
         self.map_source = tk.StringVar()
         self.source_row(self.tab_map, "Source (file or folder):", self.map_source,
-                        [("MAP or PNG", "*.map;*.png")]).pack(pady=(10, 0), padx=20, fill="x")
+                        [("MAP or PNG", "*.map *.png")]).pack(pady=(10, 0), padx=20, fill="x")
         f = ttk.Frame(self.tab_map)
         f.pack(pady=10, padx=20, fill="x")
         ttk.Button(f, text="CONVERT", style="Action.TButton", command=self.convert_map_source).pack(side="left", padx=10)
         ttk.Label(f, text=".map becomes .png and .png becomes .map; output goes beside the source "
                           "unless a batch output folder is set.").pack(side="left", padx=10)
         
-        self.map_log = tk.Text(self.tab_map, height=15, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
+        self.map_log = tk.Text(self.tab_map, height=15, bg="#050505", fg=BZ_FG, font=(MONO_FAMILY, 9))
         self.map_log.pack(padx=20, pady=10, fill="both")
 
     def update_pal_preview(self, custom_palette=None):
@@ -741,7 +741,7 @@ class BZReduxSuite:
             self.ui_single_map(path)
 
     def ui_single_map(self, path=None):
-        path = path or filedialog.askopenfilename(filetypes=[("MAP or PNG", "*.map;*.png")])
+        path = path or filedialog.askopenfilename(filetypes=[("MAP or PNG", "*.map *.png")])
         if not path: return
         try:
             msg = self.process_map_file(path)
@@ -779,7 +779,7 @@ class BZReduxSuite:
         ttk.Label(ctrl, text="(Leave 0 for square maps)").grid(row=0, column=2, padx=5)
 
         self.lgt_source = tk.StringVar()
-        self.source_row(self.tab_lgt, "Source:", self.lgt_source, [("Lightmap or PNG", "*.lgt;*.png")],
+        self.source_row(self.tab_lgt, "Source:", self.lgt_source, [("Lightmap or PNG", "*.lgt *.png")],
                         folder=False).pack(pady=(10, 0), padx=20, fill="x")
         btn_f = ttk.Frame(self.tab_lgt)
         btn_f.pack(pady=10, padx=20, fill="x")
@@ -792,7 +792,7 @@ class BZReduxSuite:
                 os.path.splitext(self.lgt_source.get().strip())[1].lower(),
                 "Choose a .lgt to extract a PNG, or a .png to pack an LGT.")))
 
-        self.lgt_log = tk.Text(self.tab_lgt, height=20, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
+        self.lgt_log = tk.Text(self.tab_lgt, height=20, bg="#050505", fg=BZ_FG, font=(MONO_FAMILY, 9))
         self.lgt_log.pack(padx=20, pady=10, fill="both")
 
     def parse_trn_dimensions(self):
@@ -958,7 +958,7 @@ class BZReduxSuite:
         self.tex_preview_canvas = tk.Canvas(right_col, bg="#050505", height=200, highlightthickness=0)
         self.tex_preview_canvas.pack(fill="x", padx=5, pady=5)
         
-        self.tex_log = tk.Text(right_col, height=15, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
+        self.tex_log = tk.Text(right_col, height=15, bg="#050505", fg=BZ_FG, font=(MONO_FAMILY, 9))
         self.tex_log.pack(fill="both", expand=True, padx=5, pady=5)
         
         self.tex_progress = ttk.Progressbar(right_col, style="BZ.Horizontal.TProgressbar", mode="determinate")
@@ -1008,7 +1008,7 @@ class BZReduxSuite:
                    style="Action.TButton").pack(pady=(5, 0), fill="x")
 
     def browse_single_tex(self):
-        path = filedialog.askopenfilename(filetypes=[("Image", "*.png;*.tga;*.jpg;*.bmp;*.dds;*.pic")])
+        path = filedialog.askopenfilename(filetypes=[("Image", "*.png *.tga *.jpg *.bmp *.dds *.pic")])
         if path:
             self.tex_single_path.set(path)
             self.load_tex_preview(path)
@@ -1355,7 +1355,7 @@ class BZReduxSuite:
         btn_f.pack(pady=10, padx=20, fill="x")
         ttk.Button(btn_f, text="CONVERT", style="Action.TButton", command=self.convert_dxt_source).pack(side="left", padx=10)
 
-        self.dxt_log = tk.Text(self.tab_dxt, height=20, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
+        self.dxt_log = tk.Text(self.tab_dxt, height=20, bg="#050505", fg=BZ_FG, font=(MONO_FAMILY, 9))
         self.dxt_log.pack(padx=20, pady=10, fill="both")
 
     def update_dxt_ui_state(self, *args):
@@ -1496,7 +1496,7 @@ class BZReduxSuite:
         
         ttk.Button(f, text="MERGE & SAVE", style="Success.TButton", command=self.process_pack).pack(fill="x", pady=10)
         
-        self.pack_log = tk.Text(f, height=10, bg="#050505", fg=BZ_FG, font=("Consolas", 9))
+        self.pack_log = tk.Text(f, height=10, bg="#050505", fg=BZ_FG, font=(MONO_FAMILY, 9))
         self.pack_log.pack(fill="both", expand=True)
 
     def process_pack(self):
@@ -1523,6 +1523,7 @@ class BZReduxSuite:
             self.log_msg(self.pack_log, f"Error: {e}")
 
 if __name__ == "__main__":
+    _set_app_user_model_id()
     root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
     app = BZReduxSuite(root)
     root.mainloop()

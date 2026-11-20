@@ -18,6 +18,7 @@ from bztoolbox.modules.textures.makemap_compat import (
     load_map,
     read_palette,
 )
+from bztoolbox.app.fonts import MONO_FAMILY
 
 
 tk = legacy.tk
@@ -164,7 +165,7 @@ class MakeMapDialog:
         self.convert_btn.pack(side="left")
         ttk.Label(actions, text="Outputs are written beside each source, matching original MakeMAP behavior.").pack(side="left", padx=12)
 
-        self.log = tk.Text(outer, height=9, bg="#050505", fg=legacy.BZ_FG, font=("Consolas", 9))
+        self.log = tk.Text(outer, height=9, bg="#050505", fg=legacy.BZ_FG, font=(MONO_FAMILY, 9))
         self.log.pack(fill="both", expand=True, pady=(4, 0))
 
     def pick_file(self):
@@ -176,11 +177,11 @@ class MakeMapDialog:
         if path: self.input_var.set(path)
 
     def pick_palette(self):
-        path = filedialog.askopenfilename(filetypes=[("ACT / raw RGB palette", "*.act;*.pal"), ("All files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("ACT / raw RGB palette", "*.act *.pal"), ("All files", "*")])
         if path: self.palette_var.set(path)
 
     def pick_remap(self):
-        path = filedialog.askopenfilename(filetypes=[("Image", "*.png;*.tga;*.bmp;*.jpg;*.jpeg"), ("All files", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("Image", "*.png *.tga *.bmp *.jpg *.jpeg"), ("All files", "*")])
         if path: self.remap_var.set(path)
 
     def _number(self, var, name, integer=False):

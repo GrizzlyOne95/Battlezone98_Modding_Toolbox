@@ -30,18 +30,19 @@ except ImportError:
 import sys
 
 from bztoolbox import paths
+from bztoolbox.app.fonts import MONO_FAMILY
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(str(paths.user_data_dir()), "OgrePreview.log")
 
 def log_msg(msg):
     try:
-        with open(LOG_FILE, "a") as f:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"{msg}\n")
             f.flush() # Force write to disk
     except Exception as e:
-        # Fallback to sys.stderr if file write fails
-        sys.stderr.write(f"[LOG_ERROR] {e} while logging: {msg}\n")
+        # Fallback to stderr if the file write fails (None in the windowed build: print skips it)
+        print(f"[LOG_ERROR] {e} while logging: {msg}", file=sys.stderr)
     print(msg)
 
 log_msg(f"--- ogre_preview.py loaded. System: {sys.platform}. Log: {LOG_FILE} ---")
@@ -572,7 +573,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
             text="Select a .mesh file\nand click PREVIEW",
             fg="#00ff00",
             bg="black",
-            font=("Consolas", 11),
+            font=(MONO_FAMILY, 11),
         )
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -582,7 +583,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
             text="LMB: Orbit   RMB: Zoom   MMB: Pan",
             fg="#444444",
             bg="black",
-            font=("Consolas", 8),
+            font=(MONO_FAMILY, 8),
         )
 
         self._render_frame.bind("<Configure>", self._on_resize)
@@ -598,6 +599,8 @@ class OgrePreviewFrame(ctk.CTkFrame):
         self._render_frame.bind("<ButtonRelease-3>", self._drag_end)
         self._render_frame.bind("<ButtonRelease-2>", self._drag_end)
         self._render_frame.bind("<MouseWheel>",      self._mouse_wheel)
+        self._render_frame.bind("<Button-4>",        self._mouse_wheel)   # Linux (X11) wheel up
+        self._render_frame.bind("<Button-5>",        self._mouse_wheel)   # Linux (X11) wheel down
 
     # ------------------------------------------------------------------
     # Public API
@@ -791,10 +794,14 @@ class OgrePreviewFrame(ctk.CTkFrame):
     def _mouse_wheel(self, event):
         if not self._ctx:
             return
-        if event.delta > 0:
+        delta = getattr(event, "delta", 0) or 0
+        num = getattr(event, "num", None)
+        if num == 4 or delta > 0:
             self._orbit_dist *= 0.9
-        else:
+        elif num == 5 or delta < 0:
             self._orbit_dist *= 1.1
+        else:
+            return
         self._orbit_dist = max(0.01, self._orbit_dist)
         self._apply_camera()
 
@@ -819,7 +826,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
             text=f"Preview error:\n{message}",
             fg="#ff4444",
             bg="black",
-            font=("Consolas", 10),
+            font=(MONO_FAMILY, 10),
             wraplength=300,
             justify="center",
         )

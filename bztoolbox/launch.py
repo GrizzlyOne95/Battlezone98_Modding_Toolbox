@@ -9,7 +9,10 @@ the free-form extra arguments.
 
 Deploying copies the project into ``<install>/addon/<name>``, where both games
 pick files up ahead of their archives, copying only what changed since the last
-deploy.
+deploy and removing files an earlier deploy copied that the project no longer has.
+
+Both games are Windows programs. On Linux and macOS they run through Steam
+(Proton) or Wine, so launching goes through ``steam``/``steam://`` or ``wine``.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -33,6 +37,9 @@ LEGACY_INSTALL_GUESSES = (r"C:\Program Files (x86)\Battlezone", r"C:\Program Fil
 # Files a deploy never copies: version control, editor sources, caches.
 DEPLOY_SKIP_DIRS = {".git", ".svn", "__pycache__", ".vs", ".idea"}
 DEPLOY_SKIP_SUFFIXES = {".xcf", ".psd", ".blend", ".blend1", ".bak", ".tmp", ".kra", ".pdn"}
+# What the last deploy copied, kept in the deployed folder, so the next deploy can
+# remove files the project dropped (and never touches files it did not copy).
+DEPLOY_MANIFEST = ".bztoolbox-deploy.json"
 ERROR_WORDS = ("error", "not found", "couldn't", "could not", "missing", "failed", "exception", "assert",
                "cannot", "can't", "unable", "invalid", "warning")
 
@@ -146,7 +153,7 @@ def detect_installs(settings=None) -> List[GameInstall]:
         install = install_at(folder)
         if install is None:
             continue
-        key = os.path.normcase(os.path.abspath(install.path))
+        key = os.path.normcase(os.path.realpath(install.path))   # ~/.steam/steam is a symlink on Linux
         if key not in seen:
             seen.add(key)
             found.append(install)
@@ -154,6 +161,7 @@ def detect_installs(settings=None) -> List[GameInstall]:
 
 
 def steam_exe() -> Optional[Path]:
+    """The Windows Steam client (``steam.exe``), if installed."""
     try:
         from bztoolbox import external
 
@@ -164,6 +172,26 @@ def steam_exe() -> Optional[Path]:
     except Exception:
         pass
     return None
+
+
+def steam_url(args: Sequence[str]) -> str:
+    """``steam://run/<app>//<args>/``: starts Redux with launch options through any Steam client."""
+    return f"steam://run/{REDUX_STEAM_APP_ID}//{urllib.parse.quote(subprocess.list2cmdline(list(args)), safe='')}/"
+
+
+def steam_command(args: Sequence[str], platform: Optional[str] = None) -> Optional[List[str]]:
+    """The command that starts Redux through Steam on ``platform``, or None when Steam is not found."""
+    platform = platform or sys.platform
+    if platform == "win32":
+        exe = steam_exe()
+        return [str(exe), "-applaunch", REDUX_STEAM_APP_ID, *args] if exe else None
+    if platform == "darwin":
+        return ["open", steam_url(args)]
+    steam = shutil.which("steam")
+    if steam:
+        return [steam, "-applaunch", REDUX_STEAM_APP_ID, *args]
+    opener = shutil.which("xdg-open")
+    return [opener, steam_url(args)] if opener else None
 
 
 @dataclass
@@ -177,8 +205,13 @@ class LaunchPlan:
 
 
 def build_launch(install: GameInstall, mission: str = "", flags: Iterable[str] = (), extra: str = "",
-                 via_steam: bool = False) -> LaunchPlan:
-    """The command for ``install``; ``flags`` are :class:`LaunchFlag` keys, ``extra`` free-form arguments."""
+                 via_steam: bool = False, platform: Optional[str] = None) -> LaunchPlan:
+    """The command for ``install``; ``flags`` are :class:`LaunchFlag` keys, ``extra`` free-form arguments.
+
+    On Linux and macOS (``platform``, default this one) the game is a Windows
+    program: it starts through Steam (Proton) or, launched directly, through Wine.
+    """
+    platform = platform or sys.platform
     flags = list(flags)
     known = {flag.key: flag for flag in install.flags}
     unknown = [key for key in flags if key not in known]
@@ -190,21 +223,31 @@ def build_launch(install: GameInstall, mission: str = "", flags: Iterable[str] =
     if mission.strip():
         args.append(os.path.basename(mission.strip()))
     if via_steam:
-        steam = steam_exe()
-        if install.kind != "redux" or install.store != "steam" or steam is None:
-            raise ValueError("launching through Steam needs the Steam copy of Redux and steam.exe")
-        return LaunchPlan([str(steam), "-applaunch", REDUX_STEAM_APP_ID, *args], str(install.path), True)
+        if install.kind != "redux" or install.store != "steam":
+            raise ValueError("launching through Steam needs the Steam copy of Battlezone 98 Redux")
+        command = steam_command(args, platform)
+        if command is None:
+            raise ValueError("Steam was not found; start Steam once, or turn off launching through Steam")
+        return LaunchPlan(command, str(install.path), True)
     if not install.exe.is_file():
         raise FileNotFoundError(f"{install.exe} is missing")
-    return LaunchPlan([str(install.exe), *args], str(install.path))
+    if platform == "win32":
+        return LaunchPlan([str(install.exe), *args], str(install.path))
+    wine = shutil.which("wine")
+    if wine is None:
+        hint = ("turn on Launch through Steam (Proton)" if install.kind == "redux" and install.store == "steam"
+                else "install Wine")
+        raise ValueError(f"{install.exe.name} is a Windows program: {hint} to start it on this system")
+    return LaunchPlan([wine, str(install.exe), *args], str(install.path))
 
 
 def start(plan: LaunchPlan) -> subprocess.Popen:
     """Start the game without tying it to this process (it outlives the toolbox)."""
-    flags = 0
     if sys.platform == "win32":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    return subprocess.Popen(plan.argv, cwd=plan.cwd, creationflags=flags, close_fds=True)
+        return subprocess.Popen(plan.argv, cwd=plan.cwd, creationflags=flags, close_fds=True)
+    return subprocess.Popen(plan.argv, cwd=plan.cwd, close_fds=True, start_new_session=True,
+                            stdin=subprocess.DEVNULL)
 
 
 # ---------------------------------------------------------------------------
@@ -217,29 +260,75 @@ class DeployResult:
     copied: List[str] = field(default_factory=list)
     unchanged: int = 0
     skipped: List[str] = field(default_factory=list)
+    removed: List[str] = field(default_factory=list)
 
 
 def deploy_name(project_dir) -> str:
     return Path(project_dir).name.strip() or "toolbox_test"
 
 
-def deploy_project(project_dir, install: GameInstall, name: Optional[str] = None) -> DeployResult:
-    """Copy the project into ``<install>/addon/<name>``, only files that are new or changed."""
+def _real(path) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _is_within(path, folder) -> bool:
+    inner, outer = _real(path), _real(folder)
+    return inner == outer or inner.startswith(outer.rstrip(os.sep) + os.sep)
+
+
+def check_deploy(project_dir, install: GameInstall, name: Optional[str] = None) -> Path:
+    """The deploy target, or ValueError when deploying would copy the project into itself or the game."""
+    source = Path(project_dir)
+    target = install.addon / (name or deploy_name(source))
+    if _is_within(source, install.addon):
+        raise ValueError(f"the project is already in the game's addon folder ({install.addon}), so the game "
+                         f"loads it as it is; turn off deploying")
+    if _is_within(target, source):
+        raise ValueError("the project folder contains the game's addon folder; deploying would copy the "
+                         "project into itself. Open the mod's own folder as the project instead")
+    return target
+
+
+def _read_manifest(target: Path) -> List[str]:
+    import json
+
+    try:
+        data = json.loads((target / DEPLOY_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    files = data.get("files") if isinstance(data, dict) else None
+    return [f for f in files if isinstance(f, str)] if isinstance(files, list) else []
+
+
+def deploy_project(project_dir, install: GameInstall, name: Optional[str] = None,
+                   cancel=None, progress=None) -> DeployResult:
+    """Copy the project into ``<install>/addon/<name>``, only files that are new or changed.
+
+    Files an earlier deploy copied that the project no longer has are removed, so a
+    renamed or deleted asset cannot keep loading from the deployed copy. Files the
+    toolbox did not copy (logs, saves, edits made in the game) are left alone.
+    ``cancel`` is a callable that stops the copy when it returns True; ``progress``
+    is called with each copied path.
+    """
+    import json
+
     source = Path(project_dir)
     if not source.is_dir():
         raise NotADirectoryError(f"{source} is not a folder")
-    target = install.addon / (name or deploy_name(source))
-    if os.path.normcase(os.path.abspath(target)) == os.path.normcase(os.path.abspath(source)):
-        raise ValueError("the project already lives in that addon folder")
+    target = check_deploy(source, install, name)
     result = DeployResult(target)
+    deployed: List[str] = []
     for dirpath, dirnames, filenames in os.walk(source):
         dirnames[:] = [d for d in dirnames if d not in DEPLOY_SKIP_DIRS]
         for filename in filenames:
+            if cancel is not None and cancel():
+                raise InterruptedError("deploy cancelled")
             src = Path(dirpath) / filename
             rel = src.relative_to(source)
-            if src.suffix.lower() in DEPLOY_SKIP_SUFFIXES:
+            if src.suffix.lower() in DEPLOY_SKIP_SUFFIXES or (rel.as_posix() == DEPLOY_MANIFEST):
                 result.skipped.append(rel.as_posix())
                 continue
+            deployed.append(rel.as_posix())
             dst = target / rel
             stat = src.stat()
             if dst.is_file():
@@ -250,6 +339,28 @@ def deploy_project(project_dir, install: GameInstall, name: Optional[str] = None
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             result.copied.append(rel.as_posix())
+            if progress is not None:
+                progress(rel.as_posix())
+    wanted = {os.path.normcase(rel) for rel in deployed}
+    for rel in _read_manifest(target):
+        if os.path.normcase(rel) in wanted:
+            continue
+        stale = target / rel
+        if ".." in Path(rel).parts or Path(rel).is_absolute() or not _is_within(stale, target):
+            continue
+        if stale.is_file():
+            stale.unlink()
+            result.removed.append(rel)
+            # drop folders the removal left empty, up to the deploy folder
+            parent = stale.parent
+            while parent != target and _is_within(parent, target):
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
+                parent = parent.parent
+    target.mkdir(parents=True, exist_ok=True)
+    (target / DEPLOY_MANIFEST).write_text(json.dumps({"files": sorted(deployed)}, indent=1), encoding="utf-8")
     return result
 
 

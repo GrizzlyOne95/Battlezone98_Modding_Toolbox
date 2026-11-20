@@ -9,7 +9,7 @@ from tkinter import messagebox, ttk
 
 from bztoolbox.app.widgets import Card, LogView, PathPicker, ScrollableFrame
 
-BZN_TYPES = (("BZN missions", "*.bzn"), ("All files", "*.*"))
+BZN_TYPES = (("BZN missions", "*.bzn"), ("All files", "*"))
 TARGET_CHOICES = (
     ("auto", "The other game (Redux → 1.5 1045, 1.5 → Redux 2016)"),
     ("1.5", "Battlezone 1.5 (version 1045)"),
@@ -136,7 +136,8 @@ class BZNConvertPage(ScrollableFrame):
             return True, output, result
 
         self.job = self.shell.jobs.submit(f"Convert {Path(source).name}", work,
-                                          on_done=self._done, on_error=self._failed)
+                                          on_done=self._done, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _done(self, outcome) -> None:
         ok, message, result = outcome
@@ -152,6 +153,12 @@ class BZNConvertPage(ScrollableFrame):
         else:
             self.log.write(f"Not written: {message}", "error")
             self.shell.status("BZN conversion refused; see the result.")
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.convert_button,):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         self.convert_button.state(["!disabled"])

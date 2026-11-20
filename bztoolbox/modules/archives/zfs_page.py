@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from battlezone.archives.zfs import ZFSArchive, ZFSError, files_in_folder, write_zfs
+from bztoolbox.modules.archives.common import Debounce, confirm_overwrite, is_same_or_temp
 from bztoolbox.app.widgets import Card, PathPicker, StatBox, humanize_bytes, open_in_file_manager
 
 
@@ -25,7 +26,7 @@ class ZFSPage(ttk.Frame):
         self.archive: ZFSArchive | None = None
         self.sort_key, self.sort_reverse = "index", False
         self.filter_var = tk.StringVar()
-        self.filter_var.trace_add("write", lambda *_: self._render())
+        self.filter_var.trace_add("write", Debounce(self, self._render))
 
         tabs = ttk.Notebook(self, style="Toolbox.TNotebook")
         tabs.pack(fill="both", expand=True)
@@ -93,7 +94,7 @@ class ZFSPage(ttk.Frame):
 
     def open_dialog(self) -> None:
         path = filedialog.askopenfilename(title="Open ZFS archive",
-                                          filetypes=[("ZFS archives", "*.zfs"), ("All files", "*.*")])
+                                          filetypes=[("ZFS archives", "*.zfs"), ("All files", "*")])
         if path:
             self.open(path)
 
@@ -159,6 +160,10 @@ class ZFSPage(ttk.Frame):
             return
         archive = self.archive
         key = self.key_var.get().strip() or None
+        from pathlib import Path
+
+        if not confirm_overwrite((Path(out_dir) / Path(e.name.replace("\\", "/")).name for e in entries), out_dir):
+            return
 
         def work(job):
             def progress(i, total, name):
@@ -229,7 +234,9 @@ class ZFSPage(ttk.Frame):
         if not os.path.isdir(source) or not output:
             messagebox.showinfo("Pack", "Choose a source folder and an output archive.")
             return
-        files = files_in_folder(source, recursive=self.pack_recursive.get())
+        # never pack the output itself (an earlier build saved inside the source folder)
+        files = [p for p in files_in_folder(source, recursive=self.pack_recursive.get())
+                 if not is_same_or_temp(p, output)]
         if not files:
             messagebox.showinfo("Pack", "The folder has no files.")
             return
@@ -251,4 +258,10 @@ class ZFSPage(ttk.Frame):
             self.pack_button.configure(state="normal")
             messagebox.showerror("Pack failed", error)
 
-        self.shell.jobs.submit(f"Pack {os.path.basename(output)}", work, on_done=finished, on_error=failed)
+        def ended(job):
+            if job.status == "cancelled":
+                self.pack_button.configure(state="normal")
+                self.shell.status("Pack cancelled.")
+
+        self.shell.jobs.submit(f"Pack {os.path.basename(output)}", work, on_done=finished, on_error=failed,
+                               on_finally=ended)

@@ -11,7 +11,8 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from battlezone.archives.pak import PAKArchive, PAKError, files_in_folder, write_pak
+from battlezone.archives.pak import PAKArchive, PAKError, _safe_component, _safe_parts, files_in_folder, write_pak
+from bztoolbox.modules.archives.common import Debounce, confirm_overwrite, is_same_or_temp
 from bztoolbox.app.widgets import Card, PathPicker, StatBox, humanize_bytes, open_in_file_manager
 
 
@@ -26,7 +27,7 @@ class PAKPage(ttk.Frame):
         self.archive: PAKArchive | None = None
         self.sort_key, self.sort_reverse = "index", False
         self.filter_var = tk.StringVar()
-        self.filter_var.trace_add("write", lambda *_: self._render())
+        self.filter_var.trace_add("write", Debounce(self, self._render))
 
         tabs = ttk.Notebook(self, style="Toolbox.TNotebook")
         tabs.pack(fill="both", expand=True)
@@ -93,7 +94,7 @@ class PAKPage(ttk.Frame):
 
     def open_dialog(self) -> None:
         path = filedialog.askopenfilename(title="Open BZ2 PAK archive",
-                                          filetypes=[("PAK archives", "*.pak"), ("All files", "*.*")])
+                                          filetypes=[("PAK archives", "*.pak"), ("All files", "*")])
         if path:
             self.open(path)
 
@@ -161,6 +162,17 @@ class PAKPage(ttk.Frame):
         use_groups = self.groups_var.get()
         pic_to = self.pic_format_var.get().lower() if self.convert_pic_var.get() else None
         warnings_before = len(archive.warnings)
+        from pathlib import Path
+
+        def target(entry):
+            folder = Path(out_dir)
+            if use_groups and entry.group_name:
+                folder = folder.joinpath(*_safe_parts(entry.group_name))
+            path = folder / _safe_component(entry.name)
+            return path.with_suffix("." + pic_to) if pic_to and entry.extension == ".pic" else path
+
+        if not confirm_overwrite((target(e) for e in entries), out_dir):
+            return
 
         def work(job):
             def progress(i, total, name):
@@ -234,7 +246,8 @@ class PAKPage(ttk.Frame):
         if not os.path.isdir(source) or not output:
             messagebox.showinfo("Pack", "Choose a source folder and an output archive.")
             return
-        files = files_in_folder(source)
+        # never pack the output itself (an earlier build saved inside the source folder)
+        files = [item for item in files_in_folder(source) if not is_same_or_temp(item[1], output)]
         if not files:
             messagebox.showinfo("Pack", "The folder has no files.")
             return
@@ -256,4 +269,10 @@ class PAKPage(ttk.Frame):
             self.pack_button.configure(state="normal")
             messagebox.showerror("Pack failed", error)
 
-        self.shell.jobs.submit(f"Pack {os.path.basename(output)}", work, on_done=finished, on_error=failed)
+        def ended(job):
+            if job.status == "cancelled":
+                self.pack_button.configure(state="normal")
+                self.shell.status("Pack cancelled.")
+
+        self.shell.jobs.submit(f"Pack {os.path.basename(output)}", work, on_done=finished, on_error=failed,
+                               on_finally=ended)

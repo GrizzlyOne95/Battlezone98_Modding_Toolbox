@@ -11,7 +11,7 @@ from battlezone.images.sprites import StaDocument, StaEntry, validate_sta_entry
 from bztoolbox.app import theme
 from bztoolbox.app.widgets import Card, LogView, PathPicker, ScrollableFrame, add_scrollbars
 
-STA_TYPES = (("Sprite tables", "*.sta *.st"), ("All files", "*.*"))
+STA_TYPES = (("Sprite tables", "*.sta *.st"), ("All files", "*"))
 COLUMNS = (("name", "Name", 200), ("material", "Material", 130), ("rect", "u, v, w × h", 150),
            ("ref", "Reference", 90), ("flags", "Flags", 90))
 FIELDS = (("name", "Name"), ("material", "Material"), ("u", "u"), ("v", "v"), ("width", "Width"),
@@ -226,7 +226,8 @@ class SpritesPage(ScrollableFrame):
             missing = [m for m in materials if sheets.texture(m) is None]
             return key, sheets, missing
 
-        self.job = self.shell.jobs.submit("Index sprite sheets", work, on_done=self._indexed, on_error=self._failed)
+        self.job = self.shell.jobs.submit("Index sprite sheets", work, on_done=self._indexed, on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _indexed(self, outcome) -> None:
         key, sheets, missing = outcome
@@ -238,6 +239,12 @@ class SpritesPage(ScrollableFrame):
                            + (" ..." if len(missing) > 12 else ""), "warning")
         self._refresh()
         self._selected()
+
+    def _cancelled(self, job) -> None:
+        if job.status == "cancelled":
+            for button in (self.export_button,):
+                button.state(["!disabled"])
+            self.log.write("Cancelled.", "warning")
 
     def _failed(self, error: str) -> None:
         self.export_button.state(["!disabled"])
@@ -412,7 +419,8 @@ class SpritesPage(ScrollableFrame):
             return export_sprite_tables(path, output, **options)
 
         self.job = self.shell.jobs.submit("Write 1.5 sprite tables", work, on_done=self._exported,
-                                          on_error=self._failed)
+                                          on_error=self._failed,
+                                          on_finally=self._cancelled)
 
     def _exported(self, report) -> None:
         self.export_button.state(["!disabled"])

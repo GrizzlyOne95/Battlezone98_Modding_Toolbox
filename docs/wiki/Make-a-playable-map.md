@@ -37,7 +37,7 @@ The map keeps the terrain's own size, including non-square terrain. Terrain high
 
 1. Open the map folder with **Open mod folder…** if it is not already the project.
 2. Open **Project → Test in Game** and pick the map's BZN under **Mission**.
-3. Keep **Copy the project into addon\** selected; the test modes change only that copy.
+3. Keep **Copy the project into the addon folder as** selected; the test modes change only that copy.
 4. Set **Test the map as**:
    - **as is**: deploy the project unchanged.
    - **offline**: the map shows in Instant Action. A multiplayer class becomes `LuaMission`.
